@@ -8,7 +8,7 @@ import axios from 'axios';
 
 // --- SUNUCU ADRESİ ---
 // Kendi IP adresini buraya yaz (Örn: 192.168.1.35)
-const BASE_URL = 'http://127.0.0.1:8000'; 
+const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
 
 // --- YENİLENMİŞ HIGHLIGHTED TEXT BİLEŞENİ (Öbek Arama Mantığı) ---
 const HighlightedText = ({ text, errors }) => {

@@ -8,7 +8,7 @@ import html2pdf from 'html2pdf.js';
 const PASS_THRESHOLD = 70; 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#ff7675'];
 // BACKEND ADRESİ
-const API_URL = "http://127.0.0.1:8000"; 
+const API_URL = "https://sanalogretmenai.onrender.com"; 
 
 const COUNTRY_NAMES = {
   "TR": "Türkiye", "US": "ABD", "GB": "İngiltere", "DE": "Almanya", "FR": "Fransa",
