@@ -76,23 +76,18 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         image_url = ""
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
-            public_url_response = supabase.storage.from_("odevler").get_public_url(unique_filename)
-            
-            if isinstance(public_url_response, str):
-                image_url = public_url_response
-            else:
-                image_url = public_url_response.get("publicUrl")
+            res = supabase.storage.from_("odevler").get_public_url(unique_filename)
+            image_url = res if isinstance(res, str) else res.get("publicUrl")
         except Exception as e:
             print(f"Resim Depolama Hatası: {e}")
 
         # 3. GEMINI OCR İŞLEMİ 🧠
-        # DEĞİŞİKLİK BURADA: Modeli dışarıdan beklemiyoruz, burada taze çağırıyoruz.
-        # Requirements dosyan düzgün olduğu için 1.5-flash artık kesin çalışır.
-        current_model = genai.GenerativeModel("gemini-1.5-flash")
+        # BURASI DÜZELDİ: Artık tepedeki "gemini-pro" modelini kullanacak.
+        # "flash" kelimesi tamamen kalktı.
         
         prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
         
-        response = current_model.generate_content([
+        response = model.generate_content([
             prompt,
             {
                 "mime_type": file.content_type,
@@ -101,8 +96,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         ])
         
         extracted_text = response.text
-        print(f"Okunan Metin: {extracted_text[:50]}...")
-
+        
         # 4. SONUÇ
         return {
             "status": "success",
@@ -114,8 +108,8 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         print(f"OCR Hatası: {str(e)}")
         return {
             "status": "error",
-            "error": str(e),
-            "message": "Metin okunamadı."
+            "message": "Metin okunamadı.",
+            "details": str(e)
         }
         prompt = """
         Bu resimdeki el yazısını dijital metne dök.
