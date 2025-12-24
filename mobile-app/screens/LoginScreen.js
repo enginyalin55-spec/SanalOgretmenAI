@@ -168,7 +168,7 @@ export default function LoginScreen({ setUser }) {
             </View>
 
             <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Giriş Yap</Text>}
+                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Giriş Yap (V2)</Text>}
             </TouchableOpacity>
         </View>
       </ScrollView>
