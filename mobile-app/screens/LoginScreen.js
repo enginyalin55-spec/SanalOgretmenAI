@@ -9,7 +9,7 @@ import axios from 'axios';
 import { COUNTRIES, LANGUAGES } from './constants';
 
 // --- SUNUCU ADRESİ ---
-const BASE_URL = 'http://127.0.0.1:8000'; 
+const BASE_URL = 'http://sanalogretmenai.onrender.com'; 
 
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
