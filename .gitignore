@@ -1,0 +1,22 @@
+# --- Şifreler ve Gizli Dosyalar ---
+.env
+backend/.env
+**/.env
+
+# --- Python Gereksizleri ---
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# --- Node/Javascript Gereksizleri ---
+node_modules/
+**/node_modules/
+npm-debug.log
+yarn-error.log
+
+# --- Sistem Dosyaları ---
+.DS_Store
+Thumbs.db
