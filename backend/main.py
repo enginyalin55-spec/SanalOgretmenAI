@@ -15,9 +15,12 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel(model_name="gemini-pro")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# DÜZELTİLEN KISIM BURASI:
+# Kütüphane güncellenince bu "Flash" modeli şimşek gibi çalışacak.
+model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
 
 app.add_middleware(
