@@ -16,9 +16,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 genai.configure(api_key=API_KEY)
 
-# DÜZELTİLEN KISIM BURASI:
-# Kütüphane güncellenince bu "Flash" modeli şimşek gibi çalışacak.
-model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+# DÜZELTME 1: En garanti model olan "gemini-pro" seçildi.
+# Sunucu eski sürüm olsa bile bunu tanır.
+model = genai.GenerativeModel(model_name="gemini-pro")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = FastAPI()
@@ -65,8 +65,7 @@ async def check_class_code(code: str):
         return {"valid": False}
     except: return {"valid": False}
 
-# 2. OCR (GÜÇLENDİRİLMİŞ - DENGELİ OKUMA)
-# Senin beğendiğin o kod bloğu BURADA 👇
+# 2. OCR (TEMİZLENMİŞ VE DÜZELTİLMİŞ)
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
@@ -80,13 +79,13 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
+            # Supabase bazen string bazen dict döner, kontrol edelim:
             image_url = res if isinstance(res, str) else res.get("publicUrl")
         except Exception as e:
             print(f"Resim Depolama Hatası: {e}")
 
         # 3. GEMINI OCR İŞLEMİ 🧠
-        # BURASI DÜZELDİ: Artık tepedeki "gemini-pro" modelini kullanacak.
-        # "flash" kelimesi tamamen kalktı.
+        # DÜZELTME 2: Global model (gemini-pro) kullanılıyor.
         
         prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
         
@@ -109,40 +108,14 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
     except Exception as e:
         print(f"OCR Hatası: {str(e)}")
+        # Hata olsa bile telefona json dönüyoruz ki uygulama çökmesin
         return {
             "status": "error",
             "message": "Metin okunamadı.",
             "details": str(e)
         }
-        prompt = """
-        Bu resimdeki el yazısını dijital metne dök.
-        
-        ÖNEMLİ BAĞLAM:
-        Bu metin, Türkçe öğrenen yabancı bir öğrenci tarafından yazılmıştır.
-        
-        TALİMATLAR:
-        1. DEŞİFRE ET (Decoding): Yazı kareli kağıtta ve silik olabilir. Harfler okunaksızsa, bunun bir "Türkçe Metin" olduğunu düşünerek en mantıklı kelimeyi bul. (Örneğin: "reaguletu" gibi anlamsız şeyler yazma, bağlama bakarak "küçüktü" veya "güzeldi" olduğunu anla).
-        
-        2. HATALARI KORU (Sadık Kal): Ancak, öğrenci net bir şekilde yanlış harf yazmışsa onu DÜZELTME.
-            - Öğrenci "Otelda" yazmışsa -> "Otelda" olarak bırak. ("Otelde" yapma).
-            - Öğrenci "gitdik" yazmışsa -> "gitdik" olarak bırak.
-            - Öğrenci "gidiyom" yazmışsa -> "gidiyom" olarak bırak.
 
-        3. TEMİZLİK:
-            - Öğretmenin kırmızı kalemle yaptığı düzeltmeleri ve çizikleri GÖRMEZDEN GEL.
-            - Sadece öğrencinin kurşun kalemle yazdığı metni aktar.
-
-        Sadece metni ver.
-        """
-        
-        response = model.generate_content([{'mime_type': file.content_type, 'data': file_content}, prompt])
-        
-        return {"status": "success", "ocr_text": response.text.strip(), "image_url": public_url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# 3. ANALİZ (GRAMER POLİSİ + MATEMATİK DÜZELTMELİ)
-# Yeni sert Puanlama sistemi BURADA 👇
+# 3. ANALİZ
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
     print(f"🧠 Analiz: {data.student_name} - Seviye: {data.level}")
@@ -241,7 +214,7 @@ async def get_student_history(student_name: str = Form(...), student_surname: st
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 5. PUAN GÜNCELLEME (Editör Modu İçin)
+# 5. PUAN GÜNCELLEME
 @app.post("/update-score")
 async def update_score(data: UpdateScoreRequest):
     print(f"📥 Güncelleme İsteği: ID={data.submission_id}, Puan={data.new_total}")
