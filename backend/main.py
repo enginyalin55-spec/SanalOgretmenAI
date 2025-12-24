@@ -72,18 +72,21 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         file_ext = file.filename.split(".")[-1]
         unique_filename = f"{classroom_code}_{uuid.uuid4()}.{file_ext}"
         
-        # 2. Supabase'e (Depoya) Yüklüyoruz (Yedek olsun diye)
+        # 2. Supabase'e Yüklüyoruz (Yedek)
         image_url = ""
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
             public_url_response = supabase.storage.from_("odevler").get_public_url(unique_filename)
-            # Supabase bazen string bazen obje döner, garantileyelim:
-            image_url = public_url_response if isinstance(public_url_response, str) else public_url_response.get("publicUrl")
+            # URL'yi alıyoruz
+            if isinstance(public_url_response, str):
+                image_url = public_url_response
+            else:
+                image_url = public_url_response.get("publicUrl")
         except Exception as e:
-            print(f"Resim Depolama Hatası (Önemsiz): {e}")
+            print(f"Resim Depolama Hatası: {e}")
 
-        # 3. GEMINI OCR (Asıl Beyin Burası) 🧠
-        # Resmi Gemini'ye direkt veriyoruz, o bize metni verecek.
+        # 3. GEMINI OCR İŞLEMİ 🧠
+        # (Model ismini 1.5-flash olarak bıraktık, en güvenlisi bu)
         prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
         
         response = model.generate_content([
@@ -95,19 +98,24 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         ])
         
         extracted_text = response.text
-        print(f"Okunan Metin: {extracted_text[:50]}...") # Loglarda başını görelim
+        print(f"Okunan Metin: {extracted_text[:50]}...")
 
-        # 4. Sonucu Uygulamaya Dönüyoruz
+        # 4. SONUÇ (DÜZELTİLEN KISIM BURASI) ✅
+        # Uygulamanızın beklediği format tam olarak bu:
         return {
-            "text": extracted_text,
-            "url": image_url
+            "status": "success",     # İşte bu eksikti!
+            "ocr_text": extracted_text,
+            "image_url": image_url
         }
 
     except Exception as e:
-        print(f"OCR Kritis Hatası: {str(e)}")
-        # Uygulama çökmesin diye hatayı düzgün formatta dönüyoruz
-        return {"error": str(e), "text": "Metin okunamadı, lütfen tekrar deneyin."}
-
+        print(f"OCR Hatası: {str(e)}")
+        # Hata durumunda da uygulamanın anlayacağı dilden konuşalım
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Metin okunamadı."
+        }
         prompt = """
         Bu resimdeki el yazısını dijital metne dök.
         
