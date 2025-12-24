@@ -67,12 +67,46 @@ async def check_class_code(code: str):
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
+        # 1. Dosyayı Okuyoruz
         file_content = await file.read()
         file_ext = file.filename.split(".")[-1]
         unique_filename = f"{classroom_code}_{uuid.uuid4()}.{file_ext}"
         
-        supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
-        public_url = supabase.storage.from_("odevler").get_public_url(unique_filename)
+        # 2. Supabase'e (Depoya) Yüklüyoruz (Yedek olsun diye)
+        image_url = ""
+        try:
+            supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
+            public_url_response = supabase.storage.from_("odevler").get_public_url(unique_filename)
+            # Supabase bazen string bazen obje döner, garantileyelim:
+            image_url = public_url_response if isinstance(public_url_response, str) else public_url_response.get("publicUrl")
+        except Exception as e:
+            print(f"Resim Depolama Hatası (Önemsiz): {e}")
+
+        # 3. GEMINI OCR (Asıl Beyin Burası) 🧠
+        # Resmi Gemini'ye direkt veriyoruz, o bize metni verecek.
+        prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
+        
+        response = model.generate_content([
+            prompt,
+            {
+                "mime_type": file.content_type,
+                "data": file_content
+            }
+        ])
+        
+        extracted_text = response.text
+        print(f"Okunan Metin: {extracted_text[:50]}...") # Loglarda başını görelim
+
+        # 4. Sonucu Uygulamaya Dönüyoruz
+        return {
+            "text": extracted_text,
+            "url": image_url
+        }
+
+    except Exception as e:
+        print(f"OCR Kritis Hatası: {str(e)}")
+        # Uygulama çökmesin diye hatayı düzgün formatta dönüyoruz
+        return {"error": str(e), "text": "Metin okunamadı, lütfen tekrar deneyin."}
 
         prompt = """
         Bu resimdeki el yazısını dijital metne dök.
