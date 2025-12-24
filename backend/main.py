@@ -77,7 +77,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
             public_url_response = supabase.storage.from_("odevler").get_public_url(unique_filename)
-            # URL'yi alıyoruz
+            
             if isinstance(public_url_response, str):
                 image_url = public_url_response
             else:
@@ -86,10 +86,13 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"Resim Depolama Hatası: {e}")
 
         # 3. GEMINI OCR İŞLEMİ 🧠
-        # (Model ismini 1.5-flash olarak bıraktık, en güvenlisi bu)
+        # DEĞİŞİKLİK BURADA: Modeli dışarıdan beklemiyoruz, burada taze çağırıyoruz.
+        # Requirements dosyan düzgün olduğu için 1.5-flash artık kesin çalışır.
+        current_model = genai.GenerativeModel("gemini-1.5-flash")
+        
         prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
         
-        response = model.generate_content([
+        response = current_model.generate_content([
             prompt,
             {
                 "mime_type": file.content_type,
@@ -100,17 +103,15 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         extracted_text = response.text
         print(f"Okunan Metin: {extracted_text[:50]}...")
 
-        # 4. SONUÇ (DÜZELTİLEN KISIM BURASI) ✅
-        # Uygulamanızın beklediği format tam olarak bu:
+        # 4. SONUÇ
         return {
-            "status": "success",     # İşte bu eksikti!
+            "status": "success",
             "ocr_text": extracted_text,
             "image_url": image_url
         }
 
     except Exception as e:
         print(f"OCR Hatası: {str(e)}")
-        # Hata durumunda da uygulamanın anlayacağı dilden konuşalım
         return {
             "status": "error",
             "error": str(e),
