@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, 
   KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard, ScrollView, Modal, FlatList 
@@ -27,6 +27,22 @@ export default function LoginScreen({ setUser }) {
   const [showLevelModal, setShowLevelModal] = useState(false);
   
   const [loading, setLoading] = useState(false);
+
+  // --- SUNUCUYU UYANDIRMA SERVİSİ (PING) ⏰ ---
+  // Uygulama açılır açılmaz sunucuya sessizce "Günaydın" der.
+  useEffect(() => {
+    const wakeUpServer = async () => {
+      try {
+        console.log("🌤️ Sunucuya 'Günaydın' deniliyor...");
+        // docs sayfasına istek atarak sunucuyu tetikliyoruz (cevap önemli değil)
+        await axios.get(`${BASE_URL}/docs`); 
+        console.log("🚀 Sunucu uyandı ve hazır!");
+      } catch (error) {
+        console.log("😴 Sunucu uyanırken naz yapıyor (Bu normaldir, tetiklendi).");
+      }
+    };
+    wakeUpServer();
+  }, []);
 
   // --- ÖZEL UYARI FONKSİYONU (WEB VE MOBİL İÇİN AYRI) ---
   const showAlert = (title, message) => {
@@ -99,7 +115,7 @@ export default function LoginScreen({ setUser }) {
       setLoading(false); 
       
       if (error.message && error.message.includes("Network Error")) {
-           showAlert('Bağlantı Hatası', 'Sunucuya ulaşılamadı. Backend (main.py) açık mı?');
+           showAlert('Bağlantı Hatası', 'Sunucu uyanmaya çalışıyor olabilir. Lütfen 10 saniye bekleyip tekrar deneyin.');
       } else {
            showAlert('Hata', 'Beklenmedik bir sorun oluştu.');
       }
