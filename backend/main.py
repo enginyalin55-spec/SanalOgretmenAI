@@ -13,7 +13,7 @@ from typing import Union
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Supabase URL sonuna '/' ekleme (GPT'nin uyarısı için fix)
+# Supabase URL sonuna '/' ekleme (Güvenlik önlemi)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 if SUPABASE_URL and not SUPABASE_URL.endswith("/"):
     SUPABASE_URL += "/"
@@ -33,12 +33,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- YENİ MODEL LİSTESİ (En güncel modeller) ---
+# --- MODEL LİSTESİ ---
+# DİKKAT: Loglarda 'gemini-2.0-flash-exp' modelinin çalıştığını kanıtladık.
+# Bu yüzden onu EN BAŞA koyuyoruz.
 MODELS_TO_TRY = [
-    "gemini-2.0-flash-exp", # En yeni ve hızlı
-    "gemini-1.5-flash",     # Klasik hızlı
-    "gemini-1.5-pro",       # Güçlü
-    "gemini-2.0-pro-exp",   # Deneysel güçlü
+    "gemini-2.0-flash-exp", # ✅ Az önce çalışan model bu!
+    "gemini-1.5-flash",     
+    "gemini-1.5-pro",       
 ]
 
 # --- KELİME HEDEFLERİ ---
@@ -67,7 +68,7 @@ async def check_class_code(code: str):
         return {"valid": False}
     except: return {"valid": False}
 
-# --- YENİ SDK İLE GÜÇLENDİRİLMİŞ OCR ---
+# --- GÜÇLENDİRİLMİŞ OCR (Metin Tarama) ---
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
@@ -94,9 +95,9 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         for model_name in MODELS_TO_TRY:
             try:
-                print(f"🔄 Deneniyor: {model_name}...")
+                print(f"🔄 OCR Deneniyor: {model_name}...")
                 
-                # Yeni SDK Kullanımı (GPT'nin önerdiği yapı)
+                # Yeni SDK Kullanımı
                 response = client.models.generate_content(
                     model=model_name,
                     contents=[
@@ -110,11 +111,11 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                 if not extracted_text:
                     raise Exception("Boş cevap döndü")
 
-                print(f"✅ BAŞARILI: {model_name} çalıştı!")
+                print(f"✅ OCR BAŞARILI: {model_name} çalıştı!")
                 success = True
                 break 
             except Exception as e:
-                print(f"❌ {model_name} başarısız oldu: {e}")
+                print(f"❌ {model_name} OCR başarısız: {e}")
                 last_error = str(e)
                 continue 
 
@@ -130,43 +131,70 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
     except Exception as e:
         return {"status": "error", "message": "Genel hata", "details": str(e)}
 
-# --- ANALİZ FONKSİYONU (YENİ SDK) ---
+# --- GÜÇLENDİRİLMİŞ ANALİZ (Puanlama) ---
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
-    target_word_count = WORD_COUNTS.get(data.level, 75)
+    print(f"🧠 Analiz Başlıyor: {data.student_name}")
     
-    # Analiz için en kararlı modeli seçiyoruz
-    model_name = "gemini-1.5-flash" 
+    analysis_result = None
+    last_error = ""
 
-    try:
-        prompt = f"""
-        Sen TÖMER öğretmenisin. Puanla ve hataları bul.
-        Öğrenci: {data.student_name}, Seviye: {data.level}, Dil: {data.native_language}.
-        Metin: "{data.ocr_text}"
-        
-        CEVAP (SADECE JSON):
-        {{
-            "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }},
-            "errors": [ {{ "wrong": "hata", "correct": "doğru", "type": "tür", "explanation": "açıklama" }} ],
-            "teacher_note": "Notun."
-        }}
-        """
-        
-        # Yeni SDK ile istek
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-        )
+    prompt = f"""
+    Sen TÖMER öğretmenisin. Aşağıdaki öğrenci metnini analiz et.
+    
+    Öğrenci: {data.student_name}
+    Seviye: {data.level} (Hedef kelime: {WORD_COUNTS.get(data.level, 75)})
+    Ana Dil: {data.native_language}
+    
+    METİN:
+    "{data.ocr_text}"
+    
+    GÖREV:
+    1. Metni puanla (Toplam 100 üzerinden).
+    2. Hataları tespit et.
+    3. Öğrenciye not yaz.
+    
+    Lütfen yanıtı SADECE aşağıdaki JSON formatında ver:
+    {{
+        "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }},
+        "errors": [ {{ "wrong": "hatalı kelime", "correct": "doğrusu", "type": "Hata Türü", "explanation": "Neden hatalı?" }} ],
+        "teacher_note": "Öğrenciye kısa, motive edici not."
+    }}
+    """
 
-        text_response = (response.text or "").strip()
-        text_response = text_response.replace("```json", "").replace("```", "").strip()
-        
+    # Analiz için de aynı model listesini kullanıyoruz (2.0-flash-exp başta)
+    for model_name in MODELS_TO_TRY:
         try:
-            analysis_result = json.loads(text_response)
-        except json.JSONDecodeError:
-            # Eğer JSON bozuk gelirse basit bir hata mesajı dönelim
-            raise HTTPException(status_code=500, detail="AI cevabı JSON formatında değil.")
+            print(f"📊 Analiz deneniyor: {model_name}...")
+            
+            # JSON Modu ile garantili çıktı
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type='application/json' 
+                )
+            )
 
+            text_response = (response.text or "").strip()
+            # Markdown temizliği
+            text_response = text_response.replace("```json", "").replace("```", "").strip()
+            
+            analysis_result = json.loads(text_response)
+            print(f"✅ Analiz Başarılı: {model_name}")
+            break # Başardık, çıkalım.
+            
+        except Exception as e:
+            print(f"❌ {model_name} analiz hatası: {e}")
+            last_error = str(e)
+            continue
+
+    if not analysis_result:
+        print("💥 Tüm analiz modelleri başarısız oldu.")
+        raise HTTPException(status_code=500, detail=f"Analiz yapılamadı: {last_error}")
+
+    # --- KAYDETME ---
+    try:
         rubric = analysis_result.get("rubric", {})
         calculated_total = sum(rubric.values())
         analysis_result["score_total"] = calculated_total
@@ -185,9 +213,11 @@ async def analyze_submission(data: AnalyzeRequest):
         }).execute()
         
         return {"status": "success", "data": analysis_result}
+        
     except Exception as e:
-        print(f"❌ Analiz Hatası: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"💾 Veritabanı Kayıt Hatası: {e}")
+        # Kayıt olmasa bile hocaya sonucu gösterelim
+        return {"status": "success", "data": analysis_result, "warning": "Veritabanına kaydedilemedi ama analiz başarılı."}
 
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
