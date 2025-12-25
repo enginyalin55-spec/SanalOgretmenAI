@@ -297,22 +297,54 @@ export default function App() {
   }
 
 const downloadPDF = () => { 
+    // PDF'e dönüştürülecek alanı seç
     const element = document.getElementById('report-content'); 
     
-    // PDF İSMİ
+    // 1. PDF İSMİNİ HAZIRLA
     const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
+    // 2. GEÇİCİ OLARAK TASARIMI "KAĞIT MODU"NA AL
+    // (Yan yana duran kutuları alt alta indir ki kağıda sığsın)
+    const originalStyle = element.style.cssText; // Eski stili yedekle
+    
+    // PDF için özel stil uygula:
+    element.style.width = '100%';
+    element.style.flexDirection = 'column'; // Yan yana değil, alt alta olsun
+    element.style.padding = '0';
+    element.style.backgroundColor = 'white';
+
+    // "Rapor Gövdesi"ni de alt alta yap
+    const bodyElement = document.getElementById('report-body');
+    const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
+    if (bodyElement) {
+        bodyElement.style.flexDirection = 'column';
+        bodyElement.style.gap = '20px';
+    }
+
+    // 3. PDF AYARLARI (Görüntü kalitesini artırdık)
     const opt = { 
-        margin: 10, 
+        margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
-        html2canvas: { scale: 2, useCORS: true }, 
+        html2canvas: { 
+            scale: 2, // Çözünürlüğü 2 katına çıkar (Bulanıklığı önler)
+            useCORS: true, // Resimlerin yüklenmesini sağlar
+            logging: true,
+            backgroundColor: '#ffffff', // Arka planı beyaz yap
+            // Aşağıdaki ayar boyamaların (highlight) çıkmasını garantiye alır
+            ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
+        }, 
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     }; 
     
-    html2pdf().set(opt).from(element).save(); 
+    // 4. OLUŞTUR VE ESKİ HALİNE GETİR
+    html2pdf().set(opt).from(element).save().then(() => {
+        // İşlem bitince siteyi eski haline döndür
+        element.style.cssText = originalStyle;
+        if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
+    }); 
   };
 
   // --- İSTATİSTİK HESAPLAMA (GELİŞMİŞ VERSİYON - AÇIKLAMAYA DA BAKAR) ---

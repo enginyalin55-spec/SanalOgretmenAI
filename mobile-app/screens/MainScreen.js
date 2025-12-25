@@ -7,36 +7,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios'; 
 
 // --- SUNUCU ADRESİ ---
-// Kendi IP adresini buraya yaz (Örn: 192.168.1.35)
 const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
 
-// --- YENİLENMİŞ HIGHLIGHTED TEXT BİLEŞENİ (Öbek Arama Mantığı) ---
+// --- HIGHLIGHTED TEXT BİLEŞENİ ---
 const HighlightedText = ({ text, errors }) => {
   if (!text) return null;
   if (!errors || errors.length === 0) return <Text style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>{text}</Text>;
 
-  // 1. Tüm hataların metin içindeki yerlerini (index) bul
   let ranges = [];
-  const lowerText = text.toLowerCase(); // Büyük/küçük harf duyarsız arama için
+  const lowerText = text.toLowerCase(); 
 
   errors.forEach(err => {
     if (!err.wrong) return;
     const searchStr = err.wrong.toLowerCase().trim();
-    if (searchStr.length < 2) return; // Çok kısa hataları (tek harf vb.) atla
+    if (searchStr.length < 2) return; 
 
     let pos = lowerText.indexOf(searchStr);
     while (pos !== -1) {
-        // Hatanın başlangıç ve bitiş yerini kaydet
         ranges.push({ start: pos, end: pos + searchStr.length, error: err });
-        // Aynı hata metinde başka yerde geçiyor mu diye aramaya devam et
         pos = lowerText.indexOf(searchStr, pos + 1);
     }
   });
 
-  // 2. Hataları sıraya diz (Çakışmaları önlemek için)
   ranges.sort((a, b) => a.start - b.start);
 
-  // 3. Çakışan hataları temizle (İç içe geçen hatalarda ilkini al)
   let uniqueRanges = [];
   let lastEnd = -1;
   ranges.forEach(r => {
@@ -46,18 +40,15 @@ const HighlightedText = ({ text, errors }) => {
     }
   });
 
-  // 4. Metni parçalara böl ve boya
   const elements = [];
   let currentIndex = 0;
 
   uniqueRanges.forEach((range, i) => {
-    // Hatadan önceki normal metni ekle
     if (range.start > currentIndex) {
         elements.push(
             <Text key={`text-${i}`}>{text.substring(currentIndex, range.start)}</Text>
         );
     }
-    // Hatalı kısmı ekle (Kırmızı ve Tıklanabilir)
     elements.push(
         <Text 
             key={`err-${i}`}
@@ -78,7 +69,6 @@ const HighlightedText = ({ text, errors }) => {
     currentIndex = range.end;
   });
 
-  // Kalan son metni ekle
   if (currentIndex < text.length) {
       elements.push(<Text key="text-end">{text.substring(currentIndex)}</Text>);
   }
@@ -134,7 +124,15 @@ export default function MainScreen({ user, setUser }) {
     if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
 
-  const resetFlow = () => { setStep(1); setEditableText(""); setResult(null); setImageUrl(""); };
+  // --- DÜZELTİLEN KISIM ---
+  const resetFlow = () => { 
+      setStep(1); 
+      setImage(null); // <--- BU SATIR EKSİKTİ, ARTIK RESİM SİLİNECEK
+      setEditableText(""); 
+      setResult(null); 
+      setImageUrl(""); 
+  };
+  // ------------------------
 
   const startOCR = async () => {
     if(!image) return Alert.alert("Uyarı", "Lütfen fotoğraf seçin.");
@@ -228,7 +226,6 @@ export default function MainScreen({ user, setUser }) {
                              <Text style={{textAlign:'center', color:'#555', marginTop:5, fontSize:13}}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
                         </View>
                         
-                        {/* 2. KIRMIZI ÇİZGİLİ METİN (YENİ MANTIK İLE) */}
                         <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                              <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Analiz Sonucu:</Text>
                              <HighlightedText text={editableText} errors={result.errors} />
