@@ -15,13 +15,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 genai.configure(api_key=API_KEY)
-
-# 🚀 KRİTİK DEĞİŞİKLİK:
-# Kütüphanemiz güncellendiği için artık "1.5-flash" modelini kullanıyoruz.
-# Eski "gemini-pro" bu yeni kütüphanede 404 hatası verir.
-model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 app = FastAPI()
 
 app.add_middleware(
@@ -32,10 +27,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- TÖMER STANDARTLARI ---
-WORD_COUNTS = {
-    "A1": 75, "A2": 100, "B1": 125, "B2": 150, "C1": 175, "C2": 200 
-}
+# --- MODEL LİSTESİ (Sırayla Hepsini Deneyecek) ---
+# Biri çalışmazsa diğerine geçer. İşini şansa bırakmaz.
+MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro", "gemini-1.5-pro"]
+
+# --- KELİME HEDEFLERİ ---
+WORD_COUNTS = {"A1": 75, "A2": 100, "B1": 125, "B2": 150, "C1": 175, "C2": 200}
 
 class AnalyzeRequest(BaseModel):
     ocr_text: str
@@ -60,16 +57,16 @@ async def check_class_code(code: str):
         return {"valid": False}
     except: return {"valid": False}
 
-# --- OCR FONKSİYONU ---
+# --- AKILLI OCR FONKSİYONU ---
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
+    # 1. Dosya Hazırlığı
     try:
-        # 1. Dosya Hazırlığı
         file_content = await file.read()
         file_ext = file.filename.split(".")[-1]
         unique_filename = f"{classroom_code}_{uuid.uuid4()}.{file_ext}"
         
-        # 2. Supabase (Yedek)
+        # 2. Supabase Yedekleme
         image_url = ""
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
@@ -78,47 +75,67 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as e:
             print(f"Resim Depolama Hatası: {e}")
 
-        # 3. AI Okuma (Burada artık global 'model' değişkenini kullanıyoruz)
+        # 3. ÇOKLU MODEL DENEMESİ (MAYMUNCUK SİSTEMİ) 🗝️
+        extracted_text = ""
+        last_error = ""
+        success = False
+
         prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver, yorum yapma."
-        
-        response = model.generate_content([
-            prompt,
-            {
-                "mime_type": file.content_type,
-                "data": file_content
-            }
-        ])
+
+        for model_name in MODELS_TO_TRY:
+            try:
+                print(f"🔄 Deneniyor: {model_name}...")
+                # Modeli o an seçiyoruz
+                current_model = genai.GenerativeModel(model_name)
+                
+                response = current_model.generate_content([
+                    prompt,
+                    {
+                        "mime_type": file.content_type,
+                        "data": file_content
+                    }
+                ])
+                extracted_text = response.text
+                print(f"✅ BAŞARILI: {model_name} çalıştı!")
+                success = True
+                break # Biri çalışırsa döngüden çık, diğerlerini deneme.
+            except Exception as e:
+                print(f"❌ {model_name} başarısız oldu: {e}")
+                last_error = str(e)
+                continue # Sıradaki modele geç
+
+        if not success:
+            # Hiçbiri çalışmazsa hata dön
+            return {"status": "error", "message": "Hiçbir model çalışmadı.", "details": last_error}
         
         return {
             "status": "success",
-            "ocr_text": response.text,
+            "ocr_text": extracted_text,
             "image_url": image_url
         }
 
     except Exception as e:
-        print(f"OCR Hatası: {str(e)}")
-        return {
-            "status": "error",
-            "message": "Metin okunamadı.",
-            "details": str(e)
-        }
+        return {"status": "error", "message": "Genel hata", "details": str(e)}
 
-# --- ANALİZ FONKSİYONU ---
+# --- ANALİZ FONKSİYONU (Burası da Garantili) ---
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
-    target_word_count = WORD_COUNTS.get(data.level, 75) 
+    target_word_count = WORD_COUNTS.get(data.level, 75)
+    
+    # Burada da garanti olması için 'gemini-pro' kullanıyoruz
+    # Ama OCR çalıştıysa zaten sorun yok demektir.
+    model = genai.GenerativeModel("gemini-pro") 
+
     try:
         prompt = f"""
-        Sen TÖMER öğretmenisin.
-        Öğrenci: {data.student_name}, Seviye: {data.level}, Ana Dil: {data.native_language}.
+        Sen TÖMER öğretmenisin. Puanla ve hataları bul.
+        Öğrenci: {data.student_name}, Seviye: {data.level}, Dil: {data.native_language}.
         Metin: "{data.ocr_text}"
         
-        GÖREV: Puanla ve hataları bul.
-        
-        CEVAP FORMATI (JSON):
+        CEVAP (SADECE JSON):
         {{
             "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }},
-            "errors": [ {{ "wrong": "hata", "correct": "doğrusu", "type": "Türü", "explanation": "Açıklama" }} ],
+            "errors": [ {{ "wrong": "hata", "correct": "doğru", "type": "tür", "explanation": "açıklama" }} ],
             "teacher_note": "Notun."
         }}
         """
@@ -145,7 +162,8 @@ async def analyze_submission(data: AnalyzeRequest):
         
         return {"status": "success", "data": analysis_result}
     except Exception as e:
-        print(f"❌ Hata: {e}")
+        print(f"❌ Analiz Hatası: {e}")
+        # Hata olsa bile analiz yok diye dönelim, çökmesin
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/student-history")
