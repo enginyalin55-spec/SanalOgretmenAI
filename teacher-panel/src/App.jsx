@@ -373,116 +373,184 @@ export default function App() {
     setIsSaving(false);
   }
 
- // --- FINAL: PROFESYONEL A4 RAPOR TASARIMI ---
-  // --- PDF İNDİRME (GPT DESTEKLİ PRO TASARIM) ---
-  const downloadPDF = async () => {
-    const source = document.getElementById("report-content");
-    if (!source) return;
+// PDF İNDİRME (ŞIK + PROFESYONEL) — 2 SÜTUN PDF LAYOUT + ÖĞRENCİ GÖRSELİ DAHİL
+const downloadPDF = async () => {
+  const source = document.getElementById("report-content");
+  if (!source) return;
 
-    const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
-    const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
-    const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
+  const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
+  const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
+  const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1) KLON OLUŞTUR
-    const clone = source.cloneNode(true);
-    clone.classList.add("pdf-mode"); // Özel CSS sınıfı ekle
+  // 1) KLON OLUŞTUR (sayfayı bozmadan PDF üret)
+  const clone = source.cloneNode(true);
+  clone.classList.add("pdf-mode");
 
-    // 2) GİZLİ WRAPPER (Kullanıcı görmesin diye ekran dışına atıyoruz)
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-10000px";
-    wrapper.style.top = "0";
-    wrapper.style.zIndex = "-1";
-    
-    // 3) PDF STİLİNİ ENJEKTE ET (GPT'nin Önerdiği CSS)
-    const style = document.createElement("style");
-    style.innerHTML = `
-      .pdf-mode {
-        font-family: "Segoe UI", Arial, sans-serif !important;
-        width: 1300px !important; /* A4 Yatay için ideal genişlik */
-        padding: 30px !important;
-        background-color: white !important;
-        color: black !important;
-      }
-      
-      .pdf-mode #report-content {
-        gap: 20px !important;
-      }
+  // 2) EKRAN DIŞI WRAPPER
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-100000px";
+  wrapper.style.top = "0";
+  wrapper.style.background = "white";
+  wrapper.style.zIndex = "-1";
 
-      /* Üstteki Bilgi Kartını Sıkılaştır */
-      .pdf-mode > div:first-child {
-        padding: 20px !important;
-        border-left-width: 8px !important; /* Sol çizgiyi belirginleştir */
-        margin-bottom: 25px !important;
-        border: 1px solid #eee;
-      }
-
-      /* ANA GÖVDE: 3 Sütun yerine 2 Sütun (Grid) */
-      .pdf-mode #report-body {
-        display: grid !important;
-        grid-template-columns: 1.6fr 0.4fr !important; /* Sol taraf (Metin) geniş, Sağ taraf (Puan) dar */
-        gap: 25px !important;
-        align-items: start !important;
-      }
-
-      /* 1. Sütun (RESİM): PDF'te gizle ki metinler ferahlasın */
-      /* GPT'nin önerisi: Resim sütununu gizle */
-      .pdf-mode #report-body > div:first-child {
-         display: none !important;
-      }
-
-      /* KARTLARIN "PDF" GÖRÜNÜMÜ: Gölge yok, İnce Çizgi var */
-      .pdf-mode div[style*="box-shadow"] {
-        box-shadow: none !important;
-        border: 1px solid #ccc !important; /* Net çerçeve */
-        padding: 20px !important;
-        border-radius: 4px !important;
-      }
-
-      /* Başlıkları Düzenle */
-      .pdf-mode h2, .pdf-mode h3 {
-        margin-top: 0 !important;
-        margin-bottom: 15px !important;
-        font-size: 18px !important;
-        color: #333 !important;
-        border-bottom: 1px solid #eee;
-        padding-bottom: 10px;
-      }
-      
-      /* Gereksiz butonları gizle */
-      .pdf-mode button { display: none !important; }
-    `;
-    
-    wrapper.appendChild(style);
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
-
-    // 4) HTML2PDF AYARLARI
-    const opt = {
-      margin: [10, 10, 10, 10],
-      filename: fileName,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        scale: 2.5, // Daha net yazı (Telefonda pürüzsüz çıkar)
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        windowWidth: 1300, // Tarayıcıyı 1300px sanması için
-        scrollX: 0,
-        scrollY: 0,
-        logging: false,
-        ignoreElements: (el) => el.hasAttribute("data-html2canvas-ignore"),
-      },
-      // A4 YATAY (LANDSCAPE) - En dengeli rapor formatı
-      jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-      pagebreak: { mode: ["css", "legacy"] },
-    };
-
-    try {
-      await html2pdf().set(opt).from(clone).save();
-    } finally {
-      document.body.removeChild(wrapper);
+  // 3) PDF CSS (PDF’te 3 sütunu A4’e yakışır şekilde düzenle)
+  const style = document.createElement("style");
+  style.innerHTML = `
+    .pdf-mode{
+      font-family: "Segoe UI", Arial, sans-serif !important;
+      color: #111 !important;
     }
+    .pdf-mode #report-content{
+      gap: 14px !important;
+    }
+
+    /* Üst bilgi kartı: boşlukları azalt, daha rapor gibi */
+    .pdf-mode #report-content > div:first-child{
+      padding: 14px 16px !important;
+      border-left-width: 4px !important;
+      box-shadow: none !important;
+      border: 1px solid #eaeaea !important;
+    }
+
+    /* Report body: 3 sütun kalsın ama daha sıkı ve dengeli */
+    .pdf-mode #report-body{
+      display: grid !important;
+      grid-template-columns: 1fr 1fr 1fr !important;
+      gap: 14px !important;
+      align-items: start !important;
+    }
+
+    /* Kart görünümü: gölgeyi kaldır, border ile daha temiz */
+    .pdf-mode #report-body > div > div{
+      box-shadow: none !important;
+      border: 1px solid #eaeaea !important;
+    }
+
+    /* Başlık aralıkları */
+    .pdf-mode h2, .pdf-mode h3{
+      margin: 0 0 10px 0 !important;
+    }
+
+    /* Öğrenci kağıdı: PDF’te görsel alanını dengeli yap */
+    .pdf-mode .pdf-student-image-box{
+      height: 320px !important;
+      border: 1px solid #eee !important;
+      background: #fafafa !important;
+    }
+
+    /* “Büyüt” overlay/etiket gibi ekran öğelerini gizle */
+    .pdf-mode [data-pdf-hide="true"]{
+      display: none !important;
+    }
+
+    /* Yazı alanı çok yayılmasın */
+    .pdf-mode .pdf-ocr-box{
+      font-size: 14px !important;
+      line-height: 1.55 !important;
+    }
+
+    /* Hata maddeleri PDF’te daha sıkı */
+    .pdf-mode .pdf-error-item{
+      margin-bottom: 10px !important;
+      padding-bottom: 10px !important;
+    }
+
+    /* Sayfa kırılmalarında kartları bölme */
+    .pdf-mode .avoid-break,
+    .pdf-mode .avoid-break *{
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+  `;
+  wrapper.appendChild(style);
+
+  // 4) KLONUN PDF ÖLÇÜLERİ
+  // A4 landscape için "çok yayılmasın": 1300px ideal
+  clone.style.width = "1300px";
+  clone.style.padding = "16px";
+  clone.style.backgroundColor = "#fff";
+  clone.style.color = "#000";
+
+  // 5) PDF’te ÖĞRENCİ GÖRSELİ DAHİL:
+  // Orijinalde görsel sütunu data-html2canvas-ignore="true" idi.
+  // Klonda bunu kaldırıyoruz ki PDF’e girsin.
+  const ignoredNodes = clone.querySelectorAll('[data-html2canvas-ignore="true"]');
+  ignoredNodes.forEach((n) => n.removeAttribute("data-html2canvas-ignore"));
+
+  // 6) PDF’te gereksiz buton/ipuçlarını gizle (klonda işaretleyelim)
+  // "Büyütmek için tıkla" yazısı, overlay vb. ekran öğelerini kapat
+  // (Senin JSX’te direkt attribute yok; burada yakalayıp işaretliyoruz)
+  clone.querySelectorAll("span, div").forEach((el) => {
+    const t = (el.textContent || "").trim();
+    if (
+      t === "Büyütmek için tıkla" ||
+      t === "Büyüt" ||
+      t.includes("Mouse tekerleği") ||
+      t.includes("🖱️")
+    ) {
+      el.setAttribute("data-pdf-hide", "true");
+    }
+  });
+
+  // 7) Görsel kutusuna class ekleyelim (yüksekliği PDF’e göre kontrol)
+  // Senin görsel kutun: onClick olan div (height: 400) — onu bulup class basıyoruz.
+  // En güvenli yöntem: "cursor: zoom-in" içeren node’u yakalamak.
+  const zoomBoxes = Array.from(clone.querySelectorAll("div")).filter((d) => {
+    const cs = (d.getAttribute("style") || "");
+    return cs.includes("cursor: 'zoom-in'") || cs.includes("cursor: zoom-in");
+  });
+  zoomBoxes.forEach((b) => b.classList.add("pdf-student-image-box"));
+
+  // 8) OCR kutusunu biraz toparla (italik alan)
+  // Senin OCR kutun background '#f8f9fa' + italik; ona class ekleyelim:
+  const ocrBoxes = Array.from(clone.querySelectorAll("div")).filter((d) => {
+    const s = (d.getAttribute("style") || "");
+    return s.includes("OCR TARAMASI") || (s.includes("fontStyle") && s.includes("italic"));
+  });
+  ocrBoxes.forEach((b) => b.classList.add("pdf-ocr-box"));
+
+  // 9) Hata itemlerine class ver (daha sıkı görünüm)
+  clone.querySelectorAll("div").forEach((d) => {
+    const s = (d.getAttribute("style") || "");
+    if (s.includes("borderBottom") && s.includes("paddingBottom")) {
+      d.classList.add("pdf-error-item");
+    }
+  });
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  // 10) html2canvas genişliği (klon genişliğine göre)
+  const contentWidth = clone.scrollWidth;
+
+  const opt = {
+    margin: [6, 6, 6, 6],
+    filename: fileName,
+    image: { type: "jpeg", quality: 0.98 },
+    html2canvas: {
+      scale: 2.5,              // yazılar daha pürüzsüz
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowWidth: contentWidth,
+      width: contentWidth,
+      scrollX: 0,
+      scrollY: 0,
+      logging: false,
+      // SADECE PDF’te istemediğin şeyleri ignore et:
+      ignoreElements: (el) => el.hasAttribute("data-pdf-hide"),
+    },
+    jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+    pagebreak: { mode: ["css", "legacy"] },
   };
+
+  try {
+    await html2pdf().set(opt).from(clone).save();
+  } finally {
+    document.body.removeChild(wrapper);
+  }
+};
+
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
