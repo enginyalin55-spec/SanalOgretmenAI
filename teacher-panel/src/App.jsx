@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabase';
 import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -155,24 +155,62 @@ const HighlightedText = ({ text, errors }) => {
   return <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8' }}>{elements}</div>;
 };
 
-// --- FOTOĞRAF GÖRÜNTÜLEYİCİ MODAL ---
+// --- GELİŞMİŞ FOTOĞRAF GÖRÜNTÜLEYİCİ (Scroll Zoom & Net İkonlar) ---
 const ImageViewerModal = ({ src, onClose }) => {
     const [scale, setScale] = useState(1);
+    
+    // Mouse Tekerleği ile Zoom Mantığı
+    const handleWheel = (e) => {
+        e.preventDefault();
+        // Tekerlek yönüne göre büyüt veya küçült (Hassas ayar: 0.002)
+        const newScale = scale - e.deltaY * 0.002;
+        // En az 0.5x, en fazla 5x büyüme sınırı
+        const clampedScale = Math.min(Math.max(0.5, newScale), 5);
+        setScale(clampedScale);
+    };
 
     if (!src) return null;
 
     return (
-        <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999,
-            display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'
-        }}>
-            <div style={{position: 'absolute', top: 20, right: 20, display:'flex', gap:10, zIndex: 10000}}>
-                 <button onClick={() => setScale(scale > 1 ? 1 : 2.5)} style={{backgroundColor: 'white', border:'none', borderRadius:'50%', width:40, height:40, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                    {scale > 1 ? <ZoomOut size={20}/> : <ZoomIn size={20}/>}
+        <div 
+            onWheel={handleWheel} // Tekerlek olayını dinle
+            style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999,
+                display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'
+            }}
+        >
+            <div style={{position: 'absolute', top: 20, right: 20, display:'flex', gap:15, zIndex: 10000}}>
+                 {/* ZOOM BUTONU: İkonu Siyah Yaptık */}
+                 <button 
+                    onClick={() => setScale(scale > 1 ? 1 : 2.5)} 
+                    title={scale > 1 ? "Küçült" : "Büyüt"}
+                    style={{
+                        backgroundColor: 'white', 
+                        color: 'black', // İKON RENGİ SİYAH OLDU
+                        border:'2px solid #ddd', 
+                        borderRadius:'50%', width:50, height:50, 
+                        cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+                        boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+                    }}
+                 >
+                    {scale > 1 ? <ZoomOut size={28} strokeWidth={2.5}/> : <ZoomIn size={28} strokeWidth={2.5}/>}
                  </button>
-                 <button onClick={onClose} style={{backgroundColor: '#e74c3c', color:'white', border:'none', borderRadius:'50%', width:40, height:40, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                    <X size={24}/>
+
+                 {/* KAPATMA BUTONU: İkonu Beyaz Yaptık */}
+                 <button 
+                    onClick={onClose} 
+                    title="Kapat"
+                    style={{
+                        backgroundColor: '#e74c3c', 
+                        color:'white', // İKON RENGİ BEYAZ
+                        border:'2px solid #c0392b', 
+                        borderRadius:'50%', width:50, height:50, 
+                        cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+                        boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
+                    }}
+                 >
+                    <X size={32} strokeWidth={3}/>
                  </button>
             </div>
             
@@ -189,14 +227,24 @@ const ImageViewerModal = ({ src, onClose }) => {
                     src={src} 
                     alt="Öğrenci Kağıdı" 
                     style={{
-                        maxWidth: scale === 1 ? '100%' : 'none', 
-                        maxHeight: scale === 1 ? '100%' : 'none',
+                        maxWidth: scale <= 1 ? '100%' : 'none', 
+                        maxHeight: scale <= 1 ? '100%' : 'none',
                         transform: `scale(${scale})`,
                         transformOrigin: 'top left',
-                        transition: 'transform 0.2s ease',
+                        transition: 'transform 0.1s ease-out', // Daha akıcı zoom
                         objectFit: 'contain'
                     }} 
                 />
+            </div>
+            
+            {/* Masaüstü Kullanıcıları İçin İpucu */}
+            <div style={{
+                position:'absolute', bottom:30, 
+                backgroundColor:'rgba(255,255,255,0.2)', color:'white', 
+                padding:'8px 15px', borderRadius:20, fontSize:12,
+                pointerEvents: 'none'
+            }}>
+                🖱️ Mouse tekerleği ile yakınlaştırabilirsiniz
             </div>
         </div>
     )
@@ -287,10 +335,7 @@ export default function App() {
   // GÜNCELLENEN PUANI KAYDET
   async function saveUpdatedScore() {
     setIsSaving(true);
-    
-    // Backend'e göndermek için JSON yapısını hazırla
     const fullJson = { ...selectedSubmission.analysis_json, rubric: editableRubric };
-
     try {
         const response = await fetch(`${API_URL}/update-score`, {
             method: 'POST',
@@ -303,7 +348,6 @@ export default function App() {
         });
 
         if (response.ok) {
-            // Local State'i güncelle
             const updatedSubmissions = submissions.map(sub => 
                 sub.id === selectedSubmission.id 
                 ? { ...sub, score_total: calculatedTotal, analysis_json: fullJson } 
@@ -340,25 +384,17 @@ export default function App() {
   }
 
 const downloadPDF = () => { 
-    // PDF'e dönüştürülecek alanı seç
     const element = document.getElementById('report-content'); 
-    
-    // 1. PDF İSMİNİ HAZIRLA
     const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
-
-    // 2. GEÇİCİ OLARAK TASARIMI "KAĞIT MODU"NA AL
-    // (Yan yana duran kutuları alt alta indir ki kağıda sığsın)
-    const originalStyle = element.style.cssText; // Eski stili yedekle
+    const originalStyle = element.style.cssText; 
     
-    // PDF için özel stil uygula:
     element.style.width = '100%';
-    element.style.flexDirection = 'column'; // Yan yana değil, alt alta olsun
+    element.style.flexDirection = 'column'; 
     element.style.padding = '0';
     element.style.backgroundColor = 'white';
 
-    // "Rapor Gövdesi"ni de alt alta yap
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
     if (bodyElement) {
@@ -366,31 +402,26 @@ const downloadPDF = () => {
         bodyElement.style.gap = '20px';
     }
 
-    // 3. PDF AYARLARI (Görüntü kalitesini artırdık)
     const opt = { 
-        margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
+        margin: [10, 10, 10, 10], 
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, // Çözünürlüğü 2 katına çıkar (Bulanıklığı önler)
-            useCORS: true, // Resimlerin yüklenmesini sağlar
+            scale: 2, 
+            useCORS: true, 
             logging: true,
-            backgroundColor: '#ffffff', // Arka planı beyaz yap
-            // Aşağıdaki ayar boyamaların (highlight) çıkmasını garantiye alır
+            backgroundColor: '#ffffff', 
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
     }; 
     
-    // 4. OLUŞTUR VE ESKİ HALİNE GETİR
     html2pdf().set(opt).from(element).save().then(() => {
-        // İşlem bitince siteyi eski haline döndür
         element.style.cssText = originalStyle;
         if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
     }); 
   };
 
-  // --- İSTATİSTİK HESAPLAMA ---
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
     let countries = {}; 
