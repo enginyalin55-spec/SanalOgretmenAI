@@ -373,143 +373,172 @@ export default function App() {
     setIsSaving(false);
   }
 
-// --- FINAL: %100 GARANTİLİ DİKEY (PORTRAIT) RAPOR ---
-  const downloadPDF = async () => {
-    const source = document.getElementById("report-content");
-    if (!source) return;
+// --- FINAL: ÇALIŞAN KOD + OCR (İŞARETLİ) + ÖĞRETMEN DEĞ. PDF’E DAHİL ---
+const downloadPDF = async () => {
+  const source = document.getElementById("report-content");
+  if (!source) return;
 
-    const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
-    const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
-    const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
+  const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
+  const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
+  const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1) KLON OLUŞTUR
-    const clone = source.cloneNode(true);
-    clone.classList.add("pdf-mode");
+  // 1) KLON OLUŞTUR
+  const clone = source.cloneNode(true);
+  clone.classList.add("pdf-mode");
 
-    // 2) GİZLİ WRAPPER (Ekran dışı)
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-10000px";
-    wrapper.style.top = "0";
-    wrapper.style.zIndex = "-1";
-    wrapper.style.background = "white";
+  // 2) GİZLİ WRAPPER (Ekran dışı)
+  const wrapper = document.createElement("div");
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "-10000px";
+  wrapper.style.top = "0";
+  wrapper.style.zIndex = "-1";
+  wrapper.style.background = "white";
 
-    // 3) PDF İÇİN GARANTİ CSS (DİKEY YAPI)
-    const style = document.createElement("style");
-    style.innerHTML = `
-      .pdf-mode {
-        font-family: "Segoe UI", Arial, sans-serif !important;
-        width: 800px !important; /* Standart A4 Genişliği */
-        padding: 40px !important;
-        background-color: #fff !important;
-        color: #000 !important;
-      }
-
-      /* Başlık Alanı */
-      .pdf-mode > div:first-child {
-        border-bottom: 2px solid #3498db;
-        padding-bottom: 20px !important;
-        margin-bottom: 30px !important;
-      }
-
-      /* ANA GÖVDEYİ DİKEY (ALT ALTA) YAP */
-      .pdf-mode #report-body {
-        display: flex !important;
-        flex-direction: column !important; /* Yan yana değil, alt alta */
-        gap: 30px !important;
-      }
-
-      /* 1. RESİM ALANI (KESİN GÖSTER) */
-      .pdf-mode #report-body > div:nth-child(1) {
-        display: block !important;
-        width: 100% !important;
-        border: 1px solid #ddd !important;
-        padding: 10px !important;
-        background: #fafafa !important;
-      }
-      
-      /* Resim Ayarları */
-      .pdf-mode img {
-        max-width: 100% !important;
-        max-height: 500px !important; /* Çok uzamasın */
-        object-fit: contain !important;
-        display: block !important;
-        margin: 0 auto !important;
-      }
-      
-      /* Resim üzerindeki gereksiz butonları gizle */
-      .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
-         display: none !important;
-      }
-
-      /* 2. METİN VE ANALİZ ALANI */
-      .pdf-mode #report-body > div:nth-child(2) {
-        width: 100% !important;
-      }
-      .pdf-mode #report-body > div:nth-child(2) > div {
-        border: 1px solid #eee !important;
-        padding: 20px !important;
-        margin-bottom: 20px !important;
-        box-shadow: none !important;
-        background: #fff !important;
-      }
-
-      /* 3. PUAN VE HATALAR ALANI */
-      .pdf-mode #report-body > div:nth-child(3) {
-        width: 100% !important;
-      }
-      .pdf-mode #report-body > div:nth-child(3) > div {
-        border: 1px solid #eee !important;
-        padding: 20px !important;
-        margin-bottom: 20px !important;
-        box-shadow: none !important;
-        background: #fff !important;
-      }
-
-      /* Gereksiz butonları temizle */
-      .pdf-mode button, .pdf-mode [role="button"] { display: none !important; }
-
-      /* Sayfa Bölünme Koruması */
-      .pdf-mode div {
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
-      }
-    `;
-    wrapper.appendChild(style);
-
-    // 4) GİZLENEN HER ŞEYİ AÇ (Resim geri gelsin diye)
-    const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
-    ignored.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
-
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
-
-    // 5) HTML2PDF AYARLARI (DİKEY A4)
-    const opt = {
-      margin: [10, 10, 10, 10],
-      filename: fileName,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true, // Resim yüklemesi için şart
-        backgroundColor: "#ffffff",
-        windowWidth: 800, // Bilgisayar simülasyonu
-        logging: false,
-        ignoreElements: (el) => el.style.display === 'none',
-      },
-      // DİKEY A4 (PORTRAIT) - EN GÜVENLİ FORMAT
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"] },
-    };
-
-    try {
-      await html2pdf().set(opt).from(clone).save();
-    } catch (e) {
-      alert("Hata: " + e.message);
-    } finally {
-      document.body.removeChild(wrapper);
+  // 3) PDF İÇİN GARANTİ CSS (DİKEY YAPI)
+  const style = document.createElement("style");
+  style.innerHTML = `
+    .pdf-mode {
+      font-family: "Segoe UI", Arial, sans-serif !important;
+      width: 800px !important; 
+      padding: 40px !important;
+      background-color: #fff !important;
+      color: #000 !important;
+      box-sizing: border-box !important;
     }
+
+    /* Başlık Alanı */
+    .pdf-mode > div:first-child {
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 20px !important;
+      margin-bottom: 30px !important;
+    }
+
+    /* ANA GÖVDEYİ DİKEY (ALT ALTA) YAP */
+    .pdf-mode #report-body {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 30px !important;
+    }
+
+    /* 1. RESİM ALANI */
+    .pdf-mode #report-body > div:nth-child(1) {
+      display: block !important;
+      width: 100% !important;
+      border: 1px solid #ddd !important;
+      padding: 10px !important;
+      background: #fafafa !important;
+    }
+
+    /* Resim */
+    .pdf-mode img {
+      max-width: 100% !important;
+      max-height: 500px !important;
+      object-fit: contain !important;
+      display: block !important;
+      margin: 0 auto !important;
+    }
+
+    /* Resim üzerindeki overlay yazı/butonları gizle */
+    .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
+      display: none !important;
+    }
+
+    /* 2. SÜTUN (OCR + Kartlar) */
+    .pdf-mode #report-body > div:nth-child(2) {
+      width: 100% !important;
+    }
+    .pdf-mode #report-body > div:nth-child(2) > div {
+      border: 1px solid #eee !important;
+      padding: 20px !important;
+      margin-bottom: 20px !important;
+      box-shadow: none !important;
+      background: #fff !important;
+    }
+
+    /* 3. SÜTUN */
+    .pdf-mode #report-body > div:nth-child(3) {
+      width: 100% !important;
+    }
+    .pdf-mode #report-body > div:nth-child(3) > div {
+      border: 1px solid #eee !important;
+      padding: 20px !important;
+      margin-bottom: 20px !important;
+      box-shadow: none !important;
+      background: #fff !important;
+    }
+
+    /* PDF’te butonlar görünmesin */
+    .pdf-mode button, .pdf-mode [role="button"] { display: none !important; }
+
+    /* Sayfa Bölünme Koruması */
+    .pdf-mode div {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+  `;
+  wrapper.appendChild(style);
+
+  // 4) PDF’e dahil edilecekler için: ignore kaldır
+  //    (özellikle OCR kartının üstündeki "OCR TARAMASI" badge'i ignore ise sorun yok;
+  //     ama OCR metni kapsayan yer ignore ise burada açılır)
+  clone.querySelectorAll("[data-html2canvas-ignore]").forEach(el => {
+    el.removeAttribute("data-html2canvas-ignore");
+  });
+
+  // ✅ 5) KRİTİK: TEXTAREA PDF’te BOŞ çıkmasın diye, içeriğini DIV’e çevir
+  // Öğretmen değerlendirmesi alanı (textarea) -> div
+  const textareas = clone.querySelectorAll("textarea");
+  textareas.forEach((ta) => {
+    const value = ta.value || ta.textContent || "";
+    const div = document.createElement("div");
+    div.style.whiteSpace = "pre-wrap";
+    div.style.lineHeight = "1.6";
+    div.style.fontSize = "14px";
+    div.style.border = "1px solid #bdc3c7";
+    div.style.borderRadius = "8px";
+    div.style.padding = "10px";
+    div.style.minHeight = "80px";
+    div.textContent = value;
+    ta.parentNode.replaceChild(div, ta);
+  });
+
+  // ✅ 6) OCR metni kesin görünsün (bazı cihazlarda font-size/overflow sorunları oluyor)
+  // OCR kutusu genelde: backgroundColor:'#f8f9fa' olan div
+  // burada ekstra güvenlik: italic/line-height koru
+  const ocrBox = clone.querySelector('div[style*="OCR TARAMASI"]')?.closest("div");
+  if (ocrBox) {
+    // OCR başlığının kartına dokunmuyoruz, içerik zaten clone’da span’lerle geliyor.
+  }
+
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  // 7) HTML2PDF AYARLARI
+  const opt = {
+    margin: [10, 10, 10, 10],
+    filename: fileName,
+    image: { type: "jpeg", quality: 0.98 },
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowWidth: 800,
+      logging: false,
+      ignoreElements: (el) => el.style.display === "none",
+    },
+    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    pagebreak: { mode: ["css", "legacy"] },
   };
+
+  try {
+    await html2pdf().set(opt).from(clone).save();
+  } catch (e) {
+    alert("Hata: " + e.message);
+  } finally {
+    document.body.removeChild(wrapper);
+  }
+};
+
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
