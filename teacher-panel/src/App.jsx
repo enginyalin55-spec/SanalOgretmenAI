@@ -384,48 +384,57 @@ export default function App() {
   }
 
 const downloadPDF = () => { 
+    // PDF'e dönüştürülecek alanı seç
     const element = document.getElementById('report-content'); 
+    
+    // 1. PDF İSMİNİ HAZIRLA
     const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
-    // 2. GEÇİCİ OLARAK TASARIMI "KAĞIT MODU"NA AL
-    const originalStyle = element.style.cssText;
+
+    // 2. STİL AYARLARI (GEÇİCİ DEĞİŞİKLİK)
+    const originalStyle = element.style.cssText; // Eski stili yedekle
     
-    // PDF İÇİN ZORLA GÜZELLEŞTİRME
-    element.style.width = '1200px'; // Genişliği sabitle
+    // PDF İÇİN "GENİŞ EKRAN" MODU
+    // Not: 1400px genişlik veriyoruz ki 3 sütun rahatça yayılsın
+    element.style.width = '1400px'; 
     element.style.padding = '20px';
     element.style.backgroundColor = 'white';
-    element.style.color = 'black'; // Yazılar kesin siyah olsun
+    element.style.color = 'black';
     
-    // "Rapor Gövdesi"ni (3 sütunlu yapı) düzenle
+    // Rapor Gövdesini (3 sütun) yan yana zorla
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
-    
     if (bodyElement) {
-        // PDF'te yan yana durmaları için row yapıyoruz (telefonda column olsa bile)
         bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'row'; 
+        bodyElement.style.flexDirection = 'row'; // Kesinlikle yan yana olsun
         bodyElement.style.gap = '20px';
-        bodyElement.style.alignItems = 'flex-start';
+        bodyElement.style.alignItems = 'flex-start'; // Yukarı hizala
+        bodyElement.style.flexWrap = 'nowrap'; // Asla alt satıra düşmesin
     }
-    // 3. PDF AYARLARI (GÜNCELLENMİŞ VERSİYON)
+
+    // 3. PDF MOTOR AYARLARI (YATAY KAĞIT)
     const opt = { 
-        margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
+        margin: [5, 5, 5, 5], // Kenar boşluklarını azalttık (Daha çok yer kalsın)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, // Yüksek çözünürlük
+            scale: 2, // Netlik için
             useCORS: true, 
             logging: true,
             backgroundColor: '#ffffff',
-            windowWidth: 1200, // <--- KRİTİK AYAR: Telefonda bile olsa PC gibi geniş çıktı al
+            windowWidth: 1400, // Sanal tarayıcıyı geniş aç
+            // Gereksiz butonları PDF'e alma
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } // <--- KRİTİK AYAR: Tabloları ortadan bölme
-    };
+        // İŞTE SİHİRLİ DOKUNUŞ BURADA: 'landscape' (YATAY)
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    }; 
     
+    // 4. OLUŞTUR VE ESKİ HALİNE GETİR
     html2pdf().set(opt).from(element).save().then(() => {
+        // İşlem bitince siteyi eski haline döndür
         element.style.cssText = originalStyle;
         if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
     }); 
