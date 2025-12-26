@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -73,7 +73,7 @@ const ScoreEditor = ({ rubric, onUpdate }) => {
     );
 };
 
-// --- ZIRHLI BOYAMA BİLEŞENİ (Türkçe & Satır Atlama Destekli) ---
+// --- ZIRHLI BOYAMA BİLEŞENİ ---
 const HighlightedText = ({ text, errors }) => {
   if (!text) return null;
   if (!errors || !Array.isArray(errors) || errors.length === 0) return <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
@@ -155,16 +155,13 @@ const HighlightedText = ({ text, errors }) => {
   return <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8' }}>{elements}</div>;
 };
 
-// --- GELİŞMİŞ FOTOĞRAF GÖRÜNTÜLEYİCİ (Scroll Zoom & Net İkonlar) ---
+// --- FOTOĞRAF GÖRÜNTÜLEYİCİ MODAL ---
 const ImageViewerModal = ({ src, onClose }) => {
     const [scale, setScale] = useState(1);
     
-    // Mouse Tekerleği ile Zoom Mantığı
     const handleWheel = (e) => {
         e.preventDefault();
-        // Tekerlek yönüne göre büyüt veya küçült (Hassas ayar: 0.002)
         const newScale = scale - e.deltaY * 0.002;
-        // En az 0.5x, en fazla 5x büyüme sınırı
         const clampedScale = Math.min(Math.max(0.5, newScale), 5);
         setScale(clampedScale);
     };
@@ -173,7 +170,7 @@ const ImageViewerModal = ({ src, onClose }) => {
 
     return (
         <div 
-            onWheel={handleWheel} // Tekerlek olayını dinle
+            onWheel={handleWheel} 
             style={{
                 position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                 backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999,
@@ -181,13 +178,12 @@ const ImageViewerModal = ({ src, onClose }) => {
             }}
         >
             <div style={{position: 'absolute', top: 20, right: 20, display:'flex', gap:15, zIndex: 10000}}>
-                 {/* ZOOM BUTONU: İkonu Siyah Yaptık */}
                  <button 
                     onClick={() => setScale(scale > 1 ? 1 : 2.5)} 
                     title={scale > 1 ? "Küçült" : "Büyüt"}
                     style={{
                         backgroundColor: 'white', 
-                        color: 'black', // İKON RENGİ SİYAH OLDU
+                        color: 'black',
                         border:'2px solid #ddd', 
                         borderRadius:'50%', width:50, height:50, 
                         cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
@@ -197,13 +193,12 @@ const ImageViewerModal = ({ src, onClose }) => {
                     {scale > 1 ? <ZoomOut size={28} strokeWidth={2.5}/> : <ZoomIn size={28} strokeWidth={2.5}/>}
                  </button>
 
-                 {/* KAPATMA BUTONU: İkonu Beyaz Yaptık */}
                  <button 
                     onClick={onClose} 
                     title="Kapat"
                     style={{
                         backgroundColor: '#e74c3c', 
-                        color:'white', // İKON RENGİ BEYAZ
+                        color:'white',
                         border:'2px solid #c0392b', 
                         borderRadius:'50%', width:50, height:50, 
                         cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
@@ -231,13 +226,12 @@ const ImageViewerModal = ({ src, onClose }) => {
                         maxHeight: scale <= 1 ? '100%' : 'none',
                         transform: `scale(${scale})`,
                         transformOrigin: 'top left',
-                        transition: 'transform 0.1s ease-out', // Daha akıcı zoom
+                        transition: 'transform 0.1s ease-out', 
                         objectFit: 'contain'
                     }} 
                 />
             </div>
             
-            {/* Masaüstü Kullanıcıları İçin İpucu */}
             <div style={{
                 position:'absolute', bottom:30, 
                 backgroundColor:'rgba(255,255,255,0.2)', color:'white', 
@@ -311,28 +305,24 @@ export default function App() {
     }
   }, [selectedClassCode, submissions]);
 
-  // Ödev Seçildiğinde Rubrik'i Editör State'ine Kopyala
   useEffect(() => {
       if (selectedSubmission) {
           setTeacherNote(selectedSubmission.human_note || "");
           const rubric = selectedSubmission.analysis_json?.rubric || {uzunluk:0, noktalama:0, dil_bilgisi:0, soz_dizimi:0, kelime:0, icerik:0};
-          setEditableRubric({...rubric}); // Kopya oluştur
+          setEditableRubric({...rubric});
           setCalculatedTotal(selectedSubmission.score_total);
           setIsScoreChanged(false);
       }
   }, [selectedSubmission]);
 
-  // Rubrik Değişince Toplam Puanı Hesapla
   const handleRubricUpdate = (key, value) => {
       const newRubric = { ...editableRubric, [key]: value };
       setEditableRubric(newRubric);
-      
       const total = Object.values(newRubric).reduce((a, b) => a + b, 0);
       setCalculatedTotal(total);
       setIsScoreChanged(true);
   };
 
-  // GÜNCELLENEN PUANI KAYDET
   async function saveUpdatedScore() {
     setIsSaving(true);
     const fullJson = { ...selectedSubmission.analysis_json, rubric: editableRubric };
@@ -383,74 +373,78 @@ export default function App() {
     setIsSaving(false);
   }
 
-const downloadPDF = async () => { 
-    // PDF'e dönüştürülecek ana alan
-    const element = document.getElementById('report-content'); 
-    
-    // Dosya İsmi
-    const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
-    const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
+  // --- PDF İNDİRME FONKSİYONU (YENİ VE GÜÇLÜ) ---
+  const downloadPDF = async () => {
+    const source = document.getElementById("report-content");
+    if (!source) return;
+
+    const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
+    const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1. EKRANI EN TEPEYE KAYDIR (Mobilde kesilmeyi önler)
-    window.scrollTo(0, 0);
+    // 1) PDF için klon oluştur (sayfayı bozmadan, ekran dışı)
+    const clone = source.cloneNode(true);
 
-    // 2. MEVCUT STİLİ YEDEKLE (İşlem bitince geri yükleyeceğiz)
-    const originalStyle = element.style.cssText;
-    const bodyElement = document.getElementById('report-body');
-    const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
+    // 2) Klonu ekrana görünmez şekilde DOM’a ekle
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-100000px"; // Ekranın çok dışında
+    wrapper.style.top = "0";
+    wrapper.style.background = "white";
+    wrapper.style.zIndex = "-1";
 
-    // 3. CANLI DOKUYA MÜDAHALE (A4 DİKEY FORMATI ZORLA)
-    // Gizli kopya değil, bizzat gördüğün elementi değiştiriyoruz.
-    element.style.width = '800px'; // A4 genişliğine sabitle
-    element.style.minHeight = '1100px'; // Sayfa boyunu garantiye al
-    element.style.padding = '40px';
-    element.style.backgroundColor = 'white';
-    element.style.color = 'black';
-    element.style.margin = '0 auto'; // Ortala
-    
-    // İçeriği ALT ALTA (Dikey) diz
-    if (bodyElement) {
-        bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'column'; 
-        bodyElement.style.gap = '30px'; 
-        
-        // Kutuları koruma altına al (Bölünmesinler)
-        Array.from(bodyElement.children).forEach(child => {
-            child.style.width = '100%';
-            child.style.pageBreakInside = 'avoid';
-            child.style.breakInside = 'avoid';
-        });
+    // PDF sabit genişlik (3 sütun için masaüstü genişliği zorla)
+    clone.style.width = "1500px";
+    clone.style.padding = "20px";
+    clone.style.backgroundColor = "#fff";
+    clone.style.color = "#000";
+
+    // Eğer report-body varsa, PDF’te YAN YANA (ROW) zorla
+    const body = clone.querySelector("#report-body");
+    if (body) {
+      body.style.display = "flex";
+      body.style.flexDirection = "row"; // Yan yana
+      body.style.gap = "25px";
+      body.style.alignItems = "flex-start";
+      body.style.flexWrap = "nowrap"; // Asla aşağı düşmesin
     }
 
-    // 4. PDF MOTOR AYARLARI (STANDART A4)
-    const opt = { 
-        margin: [10, 10, 10, 10], 
-        filename: fileName, 
-        image: { type: 'jpeg', quality: 0.98 }, 
-        html2canvas: { 
-            scale: 2, // Yüksek çözünürlük
-            useCORS: true, 
-            logging: false,
-            scrollY: 0, // En tepeden başla
-            windowWidth: 800, // Tarayıcıyı kandır
-            ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
-        }, 
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } 
-    }; 
-    
-    // 5. OLUŞTUR VE ESKİ HALİNE GETİR
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    // 3) En kritik: canvas genişliğini klona göre ayarla
+    const contentWidth = clone.scrollWidth;
+
+    const opt = {
+      margin: [5, 5, 5, 5],
+      filename: fileName,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2, // Netlik
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: contentWidth,     // Sabit genişlik
+        width: contentWidth,           // Sabit genişlik
+        scrollX: 0,
+        scrollY: 0,
+        logging: false,
+        ignoreElements: (el) => el.hasAttribute("data-html2canvas-ignore"),
+      },
+
+      // A3 LANDSCAPE (BÜYÜK YATAY KAĞIT) - Her şeyi sığdırır!
+      jsPDF: { unit: "mm", format: "a3", orientation: "landscape" },
+
+      // CSS ile bölünmeleri engelle
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+
     try {
-        await html2pdf().set(opt).from(element).save();
-    } catch (error) {
-        alert("PDF oluşturulurken hata: " + error.message);
+      await html2pdf().set(opt).from(clone).save();
     } finally {
-        // PDF işi biter bitmez siteyi eski haline döndür
-        element.style.cssText = originalStyle;
-        if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
+      // 4) Temizlik: Hayalet klonu sil
+      document.body.removeChild(wrapper);
     }
-};
+  };
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
@@ -490,12 +484,18 @@ const downloadPDF = async () => {
     setCountryData(Object.keys(countries).map(key => ({ name: key, value: countries[key] }))); 
   }
 
-  // --- DARK MODE FIX ---
+  // --- STİL AYARLARI (CSS) ---
   const globalStyles = `
     input, select, textarea {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 1px solid #cccccc !important;
+    }
+    
+    /* PDF BÖLÜNME KORUMASI */
+    .avoid-break {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
     }
   `;
 
@@ -585,7 +585,6 @@ const downloadPDF = async () => {
             padding:'20px 25px', 
             borderRadius:12, 
             display:'flex', 
-            // MOBİL İSE ALT ALTA, BİLGİSAYAR İSE YAN YANA
             flexDirection: isMobile ? 'column' : 'row', 
             alignItems: isMobile ? 'flex-start' : 'center', 
             gap:25, 
@@ -606,7 +605,6 @@ const downloadPDF = async () => {
                 display:'flex', 
                 flexDirection:'column', 
                 gap:8, 
-                // MOBİLDE SOLA YASLA
                 alignItems: isMobile ? 'flex-start' : 'flex-end',
                 width: isMobile ? '100%' : 'auto',
                 marginTop: isMobile ? 15 : 0
@@ -615,7 +613,6 @@ const downloadPDF = async () => {
                  <div style={{
                      display:'flex', 
                      gap:10, 
-                     // DÜZELTME: SIĞMAZSA ALT SATIRA GEÇSİN
                      flexWrap: 'wrap' 
                  }}>
                      <div style={{backgroundColor:'#f1f2f6', padding:'6px 12px', borderRadius:6, textAlign:'center'}}><div style={{fontSize:10, color:'#7f8c8d', fontWeight:'bold'}}>SINIF</div><div style={{color:'#2c3e50', fontWeight:'bold'}}>{className}</div></div>
@@ -630,7 +627,7 @@ const downloadPDF = async () => {
         <div id="report-body" style={{display:'flex', gap:25, width:'100%', flexDirection: window.innerWidth < 1100 ? 'column' : 'row'}}>
             
             {/* 1. SÜTUN: ÖĞRENCİ KAĞIDI (RESİM) */}
-            <div data-html2canvas-ignore="true" style={{ flex: 1, width:'100%' }}>
+            <div data-html2canvas-ignore="true" style={{ flex: 1, width:'100%' }} className="avoid-break">
                  <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom:20, breakInside: 'avoid' }}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15}}>
                         <h2 style={{ margin:0, color:'#2c3e50', fontSize:18 }}>📄 Öğrenci Kağıdı</h2>
@@ -669,7 +666,7 @@ const downloadPDF = async () => {
             </div>
 
             {/* 2. SÜTUN: OCR METİN & ANALİZ (MEVCUT) */}
-            <div style={{ flex: 1, width:'100%' }}>
+            <div style={{ flex: 1, width:'100%' }} className="avoid-break">
                 <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom:20, breakInside: 'avoid' }}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}><h2 style={{ margin:0, color:'#2c3e50', fontSize:20 }}>📝 Öğrenci Yazısı</h2><span data-html2canvas-ignore="true" style={{backgroundColor:'#f1f2f6', padding:'5px 10px', borderRadius:5, fontSize:11, color:'#7f8c8d', fontWeight:'bold'}}>OCR TARAMASI</span></div>
                     <div style={{ backgroundColor:'#f8f9fa', padding:20, borderRadius:8, fontSize:16, lineHeight:1.6, color:'#2d3436', marginBottom:20, border:'1px solid #e9ecef', fontStyle:'italic' }}><HighlightedText text={selectedSubmission.ocr_text} errors={selectedSubmission.analysis_json?.errors} /></div>
@@ -685,7 +682,7 @@ const downloadPDF = async () => {
             </div>
 
             {/* 3. SÜTUN: PUANLAMA & HATALAR (MEVCUT) */}
-            <div style={{ flex: 1, width:'100%' }}>
+            <div style={{ flex: 1, width:'100%' }} className="avoid-break">
                 <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, marginBottom: 20, textAlign: 'center', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', breakInside: 'avoid' }}>
                     {/* --- DİNAMİK PUANLAMA ALANI --- */}
                     <div style={{ fontSize: 12, color: '#95a5a6', letterSpacing:1, fontWeight:'700', textTransform:'uppercase' }}>BAŞARI PUANI</div>
