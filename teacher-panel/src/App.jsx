@@ -314,6 +314,10 @@ export default function App() {
           setIsScoreChanged(false);
       }
   }, [selectedSubmission]);
+// ✅ İncele ekranı açılınca her zaman en üste gelsin
+useEffect(() => {
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}, [selectedSubmission]);
 
   const handleRubricUpdate = (key, value) => {
       const newRubric = { ...editableRubric, [key]: value };
