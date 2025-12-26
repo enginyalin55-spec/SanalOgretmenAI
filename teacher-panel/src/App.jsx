@@ -373,7 +373,7 @@ export default function App() {
     setIsSaving(false);
   }
 
-  // --- PDF İNDİRME FONKSİYONU (YENİ VE GÜÇLÜ) ---
+ // --- FINAL: PROFESYONEL A4 RAPOR TASARIMI ---
   const downloadPDF = async () => {
     const source = document.getElementById("report-content");
     if (!source) return;
@@ -382,66 +382,83 @@ export default function App() {
     const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1) PDF için klon oluştur (sayfayı bozmadan, ekran dışı)
+    // 1) HAYALET KLON OLUŞTUR (Mobil uyumu için şart)
     const clone = source.cloneNode(true);
 
-    // 2) Klonu ekrana görünmez şekilde DOM’a ekle
+    // 2) KLONU GİZLİCE YERLEŞTİR
     const wrapper = document.createElement("div");
     wrapper.style.position = "fixed";
-    wrapper.style.left = "-100000px"; // Ekranın çok dışında
+    wrapper.style.left = "-10000px"; // Gözden uzak
     wrapper.style.top = "0";
-    wrapper.style.background = "white";
     wrapper.style.zIndex = "-1";
-
-    // PDF sabit genişlik (3 sütun için masaüstü genişliği zorla)
-    clone.style.width = "1500px";
-    clone.style.padding = "20px";
-    clone.style.backgroundColor = "#fff";
+    
+    // 3) RAPOR KAĞIDI AYARLARI (A4 DİKEY)
+    // Standart A4 genişliği ~800px'dir.
+    clone.style.width = "800px";
+    clone.style.padding = "40px";
+    clone.style.backgroundColor = "#ffffff";
+    clone.style.fontFamily = "'Times New Roman', serif"; // Resmiyet için font değişimi
     clone.style.color = "#000";
 
-    // Eğer report-body varsa, PDF’te YAN YANA (ROW) zorla
+    // --- ESTETİK DOKUNUŞLAR (CSS İLE MAKYAJ) ---
+    
+    // Tüm gri arka planları BEYAZ yap ve ince ÇERÇEVE ekle
+    const allDivs = clone.querySelectorAll("div");
+    allDivs.forEach(div => {
+        // Arka planı gri olanları bul ve temizle
+        if (getComputedStyle(div).backgroundColor !== 'rgba(0, 0, 0, 0)') {
+            div.style.backgroundColor = '#ffffff'; 
+            div.style.boxShadow = 'none'; // Gölgeleri kaldır
+            // Eğer ana bir kutuysa çerçeve ekle
+            if (div.style.padding) { 
+                div.style.border = '1px solid #ddd';
+                div.style.borderRadius = '8px';
+            }
+        }
+        // Yazı renklerini siyah yap
+        div.style.color = '#333';
+    });
+
+    // Ana Gövdeyi (report-body) DÜZENLE
     const body = clone.querySelector("#report-body");
     if (body) {
       body.style.display = "flex";
-      body.style.flexDirection = "row"; // Yan yana
-      body.style.gap = "25px";
-      body.style.alignItems = "flex-start";
-      body.style.flexWrap = "nowrap"; // Asla aşağı düşmesin
+      body.style.flexDirection = "column"; // ALT ALTA DİZ (En temiz okuma)
+      body.style.gap = "30px";
     }
 
+    // Gereksiz butonları ve ikonları gizle (Kapat, Büyüt vs.)
+    const buttons = clone.querySelectorAll("button, .lucide"); 
+    // Not: .lucide ikonlarını silersek puan kartındaki ikonlar da gidebilir, dikkatli seçelim.
+    // Sadece "Büyüt" gibi butonları gizlemek için:
+    const interactiveElements = clone.querySelectorAll("[role='button'], button");
+    interactiveElements.forEach(el => el.style.display = 'none');
+
+    // Klonu sayfaya ekle
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
 
-    // 3) En kritik: canvas genişliğini klona göre ayarla
-    const contentWidth = clone.scrollWidth;
-
+    // 4) PDF MOTORU
     const opt = {
-      margin: [5, 5, 5, 5],
+      margin: [10, 10, 10, 10], // Kenar boşlukları
       filename: fileName,
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
-        scale: 2, // Netlik
+        scale: 2, // Yüksek Kalite
         useCORS: true,
         backgroundColor: "#ffffff",
-        windowWidth: contentWidth,     // Sabit genişlik
-        width: contentWidth,           // Sabit genişlik
-        scrollX: 0,
-        scrollY: 0,
+        windowWidth: 800, // Bilgisayar genişliği simülasyonu
         logging: false,
         ignoreElements: (el) => el.hasAttribute("data-html2canvas-ignore"),
       },
-
-      // A3 LANDSCAPE (BÜYÜK YATAY KAĞIT) - Her şeyi sığdırır!
-      jsPDF: { unit: "mm", format: "a3", orientation: "landscape" },
-
-      // CSS ile bölünmeleri engelle
-      pagebreak: { mode: ["css", "legacy"] },
+      // STANDART DİKEY A4
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
     };
 
     try {
       await html2pdf().set(opt).from(clone).save();
     } finally {
-      // 4) Temizlik: Hayalet klonu sil
       document.body.removeChild(wrapper);
     }
   };
