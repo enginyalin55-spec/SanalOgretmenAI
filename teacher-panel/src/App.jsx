@@ -383,67 +383,89 @@ export default function App() {
     setIsSaving(false);
   }
 
-const downloadPDF = () => { 
-    // PDF'e dönüştürülecek ana alan
-    const element = document.getElementById('report-content'); 
-    
+const downloadPDF = async () => { 
+    // Orijinal raporu seç
+    const originalElement = document.getElementById('report-content'); 
+    if (!originalElement) return alert("Rapor bulunamadı.");
+
     // Dosya İsmi
     const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1. STİLLERİ YEDEKLE
-    const originalStyle = element.style.cssText;
-    const bodyElement = document.getElementById('report-body');
-    const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
+    // 1. HAYALET KOPYA OLUŞTUR (CLONE)
+    // Bu kopya üzerinde çalışacağız, orijinal ekran bozulmayacak.
+    const clone = originalElement.cloneNode(true);
 
-    // 2. PDF İÇİN "GARANTİ DİKEY TASARIM" AYARLARI
-    // Genişliği A4 kağıdına (yaklaşık 800px) sabitliyoruz.
-    element.style.width = '800px'; 
-    element.style.padding = '40px'; // Kenarlardan ferah boşluk
-    element.style.backgroundColor = 'white';
-    element.style.color = 'black';
-    element.style.fontSize = '14px'; // Yazı boyutu okunabilir olsun
+    // 2. KOPYAYA "MASAÜSTÜ AYARI" VER
+    // Telefondan da girseniz, bu kopya kendini bilgisayarda sanacak.
+    clone.style.width = '800px'; // A4 genişliğine sabitle
+    clone.style.minWidth = '800px';
+    clone.style.padding = '40px';
+    clone.style.backgroundColor = 'white';
+    clone.style.color = 'black';
+    clone.style.position = 'absolute';
+    clone.style.left = '-9999px'; // Ekranın dışına at (Kullanıcı görmesin)
+    clone.style.top = '0';
+    clone.style.zIndex = '-1';
+
+    // Kopyanın içindeki gövdeyi bul ve düzenle
+    // Not: Klon henüz sayfada olmadığı için querySelector ile içini arıyoruz.
+    // 'report-body' ID'li div'i buluyoruz.
+    let bodyElement = clone.querySelector('#report-body');
     
-    // Gövdeyi kesinlikle ALT ALTA (Column) diziyoruz
+    // Eğer ID ile bulamazsa (bazen clone'da ID çakışması olabilir), yapıyı manuel düzelt
+    if (!bodyElement && clone.children.length > 1) {
+        bodyElement = clone.children[1]; 
+    }
+
     if (bodyElement) {
+        // DİKEY YERLEŞİM (GARANTİ FORMAT)
         bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'column'; 
-        bodyElement.style.gap = '30px'; // Kutular arası boşluk
+        bodyElement.style.flexDirection = 'column'; // Alt alta diz
+        bodyElement.style.gap = '30px'; 
         
-        // Tüm kutulara "Beni ortadan bölme" emri veriyoruz
+        // Tüm kutulara "Bölünme" koruması ekle
         Array.from(bodyElement.children).forEach(child => {
-            child.style.width = '100%'; // Tam genişlik kullan
-            child.style.pageBreakInside = 'avoid'; // Eski tarayıcılar
-            child.style.breakInside = 'avoid'; // Yeni tarayıcılar
+            child.style.width = '100%';
+            child.style.breakInside = 'avoid'; // Ortadan bölünmeyi engelle
+            child.style.pageBreakInside = 'avoid';
             child.style.marginBottom = '20px';
+            // İçindeki yazı boyutlarını da sabitle
+            child.style.fontSize = '14px';
         });
     }
 
-    // 3. PDF MOTOR AYARLARI (DİKEY A4 - PORTRAIT)
+    // 3. KOPYAYI GEÇİCİ OLARAK SAYFAYA EKLE (Render için şart)
+    document.body.appendChild(clone);
+
+    // 4. PDF MOTOR AYARLARI
     const opt = { 
         margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, // Netlik (Bulanıklığı önler)
-            useCORS: true, 
+            scale: 2, // Netlik
+            useCORS: true, // Resimlerin yüklenmesi için
             logging: false,
-            backgroundColor: '#ffffff',
-            windowWidth: 800, // <--- KRİTİK: Tarayıcıyı A4 genişliğinde açtırıyoruz
+            windowWidth: 800, // <--- ÖNEMLİ: Tarayıcıyı 800px genişlikte simüle et
+            scrollY: 0,
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        // KAĞIT TÜRÜ: DİKEY (PORTRAIT) - EN GÜVENLİSİ
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } 
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }, // Dikey A4
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } // Bölünmeleri engelle
     }; 
     
-    // 4. OLUŞTUR VE ESKİ HALİNE GETİR
-    html2pdf().set(opt).from(element).save().then(() => {
-        // PDF işi bitince siteyi eski haline döndür
-        element.style.cssText = originalStyle;
-        if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
-    }); 
+    // 5. OLUŞTUR VE TEMİZLE
+    try {
+        await html2pdf().set(opt).from(clone).save();
+    } catch (error) {
+        console.error("PDF Hatası:", error);
+        alert("PDF oluşturulurken bir hata oldu.");
+    } finally {
+        // İşlem bitince hayalet kopyayı sil
+        document.body.removeChild(clone);
+    }
 };
 
   function calculateStats(data) { 
