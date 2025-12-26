@@ -388,33 +388,42 @@ const downloadPDF = () => {
     const safeName = selectedSubmission.student_name.replace(/\s+/g, '_');
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
-    const originalStyle = element.style.cssText; 
+    // 2. GEÇİCİ OLARAK TASARIMI "KAĞIT MODU"NA AL
+    const originalStyle = element.style.cssText;
     
-    element.style.width = '100%';
-    element.style.flexDirection = 'column'; 
-    element.style.padding = '0';
+    // PDF İÇİN ZORLA GÜZELLEŞTİRME
+    element.style.width = '1200px'; // Genişliği sabitle
+    element.style.padding = '20px';
     element.style.backgroundColor = 'white';
-
+    element.style.color = 'black'; // Yazılar kesin siyah olsun
+    
+    // "Rapor Gövdesi"ni (3 sütunlu yapı) düzenle
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
+    
     if (bodyElement) {
-        bodyElement.style.flexDirection = 'column';
+        // PDF'te yan yana durmaları için row yapıyoruz (telefonda column olsa bile)
+        bodyElement.style.display = 'flex';
+        bodyElement.style.flexDirection = 'row'; 
         bodyElement.style.gap = '20px';
+        bodyElement.style.alignItems = 'flex-start';
     }
-
+    // 3. PDF AYARLARI (GÜNCELLENMİŞ VERSİYON)
     const opt = { 
-        margin: [10, 10, 10, 10], 
+        margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, 
+            scale: 2, // Yüksek çözünürlük
             useCORS: true, 
             logging: true,
-            backgroundColor: '#ffffff', 
+            backgroundColor: '#ffffff',
+            windowWidth: 1200, // <--- KRİTİK AYAR: Telefonda bile olsa PC gibi geniş çıktı al
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
-    }; 
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } // <--- KRİTİK AYAR: Tabloları ortadan bölme
+    };
     
     html2pdf().set(opt).from(element).save().then(() => {
         element.style.cssText = originalStyle;
