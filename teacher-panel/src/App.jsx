@@ -249,7 +249,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-
+// Sayfa/Ödev değiştiğinde ekranı en tepeye kaydır
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [selectedSubmission]);
   // --- SINIF YÖNETİMİ ---
   const [classrooms, setClassrooms] = useState([]); 
   const [selectedClassCode, setSelectedClassCode] = useState("ALL"); 
