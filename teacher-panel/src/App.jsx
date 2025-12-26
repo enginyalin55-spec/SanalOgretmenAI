@@ -384,7 +384,7 @@ export default function App() {
   }
 
 const downloadPDF = () => { 
-    // PDF'e dönüştürülecek alanı seç
+    // PDF'e dönüştürülecek ana kapsayıcı
     const element = document.getElementById('report-content'); 
     
     // Dosya İsmi
@@ -397,43 +397,41 @@ const downloadPDF = () => {
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
 
-    // 2. PDF İÇİN "ZORLA" GENİŞ EKRAN AYARI YAP
-    // Burası çok önemli: Telefonda bile olsak genişliği 1400px yapıyoruz.
-    element.style.width = '1400px'; 
+    // 2. PDF İÇİN "DİKEY RAPOR" AYARI
+    // Web sitesindeki gibi yan yana değil, kağıt gibi alt alta olsun.
+    element.style.width = '800px'; // A4 genişliğine uygun sabit piksel
     element.style.padding = '20px';
     element.style.backgroundColor = 'white';
-    element.style.color = 'black'; // Yazılar kesin siyah olsun
+    element.style.color = 'black'; 
     
-    // İçerik kutularını (Resim, Metin, Puan) yan yana zorla
+    // İçerik kutularını alt alta (Column) zorla
     if (bodyElement) {
         bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'row'; // YAN YANA
+        bodyElement.style.flexDirection = 'column'; // <--- İŞTE ÇÖZÜM: ALT ALTA DİZ
         bodyElement.style.gap = '20px';
-        bodyElement.style.alignItems = 'flex-start'; 
-        bodyElement.style.flexWrap = 'nowrap'; // ASLA AŞAĞI DÜŞME
     }
 
-    // 3. PDF MOTOR AYARLARI (YATAY / LANDSCAPE)
+    // 3. PDF MOTOR AYARLARI (DİKEY / PORTRAIT)
     const opt = { 
-        margin: [5, 5, 5, 5], 
+        margin: [10, 10, 10, 10], // Kenar boşlukları
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
             scale: 2, // Netlik (Bulanıklığı önler)
             useCORS: true, 
-            logging: true,
-            backgroundColor: '#ffffff',
-            windowWidth: 1400, // <--- SİHİRLİ KOD: Tarayıcıyı genişmiş gibi kandır
+            logging: false,
+            windowWidth: 800, // Sanal tarayıcıyı A4 genişliğinde aç
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        // KAĞIDI YAN ÇEVİRİYORUZ (LANDSCAPE)
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        // KAĞIDI DİKEY (PORTRAIT) YAPIYORUZ
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        // KUTULARI ORTADAN BÖLMEMESİ İÇİN KORUMA
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     }; 
     
     // 4. OLUŞTUR VE ESKİ HALİNE GETİR
     html2pdf().set(opt).from(element).save().then(() => {
-        // PDF işi bitince telefon ekranı stiline geri dön
+        // PDF işi bitince siteni eski (yan yana) haline döndür
         element.style.cssText = originalStyle;
         if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
     }); 
