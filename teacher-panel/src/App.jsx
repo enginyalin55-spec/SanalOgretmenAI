@@ -374,6 +374,7 @@ export default function App() {
   }
 
  // --- FINAL: PROFESYONEL A4 RAPOR TASARIMI ---
+  // --- PDF İNDİRME (GPT DESTEKLİ PRO TASARIM) ---
   const downloadPDF = async () => {
     const source = document.getElementById("report-content");
     if (!source) return;
@@ -382,78 +383,98 @@ export default function App() {
     const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1) HAYALET KLON OLUŞTUR (Mobil uyumu için şart)
+    // 1) KLON OLUŞTUR
     const clone = source.cloneNode(true);
+    clone.classList.add("pdf-mode"); // Özel CSS sınıfı ekle
 
-    // 2) KLONU GİZLİCE YERLEŞTİR
+    // 2) GİZLİ WRAPPER (Kullanıcı görmesin diye ekran dışına atıyoruz)
     const wrapper = document.createElement("div");
     wrapper.style.position = "fixed";
-    wrapper.style.left = "-10000px"; // Gözden uzak
+    wrapper.style.left = "-10000px";
     wrapper.style.top = "0";
     wrapper.style.zIndex = "-1";
     
-    // 3) RAPOR KAĞIDI AYARLARI (A4 DİKEY)
-    // Standart A4 genişliği ~800px'dir.
-    clone.style.width = "800px";
-    clone.style.padding = "40px";
-    clone.style.backgroundColor = "#ffffff";
-    clone.style.fontFamily = "'Times New Roman', serif"; // Resmiyet için font değişimi
-    clone.style.color = "#000";
+    // 3) PDF STİLİNİ ENJEKTE ET (GPT'nin Önerdiği CSS)
+    const style = document.createElement("style");
+    style.innerHTML = `
+      .pdf-mode {
+        font-family: "Segoe UI", Arial, sans-serif !important;
+        width: 1300px !important; /* A4 Yatay için ideal genişlik */
+        padding: 30px !important;
+        background-color: white !important;
+        color: black !important;
+      }
+      
+      .pdf-mode #report-content {
+        gap: 20px !important;
+      }
 
-    // --- ESTETİK DOKUNUŞLAR (CSS İLE MAKYAJ) ---
+      /* Üstteki Bilgi Kartını Sıkılaştır */
+      .pdf-mode > div:first-child {
+        padding: 20px !important;
+        border-left-width: 8px !important; /* Sol çizgiyi belirginleştir */
+        margin-bottom: 25px !important;
+        border: 1px solid #eee;
+      }
+
+      /* ANA GÖVDE: 3 Sütun yerine 2 Sütun (Grid) */
+      .pdf-mode #report-body {
+        display: grid !important;
+        grid-template-columns: 1.6fr 0.4fr !important; /* Sol taraf (Metin) geniş, Sağ taraf (Puan) dar */
+        gap: 25px !important;
+        align-items: start !important;
+      }
+
+      /* 1. Sütun (RESİM): PDF'te gizle ki metinler ferahlasın */
+      /* GPT'nin önerisi: Resim sütununu gizle */
+      .pdf-mode #report-body > div:first-child {
+         display: none !important;
+      }
+
+      /* KARTLARIN "PDF" GÖRÜNÜMÜ: Gölge yok, İnce Çizgi var */
+      .pdf-mode div[style*="box-shadow"] {
+        box-shadow: none !important;
+        border: 1px solid #ccc !important; /* Net çerçeve */
+        padding: 20px !important;
+        border-radius: 4px !important;
+      }
+
+      /* Başlıkları Düzenle */
+      .pdf-mode h2, .pdf-mode h3 {
+        margin-top: 0 !important;
+        margin-bottom: 15px !important;
+        font-size: 18px !important;
+        color: #333 !important;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+      }
+      
+      /* Gereksiz butonları gizle */
+      .pdf-mode button { display: none !important; }
+    `;
     
-    // Tüm gri arka planları BEYAZ yap ve ince ÇERÇEVE ekle
-    const allDivs = clone.querySelectorAll("div");
-    allDivs.forEach(div => {
-        // Arka planı gri olanları bul ve temizle
-        if (getComputedStyle(div).backgroundColor !== 'rgba(0, 0, 0, 0)') {
-            div.style.backgroundColor = '#ffffff'; 
-            div.style.boxShadow = 'none'; // Gölgeleri kaldır
-            // Eğer ana bir kutuysa çerçeve ekle
-            if (div.style.padding) { 
-                div.style.border = '1px solid #ddd';
-                div.style.borderRadius = '8px';
-            }
-        }
-        // Yazı renklerini siyah yap
-        div.style.color = '#333';
-    });
-
-    // Ana Gövdeyi (report-body) DÜZENLE
-    const body = clone.querySelector("#report-body");
-    if (body) {
-      body.style.display = "flex";
-      body.style.flexDirection = "column"; // ALT ALTA DİZ (En temiz okuma)
-      body.style.gap = "30px";
-    }
-
-    // Gereksiz butonları ve ikonları gizle (Kapat, Büyüt vs.)
-    const buttons = clone.querySelectorAll("button, .lucide"); 
-    // Not: .lucide ikonlarını silersek puan kartındaki ikonlar da gidebilir, dikkatli seçelim.
-    // Sadece "Büyüt" gibi butonları gizlemek için:
-    const interactiveElements = clone.querySelectorAll("[role='button'], button");
-    interactiveElements.forEach(el => el.style.display = 'none');
-
-    // Klonu sayfaya ekle
+    wrapper.appendChild(style);
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
 
-    // 4) PDF MOTORU
+    // 4) HTML2PDF AYARLARI
     const opt = {
-      margin: [10, 10, 10, 10], // Kenar boşlukları
+      margin: [10, 10, 10, 10],
       filename: fileName,
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
-        scale: 2, // Yüksek Kalite
+        scale: 2.5, // Daha net yazı (Telefonda pürüzsüz çıkar)
         useCORS: true,
         backgroundColor: "#ffffff",
-        windowWidth: 800, // Bilgisayar genişliği simülasyonu
+        windowWidth: 1300, // Tarayıcıyı 1300px sanması için
+        scrollX: 0,
+        scrollY: 0,
         logging: false,
         ignoreElements: (el) => el.hasAttribute("data-html2canvas-ignore"),
       },
-      // STANDART DİKEY A4
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+      // A4 YATAY (LANDSCAPE) - En dengeli rapor formatı
+      jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+      pagebreak: { mode: ["css", "legacy"] },
     };
 
     try {
