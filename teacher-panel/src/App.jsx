@@ -384,7 +384,7 @@ export default function App() {
   }
 
 const downloadPDF = () => { 
-    // PDF'e dönüştürülecek ana kapsayıcı
+    // PDF'e dönüştürülecek ana alan
     const element = document.getElementById('report-content'); 
     
     // Dosya İsmi
@@ -392,48 +392,73 @@ const downloadPDF = () => {
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1. MEVCUT STİLİ YEDEKLE (İşlem bitince geri yükleyeceğiz)
+    // 1. MEVCUT STİLİ YEDEKLE
     const originalStyle = element.style.cssText;
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
 
-    // 2. PDF İÇİN "DİKEY RAPOR" AYARI
-    // Web sitesindeki gibi yan yana değil, kağıt gibi alt alta olsun.
-    element.style.width = '800px'; // A4 genişliğine uygun sabit piksel
+    // 2. PDF İÇİN "GENİŞ VE BÖLÜNMEZ" AYARI
+    // Genişlik ayarı: 3 sütunun rahat sığması için 1500px yapıyoruz.
+    element.style.width = '1500px'; 
     element.style.padding = '20px';
     element.style.backgroundColor = 'white';
     element.style.color = 'black'; 
     
-    // İçerik kutularını alt alta (Column) zorla
+    // Gövdeyi Yan Yana (Row) Zorla
     if (bodyElement) {
         bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'column'; // <--- İŞTE ÇÖZÜM: ALT ALTA DİZ
-        bodyElement.style.gap = '20px';
+        bodyElement.style.flexDirection = 'row'; 
+        bodyElement.style.gap = '25px'; // Sütunlar arası boşluk
+        bodyElement.style.alignItems = 'flex-start';
+        bodyElement.style.flexWrap = 'nowrap';
+        
+        // --- KRİTİK NOKTA: KUTULARI KORUMA ---
+        // Raporun içindeki tüm kutulara (div'lere) "Beni bölme" emri veriyoruz.
+        const children = bodyElement.children;
+        for (let i = 0; i < children.length; i++) {
+            children[i].style.breakInside = 'avoid'; // CSS: Ortadan bölme
+            children[i].style.pageBreakInside = 'avoid'; // Eski tarayıcılar için
+            // İçindeki beyaz kutulara da uygula
+            const innerCards = children[i].querySelectorAll('div');
+            innerCards.forEach(card => {
+                card.style.breakInside = 'avoid';
+                card.style.pageBreakInside = 'avoid';
+            });
+        }
     }
 
-    // 3. PDF MOTOR AYARLARI (DİKEY / PORTRAIT)
+    // 3. PDF MOTOR AYARLARI (YATAY A4)
     const opt = { 
-        margin: [10, 10, 10, 10], // Kenar boşlukları
+        margin: [5, 5, 5, 5], // Kenar boşlukları (mm)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, // Netlik (Bulanıklığı önler)
+            scale: 2, // Netlik
             useCORS: true, 
             logging: false,
-            windowWidth: 800, // Sanal tarayıcıyı A4 genişliğinde aç
+            backgroundColor: '#ffffff',
+            windowWidth: 1500, // Tarayıcıyı geniş kandır
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        // KAĞIDI DİKEY (PORTRAIT) YAPIYORUZ
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        // KUTULARI ORTADAN BÖLMEMESİ İÇİN KORUMA
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        // KAĞIDI YATAY (LANDSCAPE) YAPIYORUZ Kİ HER ŞEY SIĞSIN
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        // AKILLI SAYFA GEÇİŞİ
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } 
     }; 
     
     // 4. OLUŞTUR VE ESKİ HALİNE GETİR
     html2pdf().set(opt).from(element).save().then(() => {
-        // PDF işi bitince siteni eski (yan yana) haline döndür
+        // PDF işi bitince siteyi eski haline döndür
         element.style.cssText = originalStyle;
-        if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
+        if (bodyElement) {
+            bodyElement.style.cssText = originalBodyStyle;
+            // Eklediğimiz "bölünme" stillerini temizle (gerekirse)
+            const children = bodyElement.children;
+            for (let i = 0; i < children.length; i++) {
+                children[i].style.breakInside = '';
+                children[i].style.pageBreakInside = '';
+            }
+        }
     }); 
   };
 
