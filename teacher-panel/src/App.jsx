@@ -373,7 +373,7 @@ export default function App() {
     setIsSaving(false);
   }
 
-// --- FINAL DÜZELTİLMİŞ: %100 GARANTİLİ DİKEY (PORTRAIT) RAPOR ---
+// --- FINAL: %100 GARANTİLİ DİKEY (PORTRAIT) RAPOR ---
   const downloadPDF = async () => {
     const source = document.getElementById("report-content");
     if (!source) return;
@@ -385,15 +385,6 @@ export default function App() {
     // 1) KLON OLUŞTUR
     const clone = source.cloneNode(true);
     clone.classList.add("pdf-mode");
-
-    // --- KRİTİK DÜZELTME: TEXTAREA (Öğretmen Notu) DEĞERİNİ TAŞI ---
-    // Klonlama işlemi bazen textarea içine yazılan yazıyı almaz. Elle alıyoruz.
-    const originalTextArea = source.querySelector("textarea");
-    const cloneTextArea = clone.querySelector("textarea");
-    if (originalTextArea && cloneTextArea) {
-        cloneTextArea.value = originalTextArea.value;
-        cloneTextArea.innerHTML = originalTextArea.value; // Garanti olsun
-    }
 
     // 2) GİZLİ WRAPPER (Ekran dışı)
     const wrapper = document.createElement("div");
@@ -428,62 +419,44 @@ export default function App() {
         gap: 30px !important;
       }
 
-      /* 1. SÜTUN: RESİM ALANI */
+      /* 1. RESİM ALANI (KESİN GÖSTER) */
       .pdf-mode #report-body > div:nth-child(1) {
         display: block !important;
         width: 100% !important;
         border: 1px solid #ddd !important;
         padding: 10px !important;
         background: #fafafa !important;
-        margin-bottom: 20px !important;
       }
       
+      /* Resim Ayarları */
       .pdf-mode img {
         max-width: 100% !important;
-        max-height: 500px !important;
+        max-height: 500px !important; /* Çok uzamasın */
         object-fit: contain !important;
         display: block !important;
         margin: 0 auto !important;
       }
       
-      /* Resim üzerindeki butonları gizle */
+      /* Resim üzerindeki gereksiz butonları gizle */
       .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
          display: none !important;
       }
 
-      /* --- DÜZELTME BURADA: 2. SÜTUN (METİN + ÖĞRETMEN NOTU) --- */
-      /* Bu sütunu kesinlikle görünür yapıyoruz */
+      /* 2. METİN VE ANALİZ ALANI */
       .pdf-mode #report-body > div:nth-child(2) {
-        display: block !important;
         width: 100% !important;
-        opacity: 1 !important;
-        visibility: visible !important;
       }
-      
-      /* İçindeki kutuları (Öğrenci Yazısı, Yapay Zeka, Öğretmen Notu) düzenle */
       .pdf-mode #report-body > div:nth-child(2) > div {
-        display: block !important;
-        border: 1px solid #ccc !important;
+        border: 1px solid #eee !important;
         padding: 20px !important;
         margin-bottom: 20px !important;
         box-shadow: none !important;
         background: #fff !important;
-        color: #000 !important;
       }
 
-      /* Öğretmen notu yazılan alanın kenarlığını düzelt */
-      .pdf-mode textarea {
-        border: 1px solid #999 !important;
-        width: 98% !important;
-        min-height: 100px !important;
-        color: #000 !important;
-        display: block !important;
-      }
-
-      /* 3. SÜTUN: PUAN VE HATALAR ALANI */
+      /* 3. PUAN VE HATALAR ALANI */
       .pdf-mode #report-body > div:nth-child(3) {
         width: 100% !important;
-        display: block !important;
       }
       .pdf-mode #report-body > div:nth-child(3) > div {
         border: 1px solid #eee !important;
@@ -504,7 +477,7 @@ export default function App() {
     `;
     wrapper.appendChild(style);
 
-    // 4) GİZLENEN HER ŞEYİ AÇ (ignore attribute temizle)
+    // 4) GİZLENEN HER ŞEYİ AÇ (Resim geri gelsin diye)
     const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
     ignored.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
 
@@ -518,13 +491,13 @@ export default function App() {
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
-        useCORS: true,
+        useCORS: true, // Resim yüklemesi için şart
         backgroundColor: "#ffffff",
         windowWidth: 800, // Bilgisayar simülasyonu
         logging: false,
-        // Sadece style.display='none' olanları gizle (bizim gizlediklerimiz)
         ignoreElements: (el) => el.style.display === 'none',
       },
+      // DİKEY A4 (PORTRAIT) - EN GÜVENLİ FORMAT
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
       pagebreak: { mode: ["css", "legacy"] },
     };
