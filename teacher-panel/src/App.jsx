@@ -373,139 +373,170 @@ export default function App() {
     setIsSaving(false);
   }
 
-// --- FINAL PDF (OCR + Öğretmen Değerlendirmesi DAHİL) ---
-const downloadPDF = async () => {
-  const source = document.getElementById("report-content");
-  if (!source) return;
+// --- FINAL DÜZELTİLMİŞ: %100 GARANTİLİ DİKEY (PORTRAIT) RAPOR ---
+  const downloadPDF = async () => {
+    const source = document.getElementById("report-content");
+    if (!source) return;
 
-  const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
-  const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
-  const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
+    const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
+    const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
+    const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-  // 1) KLON
-  const clone = source.cloneNode(true);
-  clone.classList.add("pdf-mode");
+    // 1) KLON OLUŞTUR
+    const clone = source.cloneNode(true);
+    clone.classList.add("pdf-mode");
 
-  // 2) GİZLİ WRAPPER
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "fixed";
-  wrapper.style.left = "-10000px";
-  wrapper.style.top = "0";
-  wrapper.style.background = "white";
-  wrapper.style.zIndex = "-1";
-
-  // 3) PDF CSS
-  const style = document.createElement("style");
-  style.innerHTML = `
-    .pdf-mode {
-      width: 800px !important;
-      padding: 40px !important;
-      font-family: "Segoe UI", Arial, sans-serif !important;
-      color: #000 !important;
-      background: #fff !important;
+    // --- KRİTİK DÜZELTME: TEXTAREA (Öğretmen Notu) DEĞERİNİ TAŞI ---
+    // Klonlama işlemi bazen textarea içine yazılan yazıyı almaz. Elle alıyoruz.
+    const originalTextArea = source.querySelector("textarea");
+    const cloneTextArea = clone.querySelector("textarea");
+    if (originalTextArea && cloneTextArea) {
+        cloneTextArea.value = originalTextArea.value;
+        cloneTextArea.innerHTML = originalTextArea.value; // Garanti olsun
     }
 
-    /* ÜST MAVİ ÇERÇEVE KALKSIN */
-    .pdf-mode > div:first-child {
-      border: none !important;
-      box-shadow: none !important;
+    // 2) GİZLİ WRAPPER (Ekran dışı)
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-10000px";
+    wrapper.style.top = "0";
+    wrapper.style.zIndex = "-1";
+    wrapper.style.background = "white";
+
+    // 3) PDF İÇİN GARANTİ CSS (DİKEY YAPI)
+    const style = document.createElement("style");
+    style.innerHTML = `
+      .pdf-mode {
+        font-family: "Segoe UI", Arial, sans-serif !important;
+        width: 800px !important; /* Standart A4 Genişliği */
+        padding: 40px !important;
+        background-color: #fff !important;
+        color: #000 !important;
+      }
+
+      /* Başlık Alanı */
+      .pdf-mode > div:first-child {
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 20px !important;
+        margin-bottom: 30px !important;
+      }
+
+      /* ANA GÖVDEYİ DİKEY (ALT ALTA) YAP */
+      .pdf-mode #report-body {
+        display: flex !important;
+        flex-direction: column !important; /* Yan yana değil, alt alta */
+        gap: 30px !important;
+      }
+
+      /* 1. SÜTUN: RESİM ALANI */
+      .pdf-mode #report-body > div:nth-child(1) {
+        display: block !important;
+        width: 100% !important;
+        border: 1px solid #ddd !important;
+        padding: 10px !important;
+        background: #fafafa !important;
+        margin-bottom: 20px !important;
+      }
+      
+      .pdf-mode img {
+        max-width: 100% !important;
+        max-height: 500px !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: 0 auto !important;
+      }
+      
+      /* Resim üzerindeki butonları gizle */
+      .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
+         display: none !important;
+      }
+
+      /* --- DÜZELTME BURADA: 2. SÜTUN (METİN + ÖĞRETMEN NOTU) --- */
+      /* Bu sütunu kesinlikle görünür yapıyoruz */
+      .pdf-mode #report-body > div:nth-child(2) {
+        display: block !important;
+        width: 100% !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+      }
+      
+      /* İçindeki kutuları (Öğrenci Yazısı, Yapay Zeka, Öğretmen Notu) düzenle */
+      .pdf-mode #report-body > div:nth-child(2) > div {
+        display: block !important;
+        border: 1px solid #ccc !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+        box-shadow: none !important;
+        background: #fff !important;
+        color: #000 !important;
+      }
+
+      /* Öğretmen notu yazılan alanın kenarlığını düzelt */
+      .pdf-mode textarea {
+        border: 1px solid #999 !important;
+        width: 98% !important;
+        min-height: 100px !important;
+        color: #000 !important;
+        display: block !important;
+      }
+
+      /* 3. SÜTUN: PUAN VE HATALAR ALANI */
+      .pdf-mode #report-body > div:nth-child(3) {
+        width: 100% !important;
+        display: block !important;
+      }
+      .pdf-mode #report-body > div:nth-child(3) > div {
+        border: 1px solid #eee !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+        box-shadow: none !important;
+        background: #fff !important;
+      }
+
+      /* Gereksiz butonları temizle */
+      .pdf-mode button, .pdf-mode [role="button"] { display: none !important; }
+
+      /* Sayfa Bölünme Koruması */
+      .pdf-mode div {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+    `;
+    wrapper.appendChild(style);
+
+    // 4) GİZLENEN HER ŞEYİ AÇ (ignore attribute temizle)
+    const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
+    ignored.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
+
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    // 5) HTML2PDF AYARLARI (DİKEY A4)
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: fileName,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: 800, // Bilgisayar simülasyonu
+        logging: false,
+        // Sadece style.display='none' olanları gizle (bizim gizlediklerimiz)
+        ignoreElements: (el) => el.style.display === 'none',
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+
+    try {
+      await html2pdf().set(opt).from(clone).save();
+    } catch (e) {
+      alert("Hata: " + e.message);
+    } finally {
+      document.body.removeChild(wrapper);
     }
-
-    /* ANA GÖVDE DİKEY */
-    .pdf-mode #report-body {
-      display: flex !important;
-      flex-direction: column !important;
-      gap: 30px !important;
-    }
-
-    /* ÖĞRENCİ KAĞIDI */
-    .pdf-mode img {
-      max-width: 100% !important;
-      max-height: 500px !important;
-      object-fit: contain !important;
-      margin: 0 auto !important;
-      display: block !important;
-    }
-
-    /* OCR METNİ (ÖĞRENCİ YAZISI) */
-    .pdf-mode .ocr-text,
-    .pdf-mode .student-text {
-      display: block !important;
-      white-space: pre-wrap !important;
-      line-height: 1.7 !important;
-      font-size: 14px !important;
-      border: 1px solid #eee !important;
-      padding: 20px !important;
-      background: #fafafa !important;
-    }
-
-    /* ÖĞRETMEN DEĞERLENDİRMESİ */
-    .pdf-mode .teacher-note {
-      display: block !important;
-      border: 1px solid #ddd !important;
-      padding: 20px !important;
-      background: #fff !important;
-    }
-
-    /* YAPAY ZEKA ANALİZİ PDF'TE YOK */
-    .pdf-mode .pdf-hide-ai {
-      display: none !important;
-    }
-
-    /* BUTONLAR PDF'TE YOK */
-    .pdf-mode button,
-    .pdf-mode [role="button"] {
-      display: none !important;
-    }
-
-    /* TAŞMAYI ÖNLE */
-    .pdf-mode div {
-      break-inside: avoid !important;
-      page-break-inside: avoid !important;
-    }
-  `;
-  wrapper.appendChild(style);
-
-  // 4) DAHA ÖNCE GİZLENENLERİ GERİ AÇ
-  clone.querySelectorAll("[data-html2canvas-ignore]").forEach(el => {
-    el.removeAttribute("data-html2canvas-ignore");
-  });
-
-  // 5) YAPAY ZEKA ANALİZİNİ BUL VE GİZLE
-  clone.querySelectorAll("*").forEach(el => {
-    const txt = (el.textContent || "").toLowerCase();
-    if (txt.includes("yapay zeka analizi")) {
-      const card = el.closest("div");
-      if (card) card.classList.add("pdf-hide-ai");
-    }
-  });
-
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-
-  // 6) PDF AYARLARI
-  const opt = {
-    margin: [10, 10, 10, 10],
-    filename: fileName,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      windowWidth: 800,
-      logging: false,
-    },
-    jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    pagebreak: { mode: ["css", "legacy"] },
   };
-
-  try {
-    await html2pdf().set(opt).from(clone).save();
-  } finally {
-    document.body.removeChild(wrapper);
-  }
-};
-
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
