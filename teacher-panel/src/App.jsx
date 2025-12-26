@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase';
-import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle } from 'lucide-react';
+import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import html2pdf from 'html2pdf.js';
 
@@ -79,42 +79,31 @@ const HighlightedText = ({ text, errors }) => {
   if (!errors || !Array.isArray(errors) || errors.length === 0) return <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
 
   const ranges = [];
-  
-  // 1. Arama yapacağımız metni Türkçe kurallarına göre küçük harfe çevir
   const lowerText = text.toLocaleLowerCase('tr');
 
   errors.forEach(err => {
     if (!err.wrong) return;
-    
-    // Hatalı kelimeyi de Türkçe küçük harfe çevir
     const searchStr = err.wrong.trim().toLocaleLowerCase('tr');
     if (searchStr.length < 2) return;
 
-    // A) Önce Basit Arama (indexOf) dene - En hızlı ve güvenli yöntem
     let pos = lowerText.indexOf(searchStr);
     
-    // B) Eğer basit aramada bulunamazsa (Muhtemelen satır atlama yüzünden), REGEX ile dene
     if (pos === -1) {
        try {
-         // Özel karakterleri kaçır (escape)
          const escaped = searchStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-         // Boşlukları "her türlü boşluk veya yeni satır" olarak değiştir
          const pattern = escaped.replace(/\s+/g, '[\\s\\n\\r]+');
          const regex = new RegExp(pattern, 'g'); 
          
          let match;
          while ((match = regex.exec(lowerText)) !== null) {
-            ranges.push({
-              start: match.index,
-              end: match.index + match[0].length,
-              error: err
-            });
+           ranges.push({
+             start: match.index,
+             end: match.index + match[0].length,
+             error: err
+           });
          }
-       } catch (e) {
-         // Regex hatası
-       }
+       } catch (e) {}
     } else {
-       // Basit arama ile bulunan tüm eşleşmeleri kaydet
        while (pos !== -1) {
          ranges.push({ start: pos, end: pos + searchStr.length, error: err });
          pos = lowerText.indexOf(searchStr, pos + 1);
@@ -122,10 +111,8 @@ const HighlightedText = ({ text, errors }) => {
     }
   });
 
-  // 2. Bulunanları Sırala
   ranges.sort((a, b) => a.start - b.start);
 
-  // 3. Çakışmaları Temizle
   const uniqueRanges = [];
   let lastEnd = 0;
   ranges.forEach(r => {
@@ -135,7 +122,6 @@ const HighlightedText = ({ text, errors }) => {
     }
   });
 
-  // 4. Parçaları Birleştir
   const elements = [];
   let currentIndex = 0;
 
@@ -169,6 +155,53 @@ const HighlightedText = ({ text, errors }) => {
   return <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8' }}>{elements}</div>;
 };
 
+// --- FOTOĞRAF GÖRÜNTÜLEYİCİ MODAL (YENİ) ---
+const ImageViewerModal = ({ src, onClose }) => {
+    const [scale, setScale] = useState(1);
+
+    if (!src) return null;
+
+    return (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999,
+            display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'
+        }}>
+            <div style={{position: 'absolute', top: 20, right: 20, display:'flex', gap:10, zIndex: 10000}}>
+                 <button onClick={() => setScale(scale > 1 ? 1 : 2.5)} style={{backgroundColor: 'white', border:'none', borderRadius:'50%', width:40, height:40, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    {scale > 1 ? <ZoomOut size={20}/> : <ZoomIn size={20}/>}
+                 </button>
+                 <button onClick={onClose} style={{backgroundColor: '#e74c3c', color:'white', border:'none', borderRadius:'50%', width:40, height:40, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <X size={24}/>
+                 </button>
+            </div>
+            
+            <div style={{
+                overflow: 'auto', 
+                width: '100%', 
+                height: '100%', 
+                display: 'flex', 
+                alignItems: scale > 1 ? 'flex-start' : 'center', 
+                justifyContent: scale > 1 ? 'flex-start' : 'center',
+                padding: 20
+            }}>
+                <img 
+                    src={src} 
+                    alt="Öğrenci Kağıdı" 
+                    style={{
+                        maxWidth: scale === 1 ? '100%' : 'none', 
+                        maxHeight: scale === 1 ? '100%' : 'none',
+                        transform: `scale(${scale})`,
+                        transformOrigin: 'top left',
+                        transition: 'transform 0.2s ease',
+                        objectFit: 'contain'
+                    }} 
+                />
+            </div>
+        </div>
+    )
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState("");
@@ -187,6 +220,7 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [filteredSubmissions, setFilteredSubmissions] = useState([]); 
   const [selectedSubmission, setSelectedSubmission] = useState(null);
+  const [showImageModal, setShowImageModal] = useState(false); // Modal için yeni state
   
   // PUAN DÜZENLEME STATE'i
   const [editableRubric, setEditableRubric] = useState(null);
@@ -398,11 +432,22 @@ const downloadPDF = () => {
     setCountryData(Object.keys(countries).map(key => ({ name: key, value: countries[key] }))); 
   }
 
+  // --- DARK MODE FIX (GÜÇLÜ STİL) ---
+  // Bu stil telefonda inputları inatla beyaz yapar
+  const globalStyles = `
+    input, select, textarea {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #cccccc !important;
+    }
+  `;
+
   if (!session) { return ( <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', backgroundColor:'#f0f2f5', fontFamily: "'Segoe UI', sans-serif" }}> <div style={{ backgroundColor:'white', padding:40, borderRadius:15, boxShadow:'0 10px 25px rgba(0,0,0,0.05)', width:350, textAlign:'center' }}> <div style={{backgroundColor:'#e8f0fe', width:60, height:60, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px'}}><Lock size={30} color="#3498db"/></div> <h2 style={{color:'#2c3e50', marginBottom:10}}>Öğretmen Girişi</h2> <form onSubmit={handleLogin}> <input type="email" placeholder="E-posta Adresi" value={email} onChange={(e) => setEmail(e.target.value)} style={{width:'100%', padding:12, marginBottom:15, borderRadius:8, border:'1px solid #ddd', boxSizing:'border-box'}} required /> <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={{width:'100%', padding:12, marginBottom:25, borderRadius:8, border:'1px solid #ddd', boxSizing:'border-box'}} required /> <button type="submit" disabled={loading} style={{width:'100%', padding:12, backgroundColor:'#3498db', color:'white', border:'none', borderRadius:8, fontWeight:'bold', cursor:'pointer', opacity: loading ? 0.7 : 1}}>{loading ? 'Giriş Yapılıyor...' : 'Giriş Yap'}</button> </form> </div> </div> ); }
 
   if (!selectedSubmission) {
     return (
       <div style={{ padding: '30px', fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
+        <style>{globalStyles}</style>
         <div style={{marginBottom: 25, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
           <div><h1 style={{ color: '#2c3e50', margin: 0, fontSize: 26, fontWeight:'700' }}>🎓 Öğretmen Kontrol Paneli</h1><p style={{ color: '#7f8c8d', margin: '5px 0 0 0', fontSize:14 }}>Hoşgeldiniz, {session.user.email}</p></div>
           <button onClick={handleLogout} style={{backgroundColor:'#e74c3c', color:'white', border:'none', padding:'8px 15px', borderRadius:10, cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontWeight:'bold'}}><LogOut size={16}/> Çıkış</button>
@@ -465,6 +510,11 @@ const downloadPDF = () => {
 
   return (
     <div style={{ padding: '30px', fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
+      <style>{globalStyles}</style>
+      
+      {/* ZOOM MODAL */}
+      {showImageModal && <ImageViewerModal src={selectedSubmission.image_url} onClose={() => setShowImageModal(false)} />}
+
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20 }}>
         <button onClick={() => setSelectedSubmission(null)} style={{ cursor:'pointer', border:'none', background:'none', color:'#3498db', fontWeight:'600', fontSize:15, display:'flex', alignItems:'center', gap:5 }}>← Panelle Dön</button>
         <button onClick={downloadPDF} style={{ backgroundColor:'#2c3e50', color:'white', padding:'10px 20px', borderRadius:8, border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontWeight:'bold' }}><Download size={18} /> Raporu PDF Olarak İndir</button>
@@ -490,7 +540,49 @@ const downloadPDF = () => {
             </div>
         </div>
 
-        <div id="report-body" style={{display:'flex', gap:25, width:'100%', flexDirection: window.innerWidth < 900 ? 'column' : 'row'}}>
+        {/* --- YENİ 3 SÜTUNLU YAPI --- */}
+        <div id="report-body" style={{display:'flex', gap:25, width:'100%', flexDirection: window.innerWidth < 1100 ? 'column' : 'row'}}>
+            
+            {/* 1. SÜTUN: ÖĞRENCİ KAĞIDI (RESİM) */}
+            <div data-html2canvas-ignore="true" style={{ flex: 1, width:'100%' }}>
+                 <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom:20, breakInside: 'avoid' }}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15}}>
+                        <h2 style={{ margin:0, color:'#2c3e50', fontSize:18 }}>📄 Öğrenci Kağıdı</h2>
+                        <span style={{fontSize:12, color:'#7f8c8d', display:'flex', alignItems:'center', gap:5}}><Maximize2 size={12}/> Büyütmek için tıkla</span>
+                    </div>
+                    <div 
+                        onClick={() => setShowImageModal(true)}
+                        style={{
+                            width: '100%', 
+                            height: 400, // Sabit yükseklik
+                            backgroundColor: '#f8f9fa', 
+                            borderRadius: 8, 
+                            border: '1px solid #eee',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'zoom-in',
+                            overflow: 'hidden',
+                            position: 'relative'
+                        }}
+                    >
+                        {selectedSubmission.image_url ? (
+                            <img 
+                                src={selectedSubmission.image_url} 
+                                alt="Ödev" 
+                                style={{width:'100%', height:'100%', objectFit:'contain'}}
+                            />
+                        ) : (
+                            <span style={{color:'#ccc'}}>Resim Yok</span>
+                        )}
+                        <div style={{position:'absolute', bottom:10, right:10, backgroundColor:'rgba(0,0,0,0.6)', color:'white', padding:'5px 10px', borderRadius:20, fontSize:11, display:'flex', alignItems:'center', gap:5}}>
+                            <Maximize2 size={12}/> Büyüt
+                        </div>
+                    </div>
+                 </div>
+            </div>
+
+            {/* 2. SÜTUN: OCR METİN & ANALİZ (MEVCUT) */}
             <div style={{ flex: 1, width:'100%' }}>
                 <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom:20, breakInside: 'avoid' }}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}><h2 style={{ margin:0, color:'#2c3e50', fontSize:20 }}>📝 Öğrenci Yazısı</h2><span data-html2canvas-ignore="true" style={{backgroundColor:'#f1f2f6', padding:'5px 10px', borderRadius:5, fontSize:11, color:'#7f8c8d', fontWeight:'bold'}}>OCR TARAMASI</span></div>
@@ -505,6 +597,8 @@ const downloadPDF = () => {
                     <div data-html2canvas-ignore="true" style={{textAlign:'right', marginTop:10}}><button onClick={saveTeacherNote} disabled={isSaving} style={{backgroundColor:'#3498db', color:'white', border:'none', padding:'8px 20px', borderRadius:6, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:5, opacity: isSaving ? 0.7 : 1}}><Save size={16}/> {isSaving ? 'Kaydediliyor...' : 'Notu Kaydet'}</button></div>
                 </div>
             </div>
+
+            {/* 3. SÜTUN: PUANLAMA & HATALAR (MEVCUT) */}
             <div style={{ flex: 1, width:'100%' }}>
                 <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, marginBottom: 20, textAlign: 'center', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', breakInside: 'avoid' }}>
                     {/* --- DİNAMİK PUANLAMA ALANI --- */}
