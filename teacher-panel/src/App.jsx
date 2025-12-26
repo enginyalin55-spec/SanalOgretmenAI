@@ -532,12 +532,32 @@ const downloadPDF = async () => {
   `;
   wrapper.appendChild(style);
 
-  // 4) GİZLENEN HER ŞEYİ AÇ
-  const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
-  ignored.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
+  // 4) GİZLENENLERİ AKILLI YÖNET (Resmi Aç, Yapay Zekayı Gizle)
+    const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
+    ignored.forEach(el => {
+        // Kutunun içindeki metne bak (küçük harfe çevirip)
+        const text = (el.textContent || "").toLowerCase();
+        
+        // Eğer içinde "yapay zeka" kelimesi geçiyorsa -> KESİNLİKLE GİZLE
+        if (text.includes("yapay zeka") || text.includes("yapay zeka analizi")) {
+            el.style.display = "none !important";
+            el.setAttribute("data-html2canvas-ignore", "true"); // Emin olmak için etiketi geri koy
+        } 
+        // Eğer yapay zeka değilse (yani Resim ise) -> GÖSTER (Kilidi aç)
+        else {
+            el.removeAttribute('data-html2canvas-ignore');
+        }
+    });
 
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
+    // Ekstra Güvenlik: Başlıkları tarayıp "Yapay Zeka" başlığı olan kaçak kutu varsa onu da sil
+    clone.querySelectorAll("div").forEach(el => {
+        if (el.textContent.includes("Yapay Zeka Analizi") && !el.textContent.includes("Öğretmen Değerlendirmesi")) {
+             el.style.display = "none";
+        }
+    });
+
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
 
   // ✅ "Yapay Zeka Analizi" başlığını bul ve kutusunu yok et
   // Bu kod, emojilere takılmadan direkt "Yapay Zeka Analizi" kelimesini avlar.
