@@ -539,29 +539,20 @@ const downloadPDF = async () => {
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
-  // ✅ PDF'de "Yapay Zeka Analizi" kartını GARANTİLİ gizle
-  const aiHeaderEl = Array.from(clone.querySelectorAll("*")).find(el =>
-    ((el.textContent || "").trim().toUpperCase() === "YAPAY ZEKA ANALİZİ")
+  // ✅ "Yapay Zeka Analizi" başlığını bul ve kutusunu yok et
+  // Bu kod, emojilere takılmadan direkt "Yapay Zeka Analizi" kelimesini avlar.
+  const aiTitle = Array.from(clone.querySelectorAll("strong")).find(el => 
+      el.textContent.includes("Yapay Zeka Analizi")
   );
-
-  if (aiHeaderEl) {
-    // Yukarı doğru çıkıp gerçekten o "kart"ı bul
-    let node = aiHeaderEl;
-    for (let i = 0; i < 10 && node; i++) {
-      const t = (node.textContent || "");
-      // Kart içeriğini yakalayan güvenli şartlar
-      if (
-        t.includes("YAPAY ZEKA ANALİZİ") &&
-        t.includes("Çabaların") &&                // analiz metninden tipik bir parça
-        !t.includes("ÖĞRETMEN DEĞERLENDİRMESİ")   // öğretmen kartı değil
-      ) {
-        node.classList.add("pdf-hide-ai");
-        break;
+  
+  if (aiTitle) {
+      // Başlığı bulduysan, içinde olduğu kutuyu (div) bul ve gizle
+      const aiCard = aiTitle.closest("div"); 
+      if (aiCard) {
+          aiCard.style.display = "none";
+          aiCard.classList.add("pdf-hide-ai");
       }
-      node = node.parentElement;
-    }
   }
-
   // Zoom yazısını gizle
   clone.querySelectorAll("*").forEach((el) => {
     const txt = (el.textContent || "").trim();
