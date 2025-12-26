@@ -155,7 +155,7 @@ const HighlightedText = ({ text, errors }) => {
   return <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8' }}>{elements}</div>;
 };
 
-// --- FOTOĞRAF GÖRÜNTÜLEYİCİ MODAL (YENİ) ---
+// --- FOTOĞRAF GÖRÜNTÜLEYİCİ MODAL ---
 const ImageViewerModal = ({ src, onClose }) => {
     const [scale, setScale] = useState(1);
 
@@ -220,7 +220,7 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [filteredSubmissions, setFilteredSubmissions] = useState([]); 
   const [selectedSubmission, setSelectedSubmission] = useState(null);
-  const [showImageModal, setShowImageModal] = useState(false); // Modal için yeni state
+  const [showImageModal, setShowImageModal] = useState(false);
   
   // PUAN DÜZENLEME STATE'i
   const [editableRubric, setEditableRubric] = useState(null);
@@ -231,6 +231,15 @@ export default function App() {
   const [countryData, setCountryData] = useState([]);
   const [teacherNote, setTeacherNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  
+  // EKRAN BOYUTU TAKİBİ (MOBİL/PC)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // --- OTURUM YÖNETİMİ ---
   useEffect(() => {
@@ -381,49 +390,37 @@ const downloadPDF = () => {
     }); 
   };
 
-  // --- İSTATİSTİK HESAPLAMA (GELİŞMİŞ VERSİYON - AÇIKLAMAYA DA BAKAR) ---
+  // --- İSTATİSTİK HESAPLAMA ---
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
     let countries = {}; 
 
     data.forEach(sub => { 
-      // 1. Hata Türlerini ve Açıklamalarını Analiz Et
       if (sub.analysis_json?.errors) { 
         sub.analysis_json.errors.forEach(err => { 
-          // Hem TÜRÜNE (type) hem de AÇIKLAMASINA (explanation) bakıyoruz
           const typeText = (err.type || "").toLowerCase();
           const descText = (err.explanation || "").toLowerCase();
-          
-          // İkisini birleştirip içinde arama yapalım (Daha geniş kapsam)
           const fullText = typeText + " " + descText;
 
-          // --- KATEGORİLENDİRME MANTIĞI ---
-          
-          // 1. SÖZ DİZİMİ (Syntax): Cümle yapısı, ögelerin yeri, anlatım bozukluğu
           if (fullText.includes('söz') || fullText.includes('cümle') || fullText.includes('yapı') || 
               fullText.includes('anlatım') || fullText.includes('devrik') || fullText.includes('yüklem') || 
               fullText.includes('özne') || fullText.includes('sıralama') || fullText.includes('eksik')) {
              stats['Söz Dizimi']++;
           } 
-          // 2. YAZIM ve NOKTALAMA (Spelling): Harf hataları, büyük/küçük harf, noktalama
           else if (fullText.includes('yazım') || fullText.includes('nokta') || fullText.includes('harf') || 
                    fullText.includes('imla') || fullText.includes('büyük') || fullText.includes('küçük') || 
                    fullText.includes('kesme')) {
              stats['Yazım/Nokt.']++;
           } 
-          // 3. KELİME (Vocabulary): Yanlış kelime seçimi, anlamsız kelime
           else if (fullText.includes('keli') || fullText.includes('sözcük') || fullText.includes('anlam') || 
                    fullText.includes('seçim') || fullText.includes('ifade')) {
              stats['Kelime']++;
           } 
-          // 4. DİLBİLGİSİ (Grammar): Ekler, zamanlar, uyum (Geriye kalanlar genelde budur)
           else {
              stats['Dilbilgisi']++;
           }
         }); 
       } 
-      
-      // 2. Ülke Analizi
       const countryName = sub.country || 'Belirsiz'; 
       countries[countryName] = (countries[countryName] || 0) + 1; 
     }); 
@@ -432,8 +429,7 @@ const downloadPDF = () => {
     setCountryData(Object.keys(countries).map(key => ({ name: key, value: countries[key] }))); 
   }
 
-  // --- DARK MODE FIX (GÜÇLÜ STİL) ---
-  // Bu stil telefonda inputları inatla beyaz yapar
+  // --- DARK MODE FIX ---
   const globalStyles = `
     input, select, textarea {
         background-color: #ffffff !important;
@@ -519,8 +515,23 @@ const downloadPDF = () => {
         <button onClick={() => setSelectedSubmission(null)} style={{ cursor:'pointer', border:'none', background:'none', color:'#3498db', fontWeight:'600', fontSize:15, display:'flex', alignItems:'center', gap:5 }}>← Panelle Dön</button>
         <button onClick={downloadPDF} style={{ backgroundColor:'#2c3e50', color:'white', padding:'10px 20px', borderRadius:8, border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontWeight:'bold' }}><Download size={18} /> Raporu PDF Olarak İndir</button>
       </div>
+      
+      {/* --- RESPONSIVE ÜST BİLGİ KARTI --- */}
       <div id="report-content" style={{ display: 'flex', gap: 25, alignItems:'flex-start', flexDirection: 'column' }}>
-        <div style={{width:'100%', backgroundColor:'white', padding:'20px 25px', borderRadius:12, display:'flex', alignItems:'center', gap:25, boxShadow:'0 2px 10px rgba(0,0,0,0.03)', boxSizing:'border-box', borderLeft:'6px solid #3498db'}}>
+        <div style={{
+            width:'100%', 
+            backgroundColor:'white', 
+            padding:'20px 25px', 
+            borderRadius:12, 
+            display:'flex', 
+            // MOBİL İSE ALT ALTA, BİLGİSAYAR İSE YAN YANA
+            flexDirection: isMobile ? 'column' : 'row', 
+            alignItems: isMobile ? 'flex-start' : 'center', 
+            gap:25, 
+            boxShadow:'0 2px 10px rgba(0,0,0,0.03)', 
+            boxSizing:'border-box', 
+            borderLeft:'6px solid #3498db'
+        }}>
             <div style={{fontSize:48, lineHeight:1}}>{getFlag(selectedSubmission.country)}</div>
             <div style={{flex: 1}}>
                 <div style={{fontSize:22, fontWeight:'800', color:'#2c3e50', marginBottom:5}}>{selectedSubmission.student_name} {selectedSubmission.student_surname}</div>
@@ -529,9 +540,23 @@ const downloadPDF = () => {
                     <span style={{display:'flex', alignItems:'center', gap:5}}>🗣️ {selectedSubmission.native_language}</span>
                 </div>
             </div>
-            <div style={{display:'flex', flexDirection:'column', gap:8, alignItems:'flex-end'}}>
+            {/* SINIF BİLGİLERİ KISMI */}
+            <div style={{
+                display:'flex', 
+                flexDirection:'column', 
+                gap:8, 
+                // MOBİLDE SOLA YASLA
+                alignItems: isMobile ? 'flex-start' : 'flex-end',
+                width: isMobile ? '100%' : 'auto',
+                marginTop: isMobile ? 15 : 0
+            }}>
                  <div style={{fontSize:12, color:'#95a5a6', fontWeight:'bold'}}>SINIF BİLGİLERİ</div>
-                 <div style={{display:'flex', gap:10}}>
+                 <div style={{
+                     display:'flex', 
+                     gap:10, 
+                     // DÜZELTME: SIĞMAZSA ALT SATIRA GEÇSİN
+                     flexWrap: 'wrap' 
+                 }}>
                      <div style={{backgroundColor:'#f1f2f6', padding:'6px 12px', borderRadius:6, textAlign:'center'}}><div style={{fontSize:10, color:'#7f8c8d', fontWeight:'bold'}}>SINIF</div><div style={{color:'#2c3e50', fontWeight:'bold'}}>{className}</div></div>
                      <div style={{backgroundColor:'#fff3cd', padding:'6px 12px', borderRadius:6, textAlign:'center', minWidth:50}}><div style={{fontSize:10, color:'#856404', fontWeight:'bold'}}>SEVİYE</div><div style={{color:'#856404', fontWeight:'bold'}}>{selectedSubmission.level || '-'}</div></div>
                      <div style={{backgroundColor:'#e8f0fe', padding:'6px 12px', borderRadius:6, textAlign:'center'}}><div style={{fontSize:10, color:'#3498db', fontWeight:'bold'}}>KOD</div><div style={{color:'#3498db', fontWeight:'bold', letterSpacing:1}}>{selectedSubmission.classroom_code}</div></div>
@@ -540,7 +565,7 @@ const downloadPDF = () => {
             </div>
         </div>
 
-        {/* --- YENİ 3 SÜTUNLU YAPI --- */}
+        {/* --- 3 SÜTUNLU YAPI --- */}
         <div id="report-body" style={{display:'flex', gap:25, width:'100%', flexDirection: window.innerWidth < 1100 ? 'column' : 'row'}}>
             
             {/* 1. SÜTUN: ÖĞRENCİ KAĞIDI (RESİM) */}
