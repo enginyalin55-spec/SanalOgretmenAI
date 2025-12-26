@@ -373,222 +373,163 @@ export default function App() {
     setIsSaving(false);
   }
 
-const downloadPDF = async () => {
-  const source = document.getElementById("report-content");
-  if (!source) return;
+// --- FINAL SUPER HIBRIT PDF MODU (GPT Tasarımı + Gemini Motoru) ---
+  const downloadPDF = async () => {
+    const source = document.getElementById("report-content");
+    if (!source) return;
 
-  const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
-  const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
-  const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
+    const safeName = (selectedSubmission.student_name || "").trim().replace(/\s+/g, "_");
+    const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
+    const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-  // --- yardımcılar ---
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 1) ORİJİNALİ KLONLA
+    const clone = source.cloneNode(true);
+    clone.classList.add("pdf-mode");
 
-  // Klon içindeki <img>’leri yüklemesini bekle
-  const waitForImages = async (root) => {
-    const imgs = Array.from(root.querySelectorAll("img"));
-    await Promise.all(
-      imgs.map(
-        (img) =>
-          new Promise((resolve) => {
-            if (img.complete && img.naturalWidth > 0) return resolve();
-            img.onload = () => resolve();
-            img.onerror = () => resolve();
-          })
-      )
-    );
-  };
+    // 2) GİZLİ WRAPPER OLUŞTUR
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-10000px";
+    wrapper.style.top = "0";
+    wrapper.style.zIndex = "-1";
+    wrapper.style.background = "white";
 
-  // CORS sorununu aşmak için img src'yi dataURL'ye çevir (başarısız olursa olduğu gibi bırakır)
-  const inlineImagesAsDataURL = async (root) => {
-    const imgs = Array.from(root.querySelectorAll("img"));
-    for (const img of imgs) {
-      const src = img.getAttribute("src");
-      if (!src || src.startsWith("data:")) continue;
-
-      try {
-        const res = await fetch(src, { mode: "cors", cache: "no-store" });
-        const blob = await res.blob();
-
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-
-        img.setAttribute("src", dataUrl);
-      } catch (e) {
-        // CORS yine engellerse: olduğu gibi kalsın
+    // 3) PDF İÇİN ÖZEL CSS (ŞIK TASARIM)
+    const style = document.createElement("style");
+    style.innerHTML = `
+      /* Temel Yazı Tipi ve Renk */
+      .pdf-mode {
+        font-family: "Segoe UI", Arial, sans-serif !important;
+        color: #000 !important;
+        background-color: #fff !important;
+        width: 1300px !important; /* A4 Yatay Genişliği */
+        padding: 20px !important;
       }
+
+      /* Üst Bilgi Kartı (Sıkılaştırılmış) */
+      .pdf-mode > div:first-child {
+        padding: 15px 20px !important;
+        border-left: 5px solid #3498db !important;
+        border: 1px solid #eaeaea;
+        box-shadow: none !important;
+        margin-bottom: 20px !important;
+      }
+
+      /* ANA GÖVDE: 3 SÜTUN (Izgara Sistemi) */
+      .pdf-mode #report-body {
+        display: grid !important;
+        grid-template-columns: 1fr 1.2fr 0.8fr !important; /* Resim, Metin, Puan Oranları */
+        gap: 20px !important;
+        align-items: start !important;
+      }
+
+      /* 1. SÜTUN: RESİM (Görünür Yap) */
+      .pdf-mode #report-body > div:nth-child(1) {
+        display: block !important; /* Gizliyse aç */
+        height: auto !important;
+        border: 1px solid #eee !important;
+        background: #fafafa !important;
+        padding: 10px !important;
+      }
+      
+      /* Resim Kutusunun İçindeki Gereksiz Overlayleri Gizle */
+      .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
+         display: none !important; /* "Büyüt" butonu gizlensin */
+      }
+      
+      /* Resmin Kendisi */
+      .pdf-mode img {
+        max-height: 400px !important;
+        object-fit: contain !important;
+        margin: 0 auto !important;
+        display: block !important;
+      }
+
+      /* 2. SÜTUN: METİN VE ANALİZ */
+      .pdf-mode #report-body > div:nth-child(2) {
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+      /* Metin Kutularını Beyazlaştır ve Çerçevele */
+      .pdf-mode #report-body > div:nth-child(2) > div {
+        box-shadow: none !important;
+        border: 1px solid #eaeaea !important;
+        background-color: #fff !important;
+        margin-bottom: 15px !important;
+        padding: 15px !important;
+      }
+      /* Metinlerin tamamını göster (Scroll olmasın) */
+      .pdf-mode * {
+        overflow: visible !important;
+        height: auto !important;
+      }
+
+      /* 3. SÜTUN: PUANLAR VE HATALAR */
+      .pdf-mode #report-body > div:nth-child(3) {
+         border: none !important;
+         box-shadow: none !important;
+         padding: 0 !important;
+      }
+      .pdf-mode #report-body > div:nth-child(3) > div {
+         box-shadow: none !important;
+         border: 1px solid #eaeaea !important;
+         padding: 15px !important;
+         margin-bottom: 15px !important;
+      }
+
+      /* Gereksiz Butonları Temizle */
+      .pdf-mode button, 
+      .pdf-mode [role="button"],
+      .pdf-mode .lucide-maximize-2 { 
+        display: none !important; 
+      }
+      
+      /* Bölünme Koruması */
+      .pdf-mode .avoid-break {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+      }
+    `;
+    
+    wrapper.appendChild(style);
+
+    // 4) GİZLENMİŞ ÖĞELERİ GERİ AÇ (Resim sütunu için kritik!)
+    // Orijinal kodda data-html2canvas-ignore="true" varsa siliyoruz.
+    const ignoredElements = clone.querySelectorAll('[data-html2canvas-ignore]');
+    ignoredElements.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
+
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    // 5) HTML2PDF AYARLARI
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: fileName,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2.5, // Yüksek Çözünürlük (Telefonda netlik için)
+        useCORS: true, // Resimlerin yüklenmesi için şart
+        backgroundColor: "#ffffff",
+        windowWidth: 1300, // Tarayıcıyı geniş ekran sanması için
+        logging: false,
+        // Sadece bizim "özel" olarak gizlemek istediklerimizi gizle
+        ignoreElements: (el) => el.style.display === 'none',
+      },
+      // A4 YATAY (LANDSCAPE) - En dengeli 3 sütun formatı
+      jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+      pagebreak: { mode: ["css", "legacy"] },
+    };
+
+    try {
+      await html2pdf().set(opt).from(clone).save();
+    } catch (error) {
+      console.error("PDF Hatası:", error);
+      alert("PDF oluşturulurken bir hata oluştu.");
+    } finally {
+      document.body.removeChild(wrapper);
     }
   };
-
-  // 1) KLON
-  const clone = source.cloneNode(true);
-  clone.classList.add("pdf-mode");
-
-  // 2) WRAPPER
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "fixed";
-  wrapper.style.left = "-100000px";
-  wrapper.style.top = "0";
-  wrapper.style.background = "white";
-  wrapper.style.zIndex = "-1";
-
-  // 3) PDF CSS: boşlukları öldür, yükseklikleri toparla, kartları rapor gibi yap
-  const style = document.createElement("style");
-  style.innerHTML = `
-    .pdf-mode{
-      font-family: "Segoe UI", Arial, sans-serif !important;
-      color:#111 !important;
-    }
-    .pdf-mode #report-content{
-      gap: 12px !important;
-    }
-    /* Üst header kartını toparla */
-    .pdf-mode #report-content > div:first-child{
-      padding: 12px 14px !important;
-      box-shadow: none !important;
-      border: 1px solid #e9e9e9 !important;
-    }
-
-    /* Report body: 2 sütun "rapor" düzeni (daha şık) */
-    .pdf-mode #report-body{
-      display:grid !important;
-      grid-template-columns: 1.1fr 0.9fr !important;
-      gap: 12px !important;
-      align-items:start !important;
-    }
-
-    /* Sol sütun (görsel + yazı) üst üste */
-    .pdf-mode #report-body > div:nth-child(1),
-    .pdf-mode #report-body > div:nth-child(2){
-      width:100% !important;
-    }
-    /* Sağ sütun: puan + hatalar */
-    .pdf-mode #report-body > div:nth-child(3){
-      width:100% !important;
-    }
-
-    /* Kart görünümü: gölge yok, ince border */
-    .pdf-mode #report-body > div > div{
-      box-shadow:none !important;
-      border:1px solid #e9e9e9 !important;
-    }
-
-    /* Görsel kutusu: sabit 400 yerine daha kompakt */
-    .pdf-mode .pdf-student-image-box{
-      height: 280px !important;
-      overflow:hidden !important;
-      background:#fafafa !important;
-      border:1px solid #eee !important;
-    }
-
-    /* OCR kutusu: italik alandaki "dev boşluğu" azalt */
-    .pdf-mode .pdf-ocr-box{
-      font-size: 14px !important;
-      line-height: 1.5 !important;
-      padding: 14px !important;
-      min-height: unset !important;
-    }
-
-    /* Hatalar listesi daha sıkı */
-    .pdf-mode .pdf-error-item{
-      margin-bottom: 10px !important;
-      padding-bottom: 10px !important;
-    }
-
-    /* PDF'te tıklanabilir/overlay/ipuçlarını gizle */
-    .pdf-mode [data-pdf-hide="true"]{ display:none !important; }
-
-    /* Kartları sayfa içinde bölmemeye çalış */
-    .pdf-mode .avoid-break,
-    .pdf-mode .avoid-break *{
-      break-inside: avoid !important;
-      page-break-inside: avoid !important;
-    }
-  `;
-  wrapper.appendChild(style);
-
-  // 4) KLON boyutları (A4 landscape için)
-  clone.style.width = "1200px";       // 1300 yerine daha kompakt -> daha az boşluk
-  clone.style.padding = "12px";
-  clone.style.backgroundColor = "#fff";
-  clone.style.color = "#000";
-
-  // 5) PDF’te görsel sütununu DAHİL ET (sen orijinalde ignore etmiştin)
-  clone.querySelectorAll('[data-html2canvas-ignore="true"]').forEach((n) => {
-    n.removeAttribute("data-html2canvas-ignore");
-  });
-
-  // 6) PDF’te gizlenecek küçük ekran öğeleri (Büyüt overlay, ipucu vs.)
-  clone.querySelectorAll("span, div").forEach((el) => {
-    const t = (el.textContent || "").trim();
-    if (
-      t === "Büyütmek için tıkla" ||
-      t === "Büyüt" ||
-      t.includes("Mouse tekerleği")
-    ) el.setAttribute("data-pdf-hide", "true");
-  });
-
-  // 7) Görsel kutusunu bulup class ver (PDF yüksekliği kontrol)
-  // Senin görsel kutun: cursor zoom-in olan div.
-  Array.from(clone.querySelectorAll("div")).forEach((d) => {
-    const s = d.getAttribute("style") || "";
-    if (s.includes("zoom-in")) d.classList.add("pdf-student-image-box");
-  });
-
-  // 8) OCR kutusunu class’la yakala (background #f8f9fa olan italik alan)
-  Array.from(clone.querySelectorAll("div")).forEach((d) => {
-    const s = d.getAttribute("style") || "";
-    if (s.includes("fontStyle") && s.includes("italic")) d.classList.add("pdf-ocr-box");
-  });
-
-  // 9) Hata itemlerini class’la sıkılaştır
-  clone.querySelectorAll("div").forEach((d) => {
-    const s = d.getAttribute("style") || "";
-    if (s.includes("borderBottom") && s.includes("paddingBottom")) d.classList.add("pdf-error-item");
-  });
-
-  // DOM’a ekle
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-
-  // 10) Görseller için en kritik hamle:
-  // önce dataURL'e çevir, sonra yüklenmesini bekle
-  await inlineImagesAsDataURL(clone);
-  await waitForImages(clone);
-  await wait(50); // küçük buffer
-
-  const contentWidth = clone.scrollWidth;
-
-  const opt = {
-    margin: [6, 6, 6, 6],
-    filename: fileName,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: {
-      scale: 2.5,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      windowWidth: contentWidth,
-      width: contentWidth,
-      scrollX: 0,
-      scrollY: 0,
-      logging: false,
-      ignoreElements: (el) => el.hasAttribute("data-pdf-hide"),
-    },
-    jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-    pagebreak: { mode: ["css", "legacy"] },
-  };
-
-  try {
-    await html2pdf().set(opt).from(clone).save();
-  } finally {
-    document.body.removeChild(wrapper);
-  }
-};
-
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
