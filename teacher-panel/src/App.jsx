@@ -373,7 +373,7 @@ export default function App() {
     setIsSaving(false);
   }
 
-// --- FINAL: DİKEY (PORTRAIT) RAPOR - UFak Düzeltmeli ---
+// --- FINAL: %100 GARANTİLİ DİKEY (PORTRAIT) RAPOR (AI ANALİZİ + ÇERÇEVE GİZLİ) ---
 const downloadPDF = async () => {
   const source = document.getElementById("report-content");
   if (!source) return;
@@ -382,9 +382,11 @@ const downloadPDF = async () => {
   const safeSurname = (selectedSubmission.student_surname || "").trim().replace(/\s+/g, "_");
   const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
+  // 1) KLON OLUŞTUR
   const clone = source.cloneNode(true);
   clone.classList.add("pdf-mode");
 
+  // 2) GİZLİ WRAPPER (Ekran dışı)
   const wrapper = document.createElement("div");
   wrapper.style.position = "fixed";
   wrapper.style.left = "-10000px";
@@ -392,15 +394,16 @@ const downloadPDF = async () => {
   wrapper.style.zIndex = "-1";
   wrapper.style.background = "white";
 
-  // ✅ A4 güvenli alan: 800 yerine 720 (kırpılmayı bitirir)
+  // ✅ A4 güvenli alan (taşmayı azaltır)
   const PDF_WIDTH = 720;
 
+  // 3) PDF İÇİN GARANTİ CSS (DİKEY YAPI)
   const style = document.createElement("style");
   style.innerHTML = `
     .pdf-mode {
       font-family: "Segoe UI", Arial, sans-serif !important;
-      width: ${PDF_WIDTH}px !important;
-      padding: 24px !important;  /* 40 -> 24 (daha az taşma) */
+      width: ${PDF_WIDTH}px !important; 
+      padding: 24px !important;
       background-color: #fff !important;
       color: #000 !important;
       box-sizing: border-box !important;
@@ -412,21 +415,25 @@ const downloadPDF = async () => {
       overflow: visible !important;
     }
 
-    /* Başlık */
+    /* ✅ ÜST BİLGİ ÇERÇEVESİNİ PDF'TE KALDIR (mavi çizgi/çerçeve) */
     .pdf-mode > div:first-child {
-      border-bottom: 2px solid #3498db;
+      border: none !important;
+      border-left: none !important;
+      border-bottom: none !important;
+      box-shadow: none !important;
       padding-bottom: 16px !important;
       margin-bottom: 20px !important;
     }
 
-    /* Gövde alt alta */
+    /* ANA GÖVDEYİ DİKEY (ALT ALTA) YAP */
     .pdf-mode #report-body {
       display: flex !important;
       flex-direction: column !important;
       gap: 18px !important;
+      align-items: stretch !important;
     }
 
-    /* Görsel alanı */
+    /* 1. RESİM ALANI (KESİN GÖSTER) */
     .pdf-mode #report-body > div:nth-child(1) {
       display: block !important;
       width: 100% !important;
@@ -434,7 +441,8 @@ const downloadPDF = async () => {
       padding: 10px !important;
       background: #fafafa !important;
     }
-
+    
+    /* Resim Ayarları */
     .pdf-mode img {
       width: 100% !important;
       max-height: 520px !important;
@@ -442,14 +450,28 @@ const downloadPDF = async () => {
       display: block !important;
       margin: 0 auto !important;
     }
-
-    /* Görsel üstü overlay gizle */
+    
+    /* Resim üzerindeki overlay butonları gizle */
     .pdf-mode #report-body > div:nth-child(1) div[style*="absolute"] {
       display: none !important;
     }
 
-    /* Kartları sadeleştir */
-    .pdf-mode #report-body > div:nth-child(2) > div,
+    /* 2. METİN VE ANALİZ ALANI */
+    .pdf-mode #report-body > div:nth-child(2) {
+      width: 100% !important;
+    }
+    .pdf-mode #report-body > div:nth-child(2) > div {
+      border: 1px solid #eee !important;
+      padding: 18px !important;
+      margin-bottom: 14px !important;
+      box-shadow: none !important;
+      background: #fff !important;
+    }
+
+    /* 3. PUAN VE HATALAR ALANI */
+    .pdf-mode #report-body > div:nth-child(3) {
+      width: 100% !important;
+    }
     .pdf-mode #report-body > div:nth-child(3) > div {
       border: 1px solid #eee !important;
       padding: 18px !important;
@@ -458,10 +480,20 @@ const downloadPDF = async () => {
       background: #fff !important;
     }
 
-    /* Butonları gizle */
+    /* ✅ PDF'te Yapay Zeka Analizi kartını tamamen gizle */
+    .pdf-mode .pdf-hide-ai {
+      display: none !important;
+    }
+
+    /* ✅ PDF'te 'Büyütmek için tıkla' yazısı görünmesin */
+    .pdf-mode .pdf-hide-zoom-hint {
+      display: none !important;
+    }
+
+    /* Gereksiz butonları temizle */
     .pdf-mode button, .pdf-mode [role="button"] { display: none !important; }
 
-    /* Sayfa bölünme koruması */
+    /* Sayfa Bölünme Koruması */
     .pdf-mode .avoid-break,
     .pdf-mode .avoid-break *{
       break-inside: avoid !important;
@@ -470,13 +502,30 @@ const downloadPDF = async () => {
   `;
   wrapper.appendChild(style);
 
-  // ignore edilenleri aç (resim gelsin)
-  clone.querySelectorAll('[data-html2canvas-ignore]').forEach(el => el.removeAttribute('data-html2canvas-ignore'));
+  // 4) GİZLENEN HER ŞEYİ AÇ (Resim geri gelsin diye)
+  const ignored = clone.querySelectorAll('[data-html2canvas-ignore]');
+  ignored.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
 
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
-  // ✅ UFak ama kritik: ScoreEditor grid’ini PDF’te 3 sütuna sabitle (sağdan kesilme biter)
+  // ✅ "YAPAY ZEKA ANALİZİ" kartını PDF'te gizle + "Büyütmek için tıkla" yazısını sakla
+  clone.querySelectorAll("*").forEach((el) => {
+    const txt = (el.textContent || "").trim();
+
+    // Yapay zeka analizi başlığını yakala ve içinde olduğu kartı gizle
+    if (txt.includes("YAPAY ZEKA ANALİZİ") || txt.includes("Yapay Zeka Analizi")) {
+      const card = el.closest("div");
+      if (card) card.classList.add("pdf-hide-ai");
+    }
+
+    // Zoom ipucunu gizle
+    if (txt === "Büyütmek için tıkla") {
+      el.classList.add("pdf-hide-zoom-hint");
+    }
+  });
+
+  // ✅ ScoreEditor grid’ini PDF’te 3 sütuna sabitle (sağdan kesilme olmasın)
   clone.querySelectorAll("div").forEach((d) => {
     if (d.style && d.style.display === "grid") {
       d.style.gridTemplateColumns = "repeat(3, minmax(0, 1fr))";
@@ -484,6 +533,7 @@ const downloadPDF = async () => {
     }
   });
 
+  // 5) HTML2PDF AYARLARI (DİKEY A4)
   const opt = {
     margin: [10, 10, 10, 10],
     filename: fileName,
@@ -492,7 +542,7 @@ const downloadPDF = async () => {
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
-      windowWidth: PDF_WIDTH,   // ✅ 800 değil
+      windowWidth: PDF_WIDTH,
       logging: false,
     },
     jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
