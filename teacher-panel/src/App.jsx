@@ -392,57 +392,49 @@ const downloadPDF = () => {
     const safeSurname = selectedSubmission.student_surname.replace(/\s+/g, '_');
     const fileName = `Rapor_${safeName}_${safeSurname}.pdf`;
 
-    // 1. MEVCUT STİLİ YEDEKLE
+    // 1. STİLLERİ YEDEKLE
     const originalStyle = element.style.cssText;
     const bodyElement = document.getElementById('report-body');
     const originalBodyStyle = bodyElement ? bodyElement.style.cssText : '';
 
-    // 2. PDF İÇİN "GENİŞ VE BÖLÜNMEZ" AYARI
-    // Genişlik ayarı: 3 sütunun rahat sığması için 1500px yapıyoruz.
-    element.style.width = '1500px'; 
-    element.style.padding = '20px';
+    // 2. PDF İÇİN "GARANTİ DİKEY TASARIM" AYARLARI
+    // Genişliği A4 kağıdına (yaklaşık 800px) sabitliyoruz.
+    element.style.width = '800px'; 
+    element.style.padding = '40px'; // Kenarlardan ferah boşluk
     element.style.backgroundColor = 'white';
-    element.style.color = 'black'; 
+    element.style.color = 'black';
+    element.style.fontSize = '14px'; // Yazı boyutu okunabilir olsun
     
-    // Gövdeyi Yan Yana (Row) Zorla
+    // Gövdeyi kesinlikle ALT ALTA (Column) diziyoruz
     if (bodyElement) {
         bodyElement.style.display = 'flex';
-        bodyElement.style.flexDirection = 'row'; 
-        bodyElement.style.gap = '25px'; // Sütunlar arası boşluk
-        bodyElement.style.alignItems = 'flex-start';
-        bodyElement.style.flexWrap = 'nowrap';
+        bodyElement.style.flexDirection = 'column'; 
+        bodyElement.style.gap = '30px'; // Kutular arası boşluk
         
-        // --- KRİTİK NOKTA: KUTULARI KORUMA ---
-        // Raporun içindeki tüm kutulara (div'lere) "Beni bölme" emri veriyoruz.
-        const children = bodyElement.children;
-        for (let i = 0; i < children.length; i++) {
-            children[i].style.breakInside = 'avoid'; // CSS: Ortadan bölme
-            children[i].style.pageBreakInside = 'avoid'; // Eski tarayıcılar için
-            // İçindeki beyaz kutulara da uygula
-            const innerCards = children[i].querySelectorAll('div');
-            innerCards.forEach(card => {
-                card.style.breakInside = 'avoid';
-                card.style.pageBreakInside = 'avoid';
-            });
-        }
+        // Tüm kutulara "Beni ortadan bölme" emri veriyoruz
+        Array.from(bodyElement.children).forEach(child => {
+            child.style.width = '100%'; // Tam genişlik kullan
+            child.style.pageBreakInside = 'avoid'; // Eski tarayıcılar
+            child.style.breakInside = 'avoid'; // Yeni tarayıcılar
+            child.style.marginBottom = '20px';
+        });
     }
 
-    // 3. PDF MOTOR AYARLARI (YATAY A4)
+    // 3. PDF MOTOR AYARLARI (DİKEY A4 - PORTRAIT)
     const opt = { 
-        margin: [5, 5, 5, 5], // Kenar boşlukları (mm)
+        margin: [10, 10, 10, 10], // Kenar boşlukları (mm)
         filename: fileName, 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { 
-            scale: 2, // Netlik
+            scale: 2, // Netlik (Bulanıklığı önler)
             useCORS: true, 
             logging: false,
             backgroundColor: '#ffffff',
-            windowWidth: 1500, // Tarayıcıyı geniş kandır
+            windowWidth: 800, // <--- KRİTİK: Tarayıcıyı A4 genişliğinde açtırıyoruz
             ignoreElements: (element) => element.hasAttribute('data-html2canvas-ignore') 
         }, 
-        // KAĞIDI YATAY (LANDSCAPE) YAPIYORUZ Kİ HER ŞEY SIĞSIN
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-        // AKILLI SAYFA GEÇİŞİ
+        // KAĞIT TÜRÜ: DİKEY (PORTRAIT) - EN GÜVENLİSİ
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['avoid-all', 'css', 'legacy'] } 
     }; 
     
@@ -450,17 +442,9 @@ const downloadPDF = () => {
     html2pdf().set(opt).from(element).save().then(() => {
         // PDF işi bitince siteyi eski haline döndür
         element.style.cssText = originalStyle;
-        if (bodyElement) {
-            bodyElement.style.cssText = originalBodyStyle;
-            // Eklediğimiz "bölünme" stillerini temizle (gerekirse)
-            const children = bodyElement.children;
-            for (let i = 0; i < children.length; i++) {
-                children[i].style.breakInside = '';
-                children[i].style.pageBreakInside = '';
-            }
-        }
+        if (bodyElement) bodyElement.style.cssText = originalBodyStyle;
     }); 
-  };
+};
 
   function calculateStats(data) { 
     let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; 
