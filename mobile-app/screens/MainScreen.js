@@ -330,7 +330,7 @@ export default function MainScreen({ user, setUser }) {
                     <View style={styles.resultContainer}>
                         <View style={styles.successBox}>
                              <Text style={styles.successText}>Ödevin Başarıyla Gönderildi! ✅</Text>
-                             <Text style={styles.successSubText}>Hatalı kelimelerin üzerine dokunarak detayları görebilirsin.</Text>
+                             <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
                         </View>
                         
                         <View style={styles.analysisCard}>
