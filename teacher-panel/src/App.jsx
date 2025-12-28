@@ -1,14 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabase';
 import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import html2pdf from 'html2pdf.js';
 
 // --- AYARLAR ---
-const PASS_THRESHOLD = 70; 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#ff7675'];
-// DİKKAT: Backend adresini kendi sunucunuza göre ayarlayın
-const API_URL = "https://sanalogretmenai.onrender.com"; 
+const API_URL = "https://sanalogretmenai.onrender.com"; // Render adresin
 
 const COUNTRY_NAMES = {
   "TR": "Türkiye", "US": "ABD", "GB": "İngiltere", "DE": "Almanya", "FR": "Fransa",
@@ -31,7 +27,7 @@ const getFlag = (countryCode) => {
 
 const generateClassCode = () => Math.random().toString(36).substring(2, 7).toUpperCase();
 
-// --- TDK KURAL SÖZLÜĞÜ ---
+// --- TDK KURAL SÖZLÜĞÜ (BAŞLIKLAR) ---
 const TDK_LOOKUP = {
   "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'nin Yazımı",
   "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'nin Yazımı",
@@ -62,11 +58,13 @@ const TDK_LOOKUP = {
   "TDK_27_ART_ARDA": "Art Arda Yazımı",
   "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimelerin Yazımı",
   "TDK_29_UNVANLAR": "Unvanların Yazımı",
-  "TDK_30_YONLER": "Yön Adlarının Yazımı"
+  "TDK_30_YONLER": "Yön Adlarının Yazımı",
+  "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GLOBAL STYLES ---
+// --- GLOBAL STYLES (KIRMIZI ÇİZGİLER VE KART STİLİ BURADA) ---
 const GLOBAL_STYLES = `
+  /* Hata vurgulama stili */
   .tdk-err {
     background-color: #fff0f0;
     color: #c0392b;
@@ -81,7 +79,8 @@ const GLOBAL_STYLES = `
     background-color: #ffe1e1;
     outline: none;
   }
-  /* WOW EFEKTİ: Hata Tıklandığında Parlama */
+  
+  /* Kart açılınca yanıp sönme efekti */
   @keyframes flash-highlight {
     0% { background-color: #fff0f0; transform: scale(1); }
     50% { background-color: #ffeaa7; transform: scale(1.05); box-shadow: 0 0 10px rgba(253, 203, 110, 0.5); }
@@ -92,7 +91,7 @@ const GLOBAL_STYLES = `
   }
 `;
 
-// --- PUAN KARTI ---
+// --- PUAN EDİTÖRÜ ---
 const ScoreEditor = ({ rubric, onUpdate }) => {
     if (!rubric) return null;
     const handleChange = (key, val, max) => {
@@ -121,10 +120,11 @@ const ScoreEditor = ({ rubric, onUpdate }) => {
     );
 };
 
-// --- ZIRHLI BOYAMA BİLEŞENİ (FİNAL) ---
+// --- ZIRHLI BOYAMA BİLEŞENİ (METNİ KIRMIZI YAPAN KISIM) ---
 const HighlightedText = ({ text, errors, onErrorClick }) => {
   if (typeof text !== "string" || text.length === 0) return null;
 
+  // Hataları güvenli hale getir ve sırala
   const safeErrors = Array.isArray(errors)
     ? errors.filter((e) => {
           const s = e?.span?.start;
@@ -132,11 +132,7 @@ const HighlightedText = ({ text, errors, onErrorClick }) => {
           return Number.isInteger(s) && Number.isInteger(ed) && s >= 0 && ed > s && ed <= text.length;
         })
         .slice()
-        .sort((a, b) => {
-          const ds = a.span.start - b.span.start;
-          if (ds !== 0) return ds;
-          return (b.span.end - b.span.start) - (a.span.end - a.span.start);
-        })
+        .sort((a, b) => a.span.start - b.span.start)
     : [];
 
   if (safeErrors.length === 0) return <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>;
@@ -149,19 +145,25 @@ const HighlightedText = ({ text, errors, onErrorClick }) => {
     const start = err.span.start;
     const end = err.span.end;
 
-    if (start < cursor) continue;
+    if (start < cursor) continue; // Çakışma varsa atla
 
-    if (start > cursor) elements.push(<span key={`txt-${cursor}-${start}`}>{text.slice(cursor, start)}</span>);
+    // Hata öncesindeki normal metin
+    if (start > cursor) {
+        elements.push(<span key={`txt-${cursor}-${start}`}>{text.slice(cursor, start)}</span>);
+    }
 
-    // ID GÜVENLİĞİ: start-end ikilisi ile benzersiz ID
+    // HATALI KISIM (Tıklanabilir Span)
     elements.push(
       <span
-        key={`err-${start}-${end}-${err.rule_id || "TDK"}`}
+        key={`err-${start}-${end}`}
         id={`err-span-${start}-${end}`} 
         className="tdk-err"
         role="button"
         tabIndex={0}
-        onClick={(e) => { e.stopPropagation(); onErrorClick?.(err); }}
+        onClick={(e) => { 
+            e.stopPropagation(); 
+            onErrorClick?.(err); // Tıklanınca App'teki fonksiyonu çağır
+        }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onErrorClick?.(err); } }}
         title="Detay için tıklayın"
       >
@@ -171,12 +173,15 @@ const HighlightedText = ({ text, errors, onErrorClick }) => {
     cursor = end;
   }
 
-  if (cursor < text.length) elements.push(<span key={`txt-${cursor}-end`}>{text.slice(cursor)}</span>);
+  // Kalan metin
+  if (cursor < text.length) {
+      elements.push(<span key={`txt-${cursor}-end`}>{text.slice(cursor)}</span>);
+  }
 
-  return <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.8" }}>{elements}</div>;
+  return <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.8", fontSize: "16px" }}>{elements}</div>;
 };
 
-// --- HATA MÜFETTİŞİ KARTI (FİNAL) ---
+// --- HATA MÜFETTİŞİ KARTI (SAĞ ALTTAN ÇIKAN KUTU) ---
 const ErrorInspector = ({ error, onClose }) => {
   if (!error) return null;
   const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Genel Kural";
@@ -188,10 +193,14 @@ const ErrorInspector = ({ error, onClose }) => {
         animation: "slideIn 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28)", fontFamily: "'Segoe UI', sans-serif"
     }}>
       <style>{`@keyframes slideIn { from { transform: translateY(60px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }`}</style>
+      
+      {/* Kart Başlığı */}
       <div style={{ backgroundColor: "#e74c3c", color: "white", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14 }}>⚠️ HATA DETAYI</div>
         <button onClick={onClose} style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", cursor: "pointer", width: 28, height: 28, borderRadius: 6, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
       </div>
+
+      {/* Kart İçeriği */}
       <div style={{ padding: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 15 }}>
             <div style={{ textAlign: "center", flex: 1 }}>
@@ -204,12 +213,16 @@ const ErrorInspector = ({ error, onClose }) => {
                 <div style={{ color: "#27ae60", fontWeight: 800, fontSize: 16, wordBreak:'break-word' }}>{error.correct || "-"}</div>
             </div>
         </div>
+        
         <div style={{ backgroundColor: "#f8f9fa", padding: 12, borderRadius: 8, marginBottom: 12, borderLeft: "4px solid #3498db" }}>
             <div style={{ fontSize: 10, color: "#3498db", fontWeight: 800, letterSpacing: 0.5, textTransform:'uppercase' }}>İHLAL EDİLEN KURAL</div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#2c3e50", marginTop: 4 }}>{ruleTitle}</div>
             <div style={{ fontSize: 11, color: "#7f8c8d", marginTop: 2, fontFamily:'monospace' }}>{error.rule_id}</div>
         </div>
-        <div style={{ fontSize: 13, color: "#555", lineHeight: 1.5 }}>{error.explanation || "Açıklama bulunamadı."}</div>
+        
+        <div style={{ fontSize: 13, color: "#555", lineHeight: 1.5 }}>
+            {error.explanation || "Açıklama bulunamadı."}
+        </div>
       </div>
     </div>
   );
@@ -233,6 +246,7 @@ const ImageViewerModal = ({ src, onClose }) => {
     )
 }
 
+// --- ANA UYGULAMA ---
 export default function App() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState("");
@@ -256,6 +270,8 @@ export default function App() {
   const [teacherNote, setTeacherNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  // KART STATE'İ: Hangi hataya tıklandı?
   const [activeError, setActiveError] = useState(null);
 
   useEffect(() => {
@@ -264,7 +280,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ESC TUŞU İLE HER ŞEYİ KAPATMA (Jüri Cilası)
+  // ESC TUŞU İLE HER ŞEYİ KAPATMA
   useEffect(() => {
     const onKey = (e) => { 
         if (e.key === "Escape") {
@@ -297,7 +313,7 @@ export default function App() {
     }
   }, [selectedClassCode, submissions]);
 
-  // ID tabanlı useEffect (Performans Fix)
+  // YENİ ÖDEV SEÇİLİNCE SIFIRLA
   useEffect(() => {
       if (selectedSubmission) {
           setTeacherNote(selectedSubmission.human_note || "");
@@ -305,7 +321,7 @@ export default function App() {
           setEditableRubric({...rubric});
           setCalculatedTotal(selectedSubmission.score_total);
           setIsScoreChanged(false);
-          setActiveError(null);
+          setActiveError(null); // Kartı kapat
           window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       }
   }, [selectedSubmission?.id]);
@@ -338,26 +354,18 @@ export default function App() {
     setIsSaving(false);
   }
 
-  // --- FLASH & SCROLL LOGIC (GÜVENLİ) ---
+  // --- HATA TIKLANDIĞINDA ÇALIŞAN FONKSİYON ---
   const handleErrorClick = (err) => {
       setActiveError(err);
-      // GÜVENLİK: Integer kontrolü yap
+      // Kaydırma ve Parlatma Efekti
       if (Number.isInteger(err?.span?.start) && Number.isInteger(err?.span?.end)) {
           const el = document.getElementById(`err-span-${err.span.start}-${err.span.end}`);
           if (el) {
               el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              
-              // Kart altında kalmasın diye ufak yukarı it
-              setTimeout(() => {
-                 window.scrollBy({ top: -80, left: 0, behavior: 'smooth' });
-              }, 250);
-
-              // Animasyon Temizliği (Reflow)
+              setTimeout(() => { window.scrollBy({ top: -80, left: 0, behavior: 'smooth' }); }, 250);
               el.classList.remove('flash-active');
               void el.offsetWidth; 
               el.classList.add('flash-active');
-              
-              // DOM temizliği
               const onAnimEnd = () => {
                   el.classList.remove('flash-active');
                   el.removeEventListener('animationend', onAnimEnd);
@@ -396,7 +404,7 @@ export default function App() {
 
   if (!session) return ( <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', backgroundColor:'#f0f2f5', fontFamily: "'Segoe UI', sans-serif" }}> <div style={{ backgroundColor:'white', padding:40, borderRadius:15, boxShadow:'0 10px 25px rgba(0,0,0,0.05)', width:350, textAlign:'center' }}> <div style={{backgroundColor:'#e8f0fe', width:60, height:60, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px'}}><Lock size={30} color="#3498db"/></div> <h2 style={{color:'#2c3e50', marginBottom:10}}>Öğretmen Girişi</h2> <form onSubmit={handleLogin}> <input type="email" placeholder="E-posta" value={email} onChange={(e) => setEmail(e.target.value)} style={{width:'100%', padding:12, marginBottom:15, borderRadius:8, border:'1px solid #ddd'}} required /> <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={{width:'100%', padding:12, marginBottom:25, borderRadius:8, border:'1px solid #ddd'}} required /> <button type="submit" disabled={loading} style={{width:'100%', padding:12, backgroundColor:'#3498db', color:'white', border:'none', borderRadius:8, fontWeight:'bold', cursor:'pointer'}}>{loading ? '...' : 'Giriş Yap'}</button> </form> </div> </div> );
 
-  // GLOBAL CSS ENJEKSİYONU
+  // GLOBAL STYLES (CSS) BURAYA EKLENDİ
   return (
     <div style={{ padding: '30px', fontFamily: "'Segoe UI', sans-serif", backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
       <style>{GLOBAL_STYLES}</style>
@@ -450,6 +458,8 @@ export default function App() {
                 <div style={{ flex: 1.2 }}>
                     <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', minHeight:600 }}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:20}}><h3>📝 Analiz</h3><span style={{background:'#f1f2f6', padding:'4px 8px', borderRadius:4, fontSize:12}}>OCR</span></div>
+                        
+                        {/* İŞTE SİHİRLİ KISIM BURADA */}
                         <div style={{ lineHeight:1.8, fontSize:16, color:'#2d3436' }}>
                             <HighlightedText 
                                 text={selectedSubmission.ocr_text} 
@@ -457,6 +467,7 @@ export default function App() {
                                 onErrorClick={handleErrorClick} 
                             />
                         </div>
+
                     </div>
                     <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginTop:20 }}>
                         <h4>Öğretmen Notu</h4>
@@ -465,6 +476,7 @@ export default function App() {
                     </div>
                 </div>
             </div>
+            {/* KART BURADA RENDER EDİLİYOR */}
             {activeError && <ErrorInspector error={activeError} onClose={() => setActiveError(null)} />}
         </>
       )}
