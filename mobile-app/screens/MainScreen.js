@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Dimensions, Pressable 
+  ActivityIndicator, TextInput, FlatList, Dimensions, Pressable, Modal 
 } from 'react-native';
+// YUKARIDAKİ SATIRA 'Modal' EKLENDİ (SORUN BURADAYDI)
+
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios'; 
@@ -171,6 +173,7 @@ export default function MainScreen({ user, setUser }) {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
   const [showDetailModal, setShowDetailModal] = useState(false);
   
+  // KART STATE'i
   const [activeErrorData, setActiveErrorData] = useState(null);
 
   const [step, setStep] = useState(1); 
@@ -179,6 +182,16 @@ export default function MainScreen({ user, setUser }) {
   const [loading, setLoading] = useState(false);
   const [editableText, setEditableText] = useState(""); 
   const [result, setResult] = useState(null);
+
+  // --- BOŞ EKRAN KONTROLÜ ---
+  if (!user) {
+      return (
+          <View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}>
+              <ActivityIndicator size="large" color="#3498db" />
+              <Text style={{marginTop:10, color:'#7f8c8d'}}>Kullanıcı bilgileri yükleniyor...</Text>
+          </View>
+      );
+  }
 
   const { studentName, studentSurname, studentLevel, studentCountry, studentLanguage, classCode } = user;
 
@@ -324,7 +337,7 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* LISTE */}
+                        {/* LİSTE */}
                         {result.errors && result.errors.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                                 <Text style={styles.errorText}>
