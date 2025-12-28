@@ -45,11 +45,12 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GARANTİLİ HIGHLIGHT BİLEŞENİ (PRESSABLE KUTULAR) ---
+// --- GARANTİLİ HIGHLIGHT BİLEŞENİ ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // Hataları span (koordinat) verisine göre sırala ve filtrele
+  // Hataları span (start) değerine göre sırala
+  // Hata kaybını önlemek için filtreyi gevşek tutuyoruz ama sıralamayı sıkı yapıyoruz
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined && e?.span?.end !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
@@ -64,7 +65,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   safeErrors.forEach((err, index) => {
     const { start, end } = err.span;
     
-    // Çakışma varsa atla
+    // Çakışma varsa (backend hatası), bu hatayı atla ama diğerlerini bozma
     if (start < cursor) return;
 
     // 1. Normal Metin (Hata öncesi)
@@ -131,14 +132,14 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- HATA KARTI MODAL (GÜVENLİ) ---
+// --- HATA KARTI MODAL (SADECE X İLE KAPANIR) ---
 const ErrorCardModal = ({ error, visible, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
   
     return (
       <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
-        {/* Arka plan: Tıklayınca kapanmaz (yanlışlıkla kapanmayı önler) */}
+        {/* BACKDROP - onPress YOK (Kapanmayı engeller) */}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           
           <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}>
@@ -187,7 +188,7 @@ export default function MainScreen({ user, setUser }) {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
   const [showDetailModal, setShowDetailModal] = useState(false);
   
-  // KART STATE'İ (MERKEZİ)
+  // KART STATE'i
   const [activeError, setActiveError] = useState(null);
 
   const [step, setStep] = useState(1); 
@@ -264,12 +265,9 @@ export default function MainScreen({ user, setUser }) {
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailModal(true); };
 
-  // --- KART AÇMA FONKSİYONU (GECİKMELİ & GÜVENLİ) ---
+  // --- KART AÇMA FONKSİYONU (GECİKMELİ) ---
+  // Bu gecikme, dokunmatik ekranda "basar basmaz kapanma" sorununu çözer
   const handleOpenError = (err) => {
-      // Konsola yazdırarak kontrol edebilirsin
-      console.log("TIKLANDI:", err.wrong); 
-      
-      // 10ms gecikme ile aç (Anında kapanmayı önler)
       setTimeout(() => {
           setActiveError(err);
       }, 10);
@@ -297,16 +295,19 @@ export default function MainScreen({ user, setUser }) {
       </View>
 
       <View style={{flex:1}}>
+          {/* YENİ ÖDEV EKRANI */}
           {activeTab === 'new' && (
              <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>{step === 1 ? "1. Fotoğraf Yükle" : step === 2 ? "2. Metni Kontrol Et" : "3. Sonuçlar"}</Text>
+                    
                     {image && (
                         <View style={styles.previewContainer}>
                             <Image source={{ uri: image.uri }} style={styles.previewImage} />
                             {step === 1 && <TouchableOpacity style={styles.removeButton} onPress={resetFlow}><Text style={styles.removeButtonText}>X</Text></TouchableOpacity>}
                         </View>
                     )}
+
                     {step === 1 && (
                         <>
                             {!image && <View style={styles.placeholder}><Text style={{color:'#ccc'}}>Fotoğraf Yok</Text></View>}
@@ -319,6 +320,7 @@ export default function MainScreen({ user, setUser }) {
                             </TouchableOpacity>
                         </>
                     )}
+
                     {step === 2 && (
                         <View style={{width:'100%'}}>
                             <Text style={{fontSize:13, color:'#7f8c8d', marginBottom:5}}>Metni düzenleyebilirsiniz:</Text>
@@ -331,6 +333,7 @@ export default function MainScreen({ user, setUser }) {
                     )}
                 </View>
 
+                {/* --- CANLI SONUÇ EKRANI (STEP 3) --- */}
                 {step === 3 && result && (
                     <View style={styles.resultContainer}>
                         <View style={{backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71'}}>
@@ -355,6 +358,7 @@ export default function MainScreen({ user, setUser }) {
              </ScrollView>
           )}
 
+          {/* GEÇMİŞ EKRANI */}
           {activeTab === 'history' && (
              <View style={{flex:1, padding:20}}>
                  {loadingHistory ? (
@@ -401,6 +405,7 @@ export default function MainScreen({ user, setUser }) {
                   <ScrollView contentContainerStyle={{padding:20}}>
                       <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                           <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
+                          {/* Geçmişte de aynı highlight fonksiyonu */}
                           <HighlightedText 
                               text={selectedHistoryItem.ocr_text} 
                               errors={selectedHistoryItem.analysis_json?.errors} 
@@ -420,7 +425,7 @@ export default function MainScreen({ user, setUser }) {
           </View>
       </Modal>
 
-      {/* TEK VE MERKEZİ HATA KARTI MODALI */}
+      {/* ANA HATA KARTI (TEK VE MERKEZİ) */}
       <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
     
     </View>
