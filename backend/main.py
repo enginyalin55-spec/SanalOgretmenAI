@@ -36,8 +36,30 @@ app.add_middleware(
 
 MODELS_TO_TRY = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"]
 
+# --- MODELLER (PYDANTIC) - EN ÜSTE ALINDI (HATA GİDERİLDİ) ---
+class AnalyzeRequest(BaseModel):
+    ocr_text: str
+    image_url: str
+    student_name: str
+    student_surname: str
+    classroom_code: str
+    level: str
+    country: str
+    native_language: str
+
+class UpdateScoreRequest(BaseModel):
+    submission_id: Union[int, str]
+    new_rubric: dict
+    new_total: int
+
+# --- CEFR KRİTERLERİ ---
+CEFR_KRITERLERI = {
+    "A1": "Basit cümleler.", "A2": "Bağlaçlar, temel zamanlar.",
+    "B1": "Tutarlı metin.", "B2": "Akıcı ve doğru.", "C1": "Kusursuz."
+}
+
 # =======================================================
-# 🛡️ TDK KURALLARI
+# 🛡️ TDK KURALLARI (YENİ: DİLBİLGİSİ KURALI EKLENDİ!)
 # =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
@@ -70,7 +92,9 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_27_ART_ARDA", "title": "Art Arda", "text": "Art arda ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
         {"rule_id": "TDK_28_YABANCI_KELIMELER", "title": "Yabancı Kelimeler", "text": "Şoför, egzoz, metot.", "category": "Yazım"},
         {"rule_id": "TDK_29_UNVANLAR", "title": "Unvanlar", "text": "Unvanlar büyük başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_30_YONLER", "title": "Yönler", "text": "Özel isimden önceyse büyük.", "category": "Büyük Harfler"}
+        {"rule_id": "TDK_30_YONLER", "title": "Yönler", "text": "Özel isimden önceyse büyük.", "category": "Büyük Harfler"},
+        # --- İŞTE EKSİK OLAN KURAL: DİLBİLGİSİ ---
+        {"rule_id": "TDK_31_DILBILGISI", "title": "Dilbilgisi ve Anlatım", "text": "Özne-yüklem uyumu (Ben gittim), zaman uyumu ve eklerin doğru kullanımı.", "category": "Dilbilgisi"}
     ]
 
 # --- YENİ NESİL METİN VE SPAN İŞLEMLERİ (AUTO-FIX) ---
@@ -186,27 +210,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
     result["errors"] = final_errors
     return result
 
-# --- MODELLER ve CEFR ---
-CEFR_KRITERLERI = {
-    "A1": "Basit cümleler.", "A2": "Bağlaçlar, temel zamanlar.",
-    "B1": "Tutarlı metin.", "B2": "Akıcı ve doğru.", "C1": "Kusursuz."
-}
-
-class AnalyzeRequest(BaseModel):
-    ocr_text: str
-    image_url: str
-    student_name: str
-    student_surname: str
-    classroom_code: str
-    level: str
-    country: str
-    native_language: str
-
-class UpdateScoreRequest(BaseModel):
-    submission_id: Union[int, str]
-    new_rubric: dict
-    new_total: int
-
 # --- ENDPOINTS ---
 @app.get("/check-class/{code}")
 async def check_class_code(code: str):
@@ -255,8 +258,8 @@ async def analyze_submission(data: AnalyzeRequest):
 
     prompt = f"""
     GÖREV: Öğrenci metnini analiz et.
-    HEDEF: TDK kurallarına göre hataları bul.
-    ÖNEMLİ: Hatalı kelimeyi 'wrong' alanına metindeki haliyle yaz. Span (konum) hesaplamaya çalışma, onu ben yapacağım.
+    HEDEF: TDK yazım kurallarına ve TEMEL DİLBİLGİSİ (gramer) kurallarına göre hataları bul.
+    ÖNEMLİ: Hatalı kelimeyi 'wrong' alanına metindeki haliyle yaz.
     
     TDK KURALLARI:{rules_text}
     SEVİYE ({data.level}): {cefr_text}
@@ -279,6 +282,7 @@ async def analyze_submission(data: AnalyzeRequest):
             text_resp = (response.text or "").strip().replace("```json", "").replace("```", "")
             raw_result = json.loads(text_resp)
             
+            # BURADA VALIDATE FONKSIYONU DEVREYE GİRİYOR VE KONUMLARI DÜZELTİYOR
             sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
             
             sanitized["score_total"] = sum(sanitized.get("rubric", {}).values())
