@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Modal, Dimensions 
+  ActivityIndicator, TextInput, FlatList, Dimensions 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -46,63 +46,67 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- KESİN ÇALIŞAN HIGHLIGHTER (NESTED TEXT) ---
+// --- HIGHLIGHT BİLEŞENİ (DOĞAL TEXT YAPISI - EN GÜVENİLİR YÖNTEM) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
-  if (!text) return null;
+  if (typeof text !== "string" || !text) return null;
 
-  // Hataları sırala
-  const sortedErrors = (errors || []).sort((a, b) => a.span.start - b.span.start);
+  // Güvenli filtreleme ve sıralama
+  const safeErrors = Array.isArray(errors)
+    ? errors
+        .filter(e =>
+          Number.isInteger(e?.span?.start) &&
+          Number.isInteger(e?.span?.end) &&
+          e.span.start >= 0 &&
+          e.span.end > e.span.start &&
+          e.span.end <= text.length
+        )
+        .sort((a,b) => a.span.start - b.span.start)
+    : [];
 
-  if (sortedErrors.length === 0) {
-    return <Text style={styles.normalText}>{text}</Text>;
+  if (safeErrors.length === 0) {
+      return <Text style={styles.normalText}>{text}</Text>;
   }
 
   const elements = [];
   let cursor = 0;
 
-  sortedErrors.forEach((err, index) => {
+  safeErrors.forEach((err, i) => {
     const start = err.span.start;
     const end = err.span.end;
 
-    // Hatalı veri varsa (negatif index vb.) düzelt
-    if (start < 0 || end > text.length || start >= end) return;
-    if (start < cursor) return; // Çakışma varsa atla
+    if (start < cursor) return;
 
-    // 1. Normal Metin (Hata öncesi)
-    if (start > cursor) {
-      elements.push(
-        <Text key={`t-${cursor}`} style={styles.normalText}>
-          {text.slice(cursor, start)}
-        </Text>
-      );
+    // Normal Metin (Hata öncesi)
+    const before = text.slice(cursor, start);
+    if (before) {
+        elements.push(<Text key={`txt-${i}`}>{before}</Text>);
     }
 
-    // 2. Hatalı Kısım (TIKLANABİLİR TEXT)
-    // React Native'de Text içinde Text kullanıp onPress verirsen %100 çalışır.
+    // Hatalı Metin (Tıklanabilir)
+    const wrongText = text.slice(start, end);
     elements.push(
       <Text
-        key={`e-${index}`}
-        onPress={() => onErrorPress(err)}
-        suppressHighlighting={false} // Tıklayınca gri olsun
+        key={`err-${i}`}
+        onPress={() => {
+            // Hata ayıklama için Alert koyduk
+            // console.log("TIKLANDI:", wrongText); 
+            onErrorPress(err);
+        }}
         style={styles.errorTextHighlight}
       >
-        {text.slice(start, end)}
+        {wrongText}
       </Text>
     );
 
     cursor = end;
   });
 
-  // 3. Kalan Metin
+  // Kalan Metin
   if (cursor < text.length) {
-    elements.push(
-      <Text key={`t-end`} style={styles.normalText}>
-        {text.slice(cursor)}
-      </Text>
-    );
+      elements.push(<Text key="txt-end">{text.slice(cursor)}</Text>);
   }
 
-  // ANA TEXT (Her şeyi kapsar)
+  // TEK BİR ANA TEXT İÇİNDE RENDER EDİYORUZ
   return (
     <Text style={styles.paragraph}>
       {elements}
@@ -117,7 +121,7 @@ const ErrorCardOverlay = ({ error, onClose }) => {
   
     return (
       <View style={styles.overlayContainer}>
-        {/* Arka plan */}
+        {/* Arka plan (Basınca kapanır) */}
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         
         {/* Kart */}
@@ -238,13 +242,14 @@ export default function MainScreen({ user, setUser }) {
 
   // --- KART AÇMA ---
   const handleOpenError = (err) => {
-      console.log("TIKLANDI:", err.wrong);
+      // Alert.alert("Tıklandı", err.wrong); // Test etmek istersen açabilirsin
       setActiveError(err);
   };
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* ScrollView: keyboardShouldPersistTaps='handled' ÇOK ÖNEMLİ */}
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {/* HEADER */}
           <View style={styles.header}>
             <View>
@@ -314,15 +319,16 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* LISTE */}
+                        {/* LISTE - TEST BUTONU GİBİ ÇALIŞIR */}
                         {result.errors && result.errors.map((err, index) => (
-                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => setActiveError(err)}>
+                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenError(err)}>
                                 <Text style={styles.errorText}>
                                     <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
                                     {' ➜ '} 
                                     <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
                                 </Text>
                                 <Text style={styles.errorDesc}>{err.explanation}</Text>
+                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
                             </TouchableOpacity>
                         ))}
                         
@@ -440,9 +446,15 @@ const styles = StyleSheet.create({
   analysisCard: { backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee' },
   analysisTitle: { fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14 },
   
-  paragraph: { lineHeight: 30, fontSize: 16, flexWrap: 'wrap', flexDirection: 'row' },
-  normalText: { fontSize: 16, color: '#2c3e50' },
-  errorTextHighlight: { color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'underline', backgroundColor: 'rgba(255,0,0,0.1)' },
+  // --- HIGHLIGHT STYLES ---
+  paragraph: { fontSize: 16, lineHeight: 30, color: '#2c3e50' }, // Ana Text stili
+  normalText: { fontSize: 16, lineHeight: 30, color: '#2c3e50' },
+  errorTextHighlight: { 
+      color: '#c0392b', 
+      fontWeight: 'bold', 
+      textDecorationLine: 'underline', 
+      backgroundColor: '#fff0f0' 
+  },
 
   errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
@@ -452,7 +464,7 @@ const styles = StyleSheet.create({
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
 
   // --- OVERLAY STYLES ---
-  overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, justifyContent: 'flex-end' },
+  overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300, width: '100%', paddingBottom: 50 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
