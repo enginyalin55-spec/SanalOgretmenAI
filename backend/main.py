@@ -55,17 +55,46 @@ class UpdateScoreRequest(BaseModel):
     new_rubric: dict
     new_total: int
 
-# --- TDK RULES LOADER ---
+# =========================
+# TDK RULES LOADER (TAM ADRES GARANTİLİ)
+# =========================
+# Dosya yolunu ortam değişkeninden almazsa otomatik bulur
 TDK_RULES_PATH = os.getenv("TDK_RULES_PATH", "tdk_rules.json")
+
 def load_tdk_rules() -> List[Dict[str, Any]]:
     try:
-        with open(TDK_RULES_PATH, "r", encoding="utf-8") as f:
+        # YÖNTEM 1: Önce dosyanın tam yolunu (Absolute Path) hesapla
+        # Bu, main.py nerede ise JSON'u orada arar.
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(base_dir, "tdk_rules.json")
+        
+        print(f"📂 TDK Dosyası Aranıyor: {json_path}") # Loglara yazdıralım
+
+        with open(json_path, "r", encoding="utf-8") as f:
             rules = json.load(f)
+            
         if not isinstance(rules, list):
             raise ValueError("tdk_rules.json bir liste (array) olmalı.")
-        return [r for r in rules if isinstance(r, dict) and r.get("rule_id")]
+            
+        cleaned = []
+        for r in rules:
+            if isinstance(r, dict) and r.get("rule_id") and r.get("title") and r.get("text"):
+                cleaned.append(r)
+        return cleaned
+
+    except FileNotFoundError:
+        # YÖNTEM 2: Eğer yukarıdaki çalışmazsa düz ismi dene (Fallback)
+        print("⚠️ Tam yolda bulunamadı, düz isim deneniyor...")
+        try:
+            with open("tdk_rules.json", "r", encoding="utf-8") as f:
+                rules = json.load(f)
+            return rules
+        except Exception as e:
+            print(f"❌ KRİTİK HATA: TDK dosyası hiçbir yerde yok! Hata: {e}")
+            return []
+            
     except Exception as e:
-        print(f"⚠️ TDK Kuralları Yüklenemedi: {e}")
+        print(f"⚠️ TDK Kuralları Yüklenemedi (Genel Hata): {e}")
         return []
 
 # --- GUARDRAILS ---
