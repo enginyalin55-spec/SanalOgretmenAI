@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Modal 
+  ActivityIndicator, TextInput, FlatList, Modal, Pressable 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,72 +45,89 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (TEXT İÇİNDE TEXT - EN GARANTİ YÖNTEM) ---
-// Not: View wrap yerine Text nesting kullanıyoruz çünkü bu kelime bütünlüğünü bozmaz ve tıklamayı garanti eder.
+// --- GARANTİLİ HIGHLIGHT BİLEŞENİ (FLEX-WRAP VIEW) ---
+// Bu yöntem metni kelime/parça bloklarına böler. Tıklama %100 çalışır.
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // Hataları sırala (Filtreyi gevşettik, artık hata yutmaz)
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
 
   if (safeErrors.length === 0) {
-    return <Text style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>{text}</Text>;
+    return <Text style={{ fontSize: 16, lineHeight: 24, color: '#2c3e50' }}>{text}</Text>;
   }
 
-  const elements = [];
+  const parts = [];
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
-    // Sınırları güvenli hale getir (Taşmaları önle ama hatayı silme)
     const start = Math.max(0, err.span.start);
     const end = Math.min(text.length, err.span.end);
 
-    // Çakışma veya geçersiz veri varsa atla
     if (start < cursor || start >= end) return;
 
     // 1. Normal Metin
     if (start > cursor) {
-      elements.push(
-        <Text key={`t-${cursor}`} style={{color: '#2c3e50'}}>
-          {text.slice(cursor, start)}
-        </Text>
-      );
+      parts.push({
+        type: 'text',
+        key: `t-${cursor}`,
+        content: text.slice(cursor, start)
+      });
     }
 
-    // 2. Hatalı Kısım (TIKLANABİLİR TEXT)
-    elements.push(
-      <Text
-        key={`e-${index}`}
-        onPress={() => onErrorPress(err)}
-        style={{ 
-            color: '#c0392b', 
-            fontWeight: 'bold', 
-            textDecorationLine: 'underline',
-            backgroundColor: '#fff0f0' 
-        }}
-      >
-        {text.slice(start, end)}
-      </Text>
-    );
+    // 2. Hatalı Kısım
+    parts.push({
+      type: 'error',
+      key: `e-${index}`,
+      content: text.slice(start, end),
+      errorData: err
+    });
 
     cursor = end;
   });
 
   // 3. Kalan Metin
   if (cursor < text.length) {
-    elements.push(
-      <Text key={`t-end`} style={{color: '#2c3e50'}}>
-        {text.slice(cursor)}
-      </Text>
-    );
+    parts.push({
+      type: 'text',
+      key: `t-end`,
+      content: text.slice(cursor)
+    });
   }
 
   return (
-    <Text style={{ fontSize: 16, lineHeight: 30 }}>
-      {elements}
-    </Text>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+      {parts.map((p) => {
+        if (p.type === 'text') {
+          return (
+            <Text key={p.key} style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>
+              {p.content}
+            </Text>
+          );
+        }
+        return (
+          <TouchableOpacity
+            key={p.key}
+            onPress={() => onErrorPress(p.errorData)}
+            activeOpacity={0.7}
+            style={{
+              backgroundColor: '#fff0f0',
+              borderRadius: 4,
+              paddingHorizontal: 2,
+              marginHorizontal: 1,
+              borderBottomWidth: 2,
+              borderBottomColor: '#e74c3c',
+              marginBottom: 4 // Satır arası mesafe için
+            }}
+          >
+            <Text style={{ fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' }}>
+              {p.content}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 };
 
@@ -121,13 +138,9 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
   
     return (
       <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
-        {/* Arka plan: Yarı saydam siyah */}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          
-          {/* Kartın Kendisi */}
           <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}>
                 
-                {/* Başlık ve Kapat Butonu */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
                     <TouchableOpacity onPress={onClose} style={{ padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 }}>
@@ -135,7 +148,6 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </TouchableOpacity>
                 </View>
     
-                {/* Karşılaştırma (Yanlış -> Doğru) */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12 }}>
                     <View style={{ flex: 1, alignItems: 'center' }}>
                         <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
@@ -148,15 +160,12 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </View>
                 </View>
     
-                {/* Kural Bilgisi */}
                 <View style={{ backgroundColor: '#e8f4fd', padding: 12, borderRadius: 8, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 }}>
                     <Text style={{ fontSize: 11, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
                     <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 }}>{ruleTitle}</Text>
                 </View>
     
-                {/* Açıklama */}
                 <Text style={{ fontSize: 15, color: '#34495e', lineHeight: 22 }}>{error.explanation}</Text>
-                
                 <View style={{height: 30}}/>
           </View>
         </View>
@@ -250,9 +259,8 @@ export default function MainScreen({ user, setUser }) {
 
   // --- KART AÇMA FONKSİYONU ---
   const handleOpenError = (err) => {
-      // Önceki hatayı temizle (state'i sıfırla)
+      // Öncekini temizle ve yenisini aç (Gecikmeli)
       setActiveError(null);
-      // Çok kısa bir gecikmeyle yenisini set et (Render sorunu olmaması için)
       setTimeout(() => {
           setActiveError(err);
       }, 50);
@@ -260,7 +268,6 @@ export default function MainScreen({ user, setUser }) {
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <View>
             <Text style={styles.greeting}>Merhaba,</Text>
@@ -273,26 +280,22 @@ export default function MainScreen({ user, setUser }) {
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
       </View>
 
-      {/* SEKMELER */}
       <View style={styles.tabsContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}><Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}><Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>📂 Geçmişim</Text></TouchableOpacity>
       </View>
 
       <View style={{flex:1}}>
-          {/* YENİ ÖDEV EKRANI */}
           {activeTab === 'new' && (
              <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>{step === 1 ? "1. Fotoğraf Yükle" : step === 2 ? "2. Metni Kontrol Et" : "3. Sonuçlar"}</Text>
-                    
                     {image && (
                         <View style={styles.previewContainer}>
                             <Image source={{ uri: image.uri }} style={styles.previewImage} />
                             {step === 1 && <TouchableOpacity style={styles.removeButton} onPress={resetFlow}><Text style={styles.removeButtonText}>X</Text></TouchableOpacity>}
                         </View>
                     )}
-
                     {step === 1 && (
                         <>
                             {!image && <View style={styles.placeholder}><Text style={{color:'#ccc'}}>Fotoğraf Yok</Text></View>}
@@ -305,7 +308,6 @@ export default function MainScreen({ user, setUser }) {
                             </TouchableOpacity>
                         </>
                     )}
-
                     {step === 2 && (
                         <View style={{width:'100%'}}>
                             <Text style={{fontSize:13, color:'#7f8c8d', marginBottom:5}}>Metni düzenleyebilirsiniz:</Text>
@@ -327,14 +329,25 @@ export default function MainScreen({ user, setUser }) {
                         
                         <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                              <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Analiz Sonucu:</Text>
-                             
-                             {/* GÜVENLİ HIGHLIGHTER */}
                              <HighlightedText 
                                 text={editableText} 
                                 errors={result.errors} 
                                 onErrorPress={handleOpenError} 
                              />
                         </View>
+
+                        {/* --- YENİ EKLENDİ: LİSTE ELEMANLARINA DA TIKLAMA ÖZELLİĞİ --- */}
+                        {result.errors && result.errors.map((err, index) => (
+                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenError(err)}>
+                                <Text style={styles.errorText}>
+                                    <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
+                                    {' ➜ '} 
+                                    <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
+                                </Text>
+                                <Text style={styles.errorDesc}>{err.explanation}</Text>
+                                <Text style={{fontSize:10, color:'#3498db', marginTop:5}}>Detay için dokun 👇</Text>
+                            </TouchableOpacity>
+                        ))}
                         
                         <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, {backgroundColor:'#34495e', marginTop:20}]}><Text style={styles.sendButtonText}>Yeni Ödev Yükle</Text></TouchableOpacity>
                     </View>
@@ -342,7 +355,6 @@ export default function MainScreen({ user, setUser }) {
              </ScrollView>
           )}
 
-          {/* GEÇMİŞ EKRANI */}
           {activeTab === 'history' && (
              <View style={{flex:1, padding:20}}>
                  {loadingHistory ? (
@@ -376,7 +388,6 @@ export default function MainScreen({ user, setUser }) {
           )}
       </View>
 
-      {/* GEÇMİŞ DETAY MODALI */}
       <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modalContainer}>
               <View style={styles.modalHeader}>
@@ -389,7 +400,6 @@ export default function MainScreen({ user, setUser }) {
                   <ScrollView contentContainerStyle={{padding:20}}>
                       <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                           <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
-                          {/* Geçmişte de aynı highlight fonksiyonu */}
                           <HighlightedText 
                               text={selectedHistoryItem.ocr_text} 
                               errors={selectedHistoryItem.analysis_json?.errors} 
@@ -409,7 +419,6 @@ export default function MainScreen({ user, setUser }) {
           </View>
       </Modal>
 
-      {/* ANA HATA KARTI (TEK VE MERKEZİ) */}
       <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
     
     </View>
@@ -452,6 +461,11 @@ const styles = StyleSheet.create({
   noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
+  errorsCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
+  errorTitle: { fontSize: 16, fontWeight: 'bold', color: '#e74c3c', marginBottom: 15 },
+  errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
+  errorText: { fontSize: 16, marginBottom: 5 },
+  errorDesc: { fontSize: 13, color: '#7f8c8d' },
   modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
   modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
   modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
