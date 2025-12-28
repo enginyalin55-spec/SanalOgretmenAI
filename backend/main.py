@@ -42,193 +42,42 @@ WORD_COUNTS = {"A1": 75, "A2": 100, "B1": 125, "B2": 150, "C1": 175, "C2": 200}
 # =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
-        {
-            "rule_id": "TDK_01_BAGLAC_DE",
-            "title": "Bağlaç Olan 'da/de'nin Yazımı",
-            "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır. Cümleden çıkarılınca anlam bozulmaz.",
-            "category": "Bağlaçlar"
-        },
-        {
-            "rule_id": "TDK_02_BAGLAC_KI",
-            "title": "Bağlaç Olan 'ki'nin Yazımı",
-            "text": "Bağlaç olan 'ki' ayrı yazılır. (İstisnalar: sanki, oysaki, mademki, belki, halbuki, çünkü, meğerki, illaki).",
-            "category": "Bağlaçlar"
-        },
-        {
-            "rule_id": "TDK_03_SORU_EKI",
-            "title": "Soru Eki 'mı/mi'nin Yazımı",
-            "text": "Soru eki olan 'mı, mi, mu, mü' her zaman ayrı yazılır.",
-            "category": "Ekler"
-        },
-        {
-            "rule_id": "TDK_04_SEY_SOZ",
-            "title": "'Şey' Sözcüğünün Yazımı",
-            "text": "'Şey' sözcüğü her zaman ayrı yazılır (her şey, bir şey, çok şey).",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_05_BUYUK_CUMLE",
-            "title": "Cümle Başı Büyük Harf",
-            "text": "Cümleler her zaman büyük harfle başlar.",
-            "category": "Büyük Harfler"
-        },
-        {
-            "rule_id": "TDK_06_BUYUK_OZEL",
-            "title": "Özel İsimlerin Yazımı",
-            "text": "Kişi, ülke, şehir, dil ve millet adları büyük harfle başlar (Ahmet, Ankara, Türkçe).",
-            "category": "Büyük Harfler"
-        },
-        {
-            "rule_id": "TDK_07_BUYUK_KURUM",
-            "title": "Kurum ve Kuruluş Adları",
-            "text": "Kurum adlarının her kelimesi büyük harfle başlar (Türk Dil Kurumu).",
-            "category": "Büyük Harfler"
-        },
-        {
-            "rule_id": "TDK_08_TARIH_GUN_AY",
-            "title": "Belirli Tarihlerin Yazımı",
-            "text": "Tam tarih bildiren ay ve gün adları büyük harfle başlar (29 Mayıs 1453 Salı).",
-            "category": "Büyük Harfler"
-        },
-        {
-            "rule_id": "TDK_09_KESME_OZEL",
-            "title": "Özel İsimlere Gelen Ekler",
-            "text": "Özel isimlere gelen çekim ekleri kesme işareti (') ile ayrılır (Ayşe'nin).",
-            "category": "Noktalama"
-        },
-        {
-            "rule_id": "TDK_10_KESME_KURUM",
-            "title": "Kurum Adlarına Gelen Ekler",
-            "text": "Kurum ve kuruluş adlarına gelen ekler kesmeyle ayrılmaz (Bakanlığına).",
-            "category": "Noktalama"
-        },
-        {
-            "rule_id": "TDK_11_YARDIMCI_FIIL_SES",
-            "title": "Yardımcı Fiillerde Ses Olayı",
-            "text": "Ses düşmesi/türemesi varsa bitişik (kaybolmak), yoksa ayrı (terk etmek) yazılır.",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_12_SAYI_AYRI",
-            "title": "Sayıların Yazımı",
-            "text": "Birden fazla kelimeden oluşan sayılar ayrı yazılır (on beş, yüz elli).",
-            "category": "Sayılar"
-        },
-        {
-            "rule_id": "TDK_13_ULESTIRME",
-            "title": "Üleştirme Sayıları",
-            "text": "Üleştirme sayıları rakamla değil yazıyla yazılır (5'er değil beşer).",
-            "category": "Sayılar"
-        },
-        {
-            "rule_id": "TDK_14_KISALTMA_BUYUK",
-            "title": "Büyük Harfli Kısaltmalar",
-            "text": "Büyük harfli kısaltmalara gelen ekler, son harfin okunuşuna göre gelir (TDK'dan değil TDK'den).",
-            "category": "Kısaltmalar"
-        },
-        {
-            "rule_id": "TDK_15_IKILEMELER",
-            "title": "İkilemelerin Yazımı",
-            "text": "İkilemeler ayrı yazılır ve araya noktalama konmaz (yavaş yavaş).",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_16_PEKISTIRME",
-            "title": "Pekiştirmelerin Yazımı",
-            "text": "Pekiştirmeli sıfatlar bitişik yazılır (masmavi, tertemiz).",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_17_YUMUSAK_G",
-            "title": "Yumuşak G Başlangıcı",
-            "text": "Türkçede kelimeler 'ğ' ile başlamaz.",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_18_HER_BIR",
-            "title": "'Her' Kelimesi",
-            "text": "'Her' kelimesi genellikle ayrı yazılır (her bir, her gün). İstisna: Herkes, herhangi.",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_19_BELIRSIZLIK_SIFATLARI",
-            "title": "Bitişik Yazılan Belirsizlik Kelimeleri",
-            "text": "Biraz, birçok, birkaç, birtakım, herhangi kelimeleri bitişik yazılır.",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_20_NOKTA",
-            "title": "Cümle Sonu Nokta",
-            "text": "Tamamlanmış cümlelerin sonuna nokta konur.",
-            "category": "Noktalama"
-        },
-        {
-            "rule_id": "TDK_21_VIRGUL",
-            "title": "Virgül Kullanımı",
-            "text": "Eş görevli kelimeler ve sıralı cümleler arasına virgül konur.",
-            "category": "Noktalama"
-        },
-        {
-            "rule_id": "TDK_22_DARALMA_KURALI",
-            "title": "Gereksiz Ünlü Daralması",
-            "text": "Yor eki dışında, konuşma dilindeki daralmalar yazıya geçirilmez. (Yapcam -> Yapacağım, Gelcem -> Geleceğim).",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_23_YANLIS_YALNIZ",
-            "title": "Yanlış/Yalnız Yazımı",
-            "text": "Doğrusu: Yanlış (yanılmaktan), Yalnız (yalından).",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_24_HERKES",
-            "title": "Herkes Yazımı",
-            "text": "'Herkes' kelimesi 's' ile biter, 'z' ile bitmez.",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_25_SERTLESME",
-            "title": "Ünsüz Benzeşmesi (Sertleşme)",
-            "text": "Fıstıkçı Şahap ünsüzlerinden sonra 'c, d, g' -> 'ç, t, k' olur (kitapda değil kitapta, 1923'de değil 1923'te).",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_26_HANE",
-            "title": "Hane Kelimesi",
-            "text": "Sesliyle bitenlerde 'ha' düşer (hastane, postane). Ünsüzle bitenlerde kalır (dershane).",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_27_ART_ARDA",
-            "title": "Art Arda Yazımı",
-            "text": "'Art arda' ayrı ve 't' ile yazılır (ardarda değil).",
-            "category": "Ayrı/Bitişik Yazım"
-        },
-        {
-            "rule_id": "TDK_28_YABANCI_KELIMELER",
-            "title": "Sık Karıştırılan Kelimeler",
-            "text": "Doğrular: Şoför, egzoz, metot, tıraş, kılavuz, kulüp, sürpriz.",
-            "category": "Yazım"
-        },
-        {
-            "rule_id": "TDK_29_UNVANLAR",
-            "title": "Unvanların Yazımı",
-            "text": "Kişi adlarıyla kullanılan unvanlar büyük harfle başlar (Ayşe Hanım, Doktor Ali).",
-            "category": "Büyük Harfler"
-        },
-        {
-            "rule_id": "TDK_30_YONLER",
-            "title": "Yön Adlarının Yazımı",
-            "text": "Yön adları özel isimden önceyse büyük (Doğu Anadolu), sonraysa küçük (Anadolu'nun doğusu) yazılır.",
-            "category": "Büyük Harfler"
-        }
+        {"rule_id": "TDK_01_BAGLAC_DE", "title": "Bağlaç Olan 'da/de'nin Yazımı", "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır.", "category": "Bağlaçlar"},
+        {"rule_id": "TDK_02_BAGLAC_KI", "title": "Bağlaç Olan 'ki'nin Yazımı", "text": "Bağlaç olan 'ki' ayrı yazılır (İstisnalar: sanki, oysaki...).", "category": "Bağlaçlar"},
+        {"rule_id": "TDK_03_SORU_EKI", "title": "Soru Eki 'mı/mi'nin Yazımı", "text": "Soru eki her zaman ayrı yazılır.", "category": "Ekler"},
+        {"rule_id": "TDK_04_SEY_SOZ", "title": "'Şey' Sözcüğünün Yazımı", "text": "'Şey' sözcüğü her zaman ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_05_BUYUK_CUMLE", "title": "Cümle Başı Büyük Harf", "text": "Cümleler büyük harfle başlar.", "category": "Büyük Harfler"},
+        {"rule_id": "TDK_06_BUYUK_OZEL", "title": "Özel İsimlerin Yazımı", "text": "Özel isimler büyük harfle başlar.", "category": "Büyük Harfler"},
+        {"rule_id": "TDK_07_BUYUK_KURUM", "title": "Kurum Adları", "text": "Kurum adları büyük harfle başlar.", "category": "Büyük Harfler"},
+        {"rule_id": "TDK_08_TARIH_GUN_AY", "title": "Tarihlerin Yazımı", "text": "Tam tarih bildiren ay/gün adları büyük başlar.", "category": "Büyük Harfler"},
+        {"rule_id": "TDK_09_KESME_OZEL", "title": "Özel İsimlere Gelen Ekler", "text": "Özel isimlere gelen ekler kesme ile ayrılır.", "category": "Noktalama"},
+        {"rule_id": "TDK_10_KESME_KURUM", "title": "Kurum Ekleri", "text": "Kurum adlarına gelen ekler ayrılmaz.", "category": "Noktalama"},
+        {"rule_id": "TDK_11_YARDIMCI_FIIL_SES", "title": "Yardımcı Fiiller", "text": "Ses olayı varsa bitişik, yoksa ayrı.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_12_SAYI_AYRI", "title": "Sayıların Yazımı", "text": "Sayılar ayrı yazılır (on beş).", "category": "Sayılar"},
+        {"rule_id": "TDK_13_ULESTIRME", "title": "Üleştirme Sayıları", "text": "Üleştirme sayıları yazıyla yazılır (beşer).", "category": "Sayılar"},
+        {"rule_id": "TDK_14_KISALTMA_BUYUK", "title": "Kısaltmalar", "text": "Kısaltmalara ekler okunuşa göre gelir.", "category": "Kısaltmalar"},
+        {"rule_id": "TDK_15_IKILEMELER", "title": "İkilemeler", "text": "İkilemeler ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_16_PEKISTIRME", "title": "Pekiştirmeler", "text": "Pekiştirmeler bitişik yazılır (masmavi).", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_17_YUMUSAK_G", "title": "Yumuşak G", "text": "Kelime ğ ile başlamaz.", "category": "Yazım"},
+        {"rule_id": "TDK_18_HER_BIR", "title": "'Her' Kelimesi", "text": "Her bir, her gün ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_19_BELIRSIZLIK_SIFATLARI", "title": "Bitişik Kelimeler", "text": "Biraz, birçok, birkaç bitişik yazılır.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_20_NOKTA", "title": "Nokta", "text": "Cümle sonuna nokta konur.", "category": "Noktalama"},
+        {"rule_id": "TDK_21_VIRGUL", "title": "Virgül", "text": "Sıralı kelimeler arasına virgül konur.", "category": "Noktalama"},
+        {"rule_id": "TDK_22_DARALMA_KURALI", "title": "Ünlü Daralması", "text": "Gereksiz daralma yapılmaz (Gelcem -> Geleceğim).", "category": "Yazım"},
+        {"rule_id": "TDK_23_YANLIS_YALNIZ", "title": "Yanlış/Yalnız", "text": "Yanlış (yanılmaktan), Yalnız (yalından).", "category": "Yazım"},
+        {"rule_id": "TDK_24_HERKES", "title": "Herkes", "text": "Herkes 's' ile biter.", "category": "Yazım"},
+        {"rule_id": "TDK_25_SERTLESME", "title": "Sertleşme", "text": "f,s,t,k,ç,ş,h,p'den sonra c,d,g gelmez; ç,t,k gelir (dolapta).", "category": "Yazım"},
+        {"rule_id": "TDK_26_HANE", "title": "Hane", "text": "Dershane, hastane, postane.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_27_ART_ARDA", "title": "Art Arda", "text": "Art arda ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
+        {"rule_id": "TDK_28_YABANCI_KELIMELER", "title": "Yabancı Kelimeler", "text": "Şoför, egzoz, metot, tıraş, sürpriz.", "category": "Yazım"},
+        {"rule_id": "TDK_29_UNVANLAR", "title": "Unvanlar", "text": "Unvanlar büyük başlar (Ali Bey).", "category": "Büyük Harfler"},
+        {"rule_id": "TDK_30_YONLER", "title": "Yönler", "text": "Özel isimden önceyse büyük (Kuzey Kore).", "category": "Büyük Harfler"}
     ]
 
-# --- METİN TEMİZLİĞİ (GÜÇLENDİRİLMİŞ) ---
+# --- YARDIMCI FONKSİYONLAR ---
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
-
 def normalize_text(text: str) -> str:
-    """Gösterim ve genel temizlik için (Orijinal hali korur)."""
+    """Orijinal metni bozmadan temizler."""
     if not text: return ""
     text = text.replace("’", "'").replace("`", "'")
     text = _ZERO_WIDTH.sub("", text)
@@ -236,9 +85,10 @@ def normalize_text(text: str) -> str:
     return text
 
 def normalize_match(text: str) -> str:
-    """Eşleştirme için (Büyük/Küçük harf duyarsız)."""
+    """Eşleştirme için (Küçük harf duyarsız)."""
     return normalize_text(text).casefold()
 
+# --- ANALİZ DOĞRULAMA (AUTO-FIX SPAN) ---
 def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: set) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return {"rubric": {}, "errors": [], "teacher_note": "Analiz formatı hatalı."}
@@ -247,7 +97,9 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
     if not isinstance(raw_errors, list): raw_errors = []
 
     clean_errors = []
-    n = len(full_text)
+    
+    # Metni arama yapmak için hazırla
+    full_text_normalized = normalize_text(full_text)
 
     for err in raw_errors:
         if not isinstance(err, dict): continue
@@ -255,39 +107,40 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
         rid = err.get("rule_id")
         if not rid or rid not in allowed_rule_ids: continue 
 
-        span = err.get("span")
-        if not isinstance(span, dict) or "start" not in span or "end" not in span:
-            continue
+        wrong = err.get("wrong", "").strip()
+        correct = err.get("correct", "").strip()
+        
+        if not wrong: continue # Hatalı kelime yoksa geç
 
-        try:
-            start, end = int(span["start"]), int(span["end"])
-        except: continue
-
-        if start < 0 or end <= start or end > n: continue
-
-        wrong = err.get("wrong", "") or ""
-        correct = err.get("correct", "") or ""
-        evidence_fragment = full_text[start:end]
-
-        # 0) Correct boşsa: AI saçmalaması -> reddet
-        if normalize_text(correct) == "":
-            print(f"🗑️ Düzeltme boş, reddedildi: {wrong}")
-            continue
-
-        # 1) Gereksiz düzeltme: wrong == correct (case/boşluk farkları dahil) -> reddet
-        # Bu satır "Ben -> Ben" hatasını çözer.
+        # 1. AI'ın "Ben -> Ben" gibi saçmalamalarını ele
         if normalize_match(wrong) == normalize_match(correct):
-            print(f"🗑️ Gereksiz düzeltme (aynı kelime), reddedildi: {wrong} -> {correct}")
+            print(f"🗑️ Gereksiz düzeltme reddedildi: {wrong} -> {correct}")
             continue
 
-        # 2) Kanıt uyuşması: span içindeki parça wrong ile eşleşmeli (case-insensitive)
-        # Bu satır "gelcem" (küçük) ile "Gelcem" (AI çıktısı) arasındaki farkı yok sayar ve hatayı kabul eder.
-        if normalize_match(evidence_fragment) != normalize_match(wrong):
-            print(f"🗑️ Kanıt uyuşmazlığı: Model='{wrong}' Metin='{evidence_fragment}'")
+        # 2. KONUM BULMA (AUTO-FIX)
+        # AI'ın verdiği start/end'e güvenmiyoruz. Kelimeyi kendimiz arıyoruz.
+        start = -1
+        end = -1
+        
+        # Kelimeyi metin içinde (büyük/küçük harf duyarsız) ara
+        # re.escape ile özel karakterleri (soru işareti vb) koruyoruz
+        try:
+            match = re.search(re.escape(wrong), full_text, re.IGNORECASE)
+            if match:
+                start, end = match.span()
+                print(f"📍 Konum Düzeltildi: '{wrong}' -> {start}-{end} olarak bulundu.")
+            else:
+                # Tam eşleşme bulamazsa, AI muhtemelen kelimeyi biraz değiştirdi.
+                # Bu durumda risk almayıp eliyoruz.
+                print(f"⚠️ Metinde bulunamadı: '{wrong}' (AI halüsinasyonu olabilir)")
+                continue
+        except Exception as e:
+            print(f"Arama hatası: {e}")
             continue
 
+        # Listeye ekle
         clean_errors.append({
-            "wrong": wrong,
+            "wrong": full_text[start:end], # Metindeki orijinal halini al (örn: "gelcem")
             "correct": correct,
             "type": err.get("type", "Yazım"),
             "rule_id": rid,
@@ -295,6 +148,7 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
             "span": {"start": start, "end": end}
         })
 
+    # Çakışmaları temizle (Aynı yeri gösteren birden fazla hata varsa)
     clean_errors.sort(key=lambda x: (x["span"]["start"], -(x["span"]["end"] - x["span"]["start"])))
     final_errors = []
     last_end = -1
@@ -310,11 +164,8 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
 
 # --- MODELLER ve CEFR ---
 CEFR_KRITERLERI = {
-    "A1": "Basit cümleler, kendini tanıtma. Kelime sırası hatalarını daha hoşgörülü değerlendir.",
-    "A2": "Basit bağlaçlarla cümle bağlayabilmeli; temel zamanları ve en sık ekleri genelde doğru kullanmalı.",
-    "B1": "Bağlantılı metin, neden-sonuç, daha tutarlı anlatım.",
-    "B2": "Daha akıcı, daha doğru yazım. Sık yazım/noktalama hataları daha fazla puan kırdırır.",
-    "C1": "Geniş söz varlığı, neredeyse kusursuz yazım/dil bilgisi beklenir.",
+    "A1": "Basit cümleler.", "A2": "Bağlaçlar, temel zamanlar.",
+    "B1": "Tutarlı metin.", "B2": "Akıcı ve doğru.", "C1": "Kusursuz."
 }
 
 class AnalyzeRequest(BaseModel):
@@ -355,7 +206,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except: pass
 
         extracted_text = ""
-        prompt = "Bu resimdeki metni, el yazısı olsa bile Türkçe olarak aynen metne dök. Sadece metni ver."
+        prompt = "Bu resimdeki metni Türkçe olarak aynen metne dök. Sadece metni ver."
         for model_name in MODELS_TO_TRY:
             try:
                 response = client.models.generate_content(
@@ -373,20 +224,15 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 async def analyze_submission(data: AnalyzeRequest):
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
-    # KODDAN OKUYORUZ
     all_rules = load_tdk_rules()
     allowed_ids = {r["rule_id"] for r in all_rules}
-    
     rules_text = "\n".join([f"- ID: {r['rule_id']} | {r['title']}: {r['text']}" for r in all_rules])
     cefr_text = CEFR_KRITERLERI.get(data.level, "Genel değerlendirme.")
 
     prompt = f"""
     GÖREV: Öğrenci metnini analiz et.
-    ZORUNLU TALİMATLAR:
-    1. SADECE aşağıdaki "TDK KURALLARI" listesini kullan. Listede olmayan hatayı YAZMA.
-    2. Her hata için MUTLAKA metindeki 'span' (start, end) bilgisini doğru hesapla.
-    3. 'wrong' alanı, metindeki ilgili parça ile BİREBİR aynı olmalı.
-
+    ÖNEMLİ: Hatalı kelimeyi 'wrong' alanına metindeki haliyle yaz. Span (konum) hesaplamaya çalışma, onu ben yapacağım.
+    
     TDK KURALLARI:{rules_text}
     SEVİYE ({data.level}): {cefr_text}
     METİN: \"\"\"{data.ocr_text}\"\"\"
@@ -394,7 +240,7 @@ async def analyze_submission(data: AnalyzeRequest):
     JSON ÇIKTI FORMATI:
     {{
       "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }},
-      "errors": [ {{ "wrong": "...", "correct": "...", "type": "...", "rule_id": "...", "explanation": "...", "span": {{ "start": 0, "end": 0 }} }} ],
+      "errors": [ {{ "wrong": "HatalıKelime", "correct": "Doğrusu", "type": "Yazım", "rule_id": "TDK_...", "explanation": "..." }} ],
       "teacher_note": "..."
     }}
     """
@@ -408,6 +254,7 @@ async def analyze_submission(data: AnalyzeRequest):
             text_resp = (response.text or "").strip().replace("```json", "").replace("```", "")
             raw_result = json.loads(text_resp)
             
+            # BURADA VALIDATE FONKSIYONU DEVREYE GİRİYOR VE KONUMLARI DÜZELTİYOR
             sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
             
             sanitized["score_total"] = sum(sanitized.get("rubric", {}).values())
