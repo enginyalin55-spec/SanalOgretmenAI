@@ -131,44 +131,61 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- HATA KARTI MODAL ---
+// --- HATA KARTI MODAL (HAVALI BOTTOM SHEET) ---
 const ErrorCardModal = ({ error, visible, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
   
     return (
-      <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}>
-                
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
-                    <TouchableOpacity onPress={onClose} style={{ padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 }}>
-                        <Text style={{ fontSize: 18, color: '#95a5a6', fontWeight: 'bold' }}>✕</Text>
+      <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
+        {/* Arka plan */}
+        <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={onClose} 
+        >
+          {/* Kartın Kendisi - Alt Kısımda */}
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => {}} // İçeriğe tıklayınca kapanmasın
+            style={styles.modalContent}
+          >
+                {/* Tutacak Çizgisi (Görsel Detay) */}
+                <View style={styles.dragHandle} />
+
+                {/* Başlık */}
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>⚠️ HATA DETAYI</Text>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <Text style={styles.closeButtonText}>✕</Text>
                     </TouchableOpacity>
                 </View>
     
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12 }}>
-                    <View style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
-                        <Text style={{ color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 18 }}>{error.wrong}</Text>
+                {/* Karşılaştırma */}
+                <View style={styles.compareContainer}>
+                    <View style={styles.compareItem}>
+                        <Text style={styles.compareLabel}>YANLIŞ</Text>
+                        <Text style={styles.wrongText}>{error.wrong}</Text>
                     </View>
-                    <Text style={{ fontSize: 24, color: '#bdc3c7', marginHorizontal: 10 }}>➜</Text>
-                    <View style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ fontSize: 12, color: '#27ae60', fontWeight: 'bold', marginBottom: 5 }}>DOĞRU</Text>
-                        <Text style={{ color: '#27ae60', fontWeight: 'bold', fontSize: 18 }}>{error.correct}</Text>
+                    <Text style={styles.arrowIcon}>➜</Text>
+                    <View style={styles.compareItem}>
+                        <Text style={styles.compareLabel}>DOĞRU</Text>
+                        <Text style={styles.correctText}>{error.correct}</Text>
                     </View>
                 </View>
     
-                <View style={{ backgroundColor: '#e8f4fd', padding: 12, borderRadius: 8, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 }}>
-                    <Text style={{ fontSize: 11, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
-                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 }}>{ruleTitle}</Text>
+                {/* Kural Bilgisi */}
+                <View style={styles.ruleBox}>
+                    <Text style={styles.ruleLabel}>İHLAL EDİLEN KURAL</Text>
+                    <Text style={styles.ruleText}>{ruleTitle}</Text>
                 </View>
     
-                <Text style={{ fontSize: 15, color: '#34495e', lineHeight: 22 }}>{error.explanation}</Text>
-                <View style={{height: 30}}/>
-          </View>
-        </View>
+                {/* Açıklama */}
+                <Text style={styles.explanationText}>{error.explanation}</Text>
+                
+                <View style={{height: 40}}/>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     );
 };
@@ -434,7 +451,7 @@ const styles = StyleSheet.create({
   badgeText: { color: '#3498db', fontWeight: 'bold', fontSize: 12 },
   logoutButton: { backgroundColor: '#fff0f0', padding: 10, borderRadius: 10 },
   logoutText: { color: '#e74c3c', fontWeight: 'bold', fontSize: 12 },
-  tabsContainer: { flexDirection: 'row', backgroundColor:'white', marginTop:15, marginHorizontal:20, borderRadius:12, overflow:'hidden', ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 2 } }) },
+  tabsContainer: { flexDirection: 'row', backgroundColor:'white', marginHorizontal:20, borderRadius:12, overflow:'hidden', marginTop:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 2 } }) },
   tab: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
   activeTab: { borderBottomColor: '#3498db', backgroundColor:'#fcfcfc' },
   tabText: { fontSize: 14, fontWeight: '600', color: '#95a5a6' },
@@ -466,8 +483,44 @@ const styles = StyleSheet.create({
   errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
   errorDesc: { fontSize: 13, color: '#7f8c8d' },
-  modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
-  modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
-  modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
-  closeButton: { backgroundColor:'#e74c3c', paddingHorizontal:15, paddingVertical:8, borderRadius:8 }
+  
+  // --- YENİ MODAL STİLLERİ (HAVALI GÖRÜNÜM) ---
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { 
+      backgroundColor: 'white', 
+      borderTopLeftRadius: 25, 
+      borderTopRightRadius: 25, 
+      paddingHorizontal: 25,
+      paddingTop: 15,
+      paddingBottom: 40,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: -5 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 10
+  },
+  dragHandle: {
+      width: 40,
+      height: 5,
+      backgroundColor: '#e0e0e0',
+      borderRadius: 5,
+      alignSelf: 'center',
+      marginBottom: 20
+  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#e74c3c' },
+  closeButton: { padding: 8, backgroundColor:'#f1f2f6', borderRadius:20 },
+  closeButtonText: { fontSize: 14, color: '#95a5a6', fontWeight: 'bold' },
+  
+  compareContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 15 },
+  compareItem: { flex: 1, alignItems: 'center' },
+  compareLabel: { fontSize: 11, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 },
+  wrongText: { color: '#e74c3c', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 16 },
+  correctText: { color: '#27ae60', fontWeight: 'bold', fontSize: 16 },
+  arrowIcon: { fontSize: 20, color: '#bdc3c7' },
+
+  ruleBox: { backgroundColor: '#e8f4fd', padding: 15, borderRadius: 12, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 },
+  ruleLabel: { fontSize: 11, color: '#3498db', fontWeight: 'bold' },
+  ruleText: { fontSize: 14, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 },
+  explanationText: { fontSize: 15, color: '#34495e', lineHeight: 24 }
 });
