@@ -6,10 +6,10 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios'; 
 
-// --- SUNUCU ADRESİ ---
+// --- AYARLAR ---
 const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
 
-// --- TDK KURAL SÖZLÜĞÜ (KART İÇİN) ---
+// --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
   "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'",
   "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'",
@@ -44,16 +44,16 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- YENİ NESİL HIGHLIGHT BİLEŞENİ (SPAN BAZLI) ---
+// --- ÖZEL HIGHLIGHT BİLEŞENİ (SPAN TABANLI) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // Hataları span (start) değerine göre sırala
+  // Hataları güvenli hale getir ve sırala
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined && e?.span?.end !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
 
-  if (safeErrors.length === 0) return <Text style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>{text}</Text>;
+  if (safeErrors.length === 0) return <Text style={{fontSize:16, lineHeight:28, color:'#2c3e50'}}>{text}</Text>;
 
   const elements = [];
   let cursor = 0;
@@ -61,28 +61,28 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   safeErrors.forEach((err, index) => {
     const { start, end } = err.span;
 
-    // Çakışma kontrolü (Basit)
+    // Hatalar çakışıyorsa atla (Güvenlik)
     if (start < cursor) return;
 
-    // Hata öncesindeki normal metin
+    // 1. Hata öncesindeki normal metin
     if (start > cursor) {
       elements.push(
-        <Text key={`txt-${cursor}`} style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>
+        <Text key={`txt-${cursor}`} style={{color:'#2c3e50'}}>
           {text.slice(cursor, start)}
         </Text>
       );
     }
 
-    // Hatalı kısım (Kırmızı, Altı Çizili, Tıklanabilir)
+    // 2. Hatalı kısım (Kırmızı, Kalın, Altı Çizili)
     elements.push(
       <Text
         key={`err-${index}`}
         onPress={() => onErrorPress(err)}
         style={{ 
-            color: '#c0392b', 
+            color: '#c0392b',      // Koyu Kırmızı
             fontWeight: 'bold', 
             textDecorationLine: 'underline',
-            backgroundColor: '#fff0f0' 
+            backgroundColor: 'rgba(255, 0, 0, 0.1)' // Hafif kırmızı arka plan
         }}
       >
         {text.slice(start, end)}
@@ -92,60 +92,73 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     cursor = end;
   });
 
-  // Kalan metin
+  // 3. Kalan metin
   if (cursor < text.length) {
     elements.push(
-      <Text key={`txt-end`} style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>
+      <Text key={`txt-end`} style={{color:'#2c3e50'}}>
         {text.slice(cursor)}
       </Text>
     );
   }
 
-  return <Text>{elements}</Text>;
+  // React Native'de Text içinde Text kullanarak satır kaymasını düzgün yapıyoruz
+  return (
+    <Text style={{fontSize: 16, lineHeight: 30}}>
+      {elements}
+    </Text>
+  );
 };
 
-// --- HATA KARTI MODAL (GÜZEL GÖRÜNÜM) ---
+// --- HATA KARTI (MODAL) ---
 const ErrorCardModal = ({ error, visible, onClose }) => {
     if (!error) return null;
-    const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
+    const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Genel Kural";
   
     return (
       <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, minHeight: 300, padding: 20 }}>
-            {/* Başlık */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 }}>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
-              <TouchableOpacity onPress={onClose} style={{ padding: 5 }}>
-                <Text style={{ fontSize: 20, color: '#95a5a6', fontWeight: 'bold' }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-  
-            {/* Karşılaştırma */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-               <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 10, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
-                  <Text style={{ color: '#e74c3c', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 16 }}>{error.wrong}</Text>
-               </View>
-               <Text style={{ fontSize: 20, color: '#bdc3c7' }}>➜</Text>
-               <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 10, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 }}>DOĞRU</Text>
-                  <Text style={{ color: '#27ae60', fontWeight: 'bold', fontSize: 16 }}>{error.correct}</Text>
-               </View>
-            </View>
-  
-            {/* Kural Bilgisi */}
-            <View style={{ backgroundColor: '#f8f9fa', padding: 10, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#3498db', marginBottom: 15 }}>
-              <Text style={{ fontSize: 10, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
-              <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#2c3e50', marginTop: 2 }}>{ruleTitle}</Text>
-            </View>
-  
-            {/* Açıklama */}
-            <Text style={{ fontSize: 14, color: '#34495e', lineHeight: 20 }}>{error.explanation}</Text>
-            
-            <View style={{height:30}}/>
+        <TouchableOpacity 
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} 
+            activeOpacity={1} 
+            onPress={onClose} // Arka plana basınca kapat
+        >
+          <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 320 }}>
+            {/* İçeriğe tıklayınca kapanmasın */}
+            <TouchableOpacity activeOpacity={1}> 
+                
+                {/* Başlık */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
+                    <TouchableOpacity onPress={onClose} style={{ padding: 5 }}>
+                        <Text style={{ fontSize: 22, color: '#95a5a6', fontWeight: 'bold' }}>✕</Text>
+                    </TouchableOpacity>
+                </View>
+    
+                {/* Karşılaştırma Kutusu */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12 }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
+                        <Text style={{ color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 18 }}>{error.wrong}</Text>
+                    </View>
+                    <Text style={{ fontSize: 24, color: '#bdc3c7', marginHorizontal: 10 }}>➜</Text>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#27ae60', fontWeight: 'bold', marginBottom: 5 }}>DOĞRU</Text>
+                        <Text style={{ color: '#27ae60', fontWeight: 'bold', fontSize: 18 }}>{error.correct}</Text>
+                    </View>
+                </View>
+    
+                {/* Kural Bilgisi */}
+                <View style={{ backgroundColor: '#e8f4fd', padding: 12, borderRadius: 8, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 }}>
+                    <Text style={{ fontSize: 11, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
+                    <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 }}>{ruleTitle}</Text>
+                </View>
+    
+                {/* Açıklama */}
+                <Text style={{ fontSize: 15, color: '#34495e', lineHeight: 22 }}>{error.explanation}</Text>
+                
+                <View style={{height: 30}}/>
+            </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
     );
 };
@@ -266,12 +279,14 @@ export default function MainScreen({ user, setUser }) {
              <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>{step === 1 ? "1. Fotoğraf Yükle" : step === 2 ? "2. Metni Kontrol Et" : "3. Sonuçlar"}</Text>
+                    
                     {image && (
                         <View style={styles.previewContainer}>
                             <Image source={{ uri: image.uri }} style={styles.previewImage} />
                             {step === 1 && <TouchableOpacity style={styles.removeButton} onPress={resetFlow}><Text style={styles.removeButtonText}>X</Text></TouchableOpacity>}
                         </View>
                     )}
+
                     {step === 1 && (
                         <>
                             {!image && <View style={styles.placeholder}><Text style={{color:'#ccc'}}>Fotoğraf Yok</Text></View>}
@@ -284,6 +299,7 @@ export default function MainScreen({ user, setUser }) {
                             </TouchableOpacity>
                         </>
                     )}
+
                     {step === 2 && (
                         <View style={{width:'100%'}}>
                             <Text style={{fontSize:13, color:'#7f8c8d', marginBottom:5}}>Metni düzenleyebilirsiniz:</Text>
@@ -306,7 +322,7 @@ export default function MainScreen({ user, setUser }) {
                         
                         <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                              <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Analiz Sonucu:</Text>
-                             {/* İŞTE YENİ NESİL HIGHLIGHTER */}
+                             {/* FİNAL HIGHLIGHTER BURADA */}
                              <HighlightedText 
                                 text={editableText} 
                                 errors={result.errors} 
@@ -367,7 +383,7 @@ export default function MainScreen({ user, setUser }) {
                   <ScrollView contentContainerStyle={{padding:20}}>
                       <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                           <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
-                          {/* GEÇMİŞTE DE YENİ SİSTEM ÇALIŞIR */}
+                          {/* GEÇMİŞ İÇİN DE AYNI HIGHLIGHTER */}
                           <HighlightedText 
                               text={selectedHistoryItem.ocr_text} 
                               errors={selectedHistoryItem.analysis_json?.errors} 
@@ -386,13 +402,10 @@ export default function MainScreen({ user, setUser }) {
                   </ScrollView>
               )}
           </View>
-          
-          {/* İÇ MODAL (KART) - Geçmişte de çalışsın diye buraya koydum */}
-          <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
       </Modal>
 
-      {/* ANA EKRAN İÇİN KART MODALI */}
-      <ErrorCardModal error={activeError} visible={!!activeError && !showDetailModal} onClose={() => setActiveError(null)} />
+      {/* TEK VE MERKEZİ HATA KARTI MODALI */}
+      <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
     
     </View>
   );
@@ -428,9 +441,17 @@ const styles = StyleSheet.create({
   ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width:'100%' },
   historyCard: { backgroundColor:'white', padding:15, borderRadius:12, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.03)' }, default: { elevation: 2 } }) },
   resultContainer: { width: '100%', paddingBottom: 30 },
+  scoreCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, alignItems: 'center', marginBottom: 15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
+  scoreTitle: { fontSize: 14, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 },
+  scoreValue: { fontSize: 48, fontWeight: 'bold' },
   noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
+  errorsCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
+  errorTitle: { fontSize: 16, fontWeight: 'bold', color: '#e74c3c', marginBottom: 15 },
+  errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
+  errorText: { fontSize: 16, marginBottom: 5 },
+  errorDesc: { fontSize: 13, color: '#7f8c8d' },
   modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
   modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
   modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
