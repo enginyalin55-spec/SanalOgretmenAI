@@ -46,12 +46,13 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (KOORDİNATLI TIKLAMA) ---
+// --- HIGHLIGHT BİLEŞENİ (GEVŞEK FİLTRE - TÜM HATALARI GÖSTERİR) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
+  // FİLTRE GEVŞETİLDİ: Sadece 'start' varsa kabul et. Uzunluk kontrolünü aşağıda yapacağız.
   const safeErrors = (errors || [])
-    .filter(e => e?.span?.start !== undefined)
+    .filter(e => e?.span?.start !== undefined) 
     .sort((a, b) => a.span.start - b.span.start);
 
   if (safeErrors.length === 0) {
@@ -62,12 +63,17 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
+    // Matematiksel güvenlik: Negatifse 0 yap, metinden uzunsa metin sonuna çek.
     const start = Math.max(0, err.span.start);
-    const end = Math.min(text.length, err.span.end);
+    let end = err.span.end;
+    
+    // Eğer AI metinden daha uzun bir yer verdiyse, kırp (Hatayı silme!)
+    if (end > text.length) end = text.length;
 
-    if (start < cursor || start >= end) return;
+    // Eğer veri tamamen bozuksa (start > end) veya üst üste biniyorsa atla
+    if (start >= end || start < cursor) return;
 
-    // Normal Metin
+    // 1. Normal Metin (Hata öncesi)
     if (start > cursor) {
       parts.push({
         type: 'text',
@@ -76,7 +82,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       });
     }
 
-    // Hatalı Kısım
+    // 2. Hatalı Kısım (KUTU)
     parts.push({
       type: 'error',
       key: `e-${index}`,
@@ -87,6 +93,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     cursor = end;
   });
 
+  // 3. Kalan Metin
   if (cursor < text.length) {
     parts.push({ type: 'text', key: `t-end`, content: text.slice(cursor) });
   }
@@ -101,9 +108,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
           <TouchableOpacity
             key={p.key}
             onPress={(evt) => {
-                // KOORDİNATLARI AL (Web ve Mobil Uyumlu)
                 const { pageX, pageY } = evt.nativeEvent;
-                // Hatayı ve koordinatları gönder
                 onErrorPress(p.errorData, { x: pageX, y: pageY });
             }}
             activeOpacity={0.6}
@@ -117,16 +122,16 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- POPOVER KART (BALONCUK) ---
+// --- POPOVER KART (BALONCUK - DÜZELTİLDİ) ---
 const ErrorPopover = ({ data, onClose }) => {
     if (!data?.err) return null;
   
     const { err, x, y } = data;
     const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
   
-    // Konum Hesaplama (Ekrandan taşmaması için)
-    let left = x - 150; // Ortalamaya çalış
-    let top = y + 30;   // Altına koy
+    // Konum Hesaplama (Ekranın dışına taşmasın)
+    let left = x - 150; 
+    let top = y + 35;   
   
     // Sola taşarsa
     if (left < 10) left = 10;
@@ -134,7 +139,7 @@ const ErrorPopover = ({ data, onClose }) => {
     if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
     
     // Alta taşarsa (Yukarı al)
-    if (top + 200 > SCREEN_HEIGHT) top = y - 220;
+    if (top + 250 > SCREEN_HEIGHT) top = y - 260;
   
     return (
       <View style={styles.overlayContainer}>
@@ -145,7 +150,7 @@ const ErrorPopover = ({ data, onClose }) => {
         <View style={[styles.popover, { left, top }]}>
             <View style={styles.popoverHeader}>
                 <Text style={styles.popoverTitle}>⚠️ HATA DETAYI</Text>
-                <TouchableOpacity onPress={onClose}>
+                <TouchableOpacity onPress={onClose} style={{padding:5}}>
                     <Text style={styles.closeBtnText}>✕</Text>
                 </TouchableOpacity>
             </View>
@@ -346,6 +351,7 @@ export default function MainScreen({ user, setUser }) {
                                     <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
                                 </Text>
                                 <Text style={styles.errorDesc}>{err.explanation}</Text>
+                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
                             </TouchableOpacity>
                         ))}
                         
@@ -495,7 +501,7 @@ const styles = StyleSheet.create({
 
   // FULL SCREEN OVERLAY (GEÇMİŞ İÇİN)
   fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
-  detailContainer: { flex: 1, paddingTop: 40 },
+  detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
   sheetTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
   closeBtn: { padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 },
