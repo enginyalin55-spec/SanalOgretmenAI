@@ -50,7 +50,6 @@ const TDK_LOOKUP = {
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // FİLTRE GEVŞETİLDİ: Sadece 'start' varsa kabul et. Uzunluk kontrolünü aşağıda yapacağız.
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined) 
     .sort((a, b) => a.span.start - b.span.start);
@@ -63,17 +62,13 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
-    // Matematiksel güvenlik: Negatifse 0 yap, metinden uzunsa metin sonuna çek.
     const start = Math.max(0, err.span.start);
     let end = err.span.end;
     
-    // Eğer AI metinden daha uzun bir yer verdiyse, kırp (Hatayı silme!)
     if (end > text.length) end = text.length;
 
-    // Eğer veri tamamen bozuksa (start > end) veya üst üste biniyorsa atla
     if (start >= end || start < cursor) return;
 
-    // 1. Normal Metin (Hata öncesi)
     if (start > cursor) {
       parts.push({
         type: 'text',
@@ -82,7 +77,6 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       });
     }
 
-    // 2. Hatalı Kısım (KUTU)
     parts.push({
       type: 'error',
       key: `e-${index}`,
@@ -93,7 +87,6 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     cursor = end;
   });
 
-  // 3. Kalan Metin
   if (cursor < text.length) {
     parts.push({ type: 'text', key: `t-end`, content: text.slice(cursor) });
   }
@@ -122,31 +115,24 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- POPOVER KART (BALONCUK - DÜZELTİLDİ) ---
+// --- POPOVER KART (BALONCUK) ---
 const ErrorPopover = ({ data, onClose }) => {
     if (!data?.err) return null;
   
     const { err, x, y } = data;
     const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
   
-    // Konum Hesaplama (Ekranın dışına taşmasın)
     let left = x - 150; 
     let top = y + 35;   
   
-    // Sola taşarsa
     if (left < 10) left = 10;
-    // Sağa taşarsa
     if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
-    
-    // Alta taşarsa (Yukarı al)
     if (top + 250 > SCREEN_HEIGHT) top = y - 260;
   
     return (
       <View style={styles.overlayContainer}>
-        {/* Arka plan (Basınca kapanır) */}
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         
-        {/* Popover Kart */}
         <View style={[styles.popover, { left, top }]}>
             <View style={styles.popoverHeader}>
                 <Text style={styles.popoverTitle}>⚠️ HATA DETAYI</Text>
@@ -183,9 +169,8 @@ export default function MainScreen({ user, setUser }) {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
-  const [showDetailOverlay, setShowDetailOverlay] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   
-  // KART STATE'i (Hata + Koordinat)
   const [activeErrorData, setActiveErrorData] = useState(null);
 
   const [step, setStep] = useState(1); 
@@ -260,12 +245,9 @@ export default function MainScreen({ user, setUser }) {
     } catch (error) { Alert.alert("Hata", "Analiz yapılamadı."); } finally { setLoading(false); }
   };
 
-  const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
+  const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailModal(true); };
 
-  // --- POPOVER AÇMA ---
   const handleOpenPopover = (err, coords) => {
-      // coords: {x, y}
-      // Eğer listeden tıklanırsa koordinat olmaz, varsayılan olarak ortaya koyalım
       const safeCoords = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
       setActiveErrorData({ err, ...safeCoords });
   };
@@ -361,13 +343,13 @@ export default function MainScreen({ user, setUser }) {
              </View>
           )}
 
-          {/* GEÇMİŞ */}
+          {/* GEÇMİŞ EKRANI */}
           {activeTab === 'history' && (
              <View style={styles.contentArea}>
                  {loadingHistory ? (
                      <ActivityIndicator size="large" color="#3498db" style={{marginTop:20}} />
                  ) : historyData.length === 0 ? (
-                     <View style={{alignItems:'center', marginTop:50}}><Text style={{color:'#95a5a6'}}>Geçmiş yok.</Text></View>
+                     <View style={{alignItems:'center', marginTop:50}}><Text style={{color:'#95a5a6'}}>Henüz hiç ödev göndermediniz.</Text></View>
                  ) : (
                      <FlatList 
                         data={historyData}
@@ -394,38 +376,53 @@ export default function MainScreen({ user, setUser }) {
           )}
       </ScrollView>
 
-      {/* --- POPOVER (BALONCUK) --- */}
-      {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
+      {/* GEÇMİŞ DETAY MODALI */}
+      <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
+          <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Ödev Raporu</Text>
+                  <TouchableOpacity onPress={() => setShowDetailModal(false)} style={styles.closeButton}>
+                      <Text style={{color:'white', fontWeight:'bold'}}>Kapat</Text>
+                  </TouchableOpacity>
+              </View>
+              {selectedHistoryItem && (
+                  <ScrollView contentContainerStyle={{padding:20}}>
+                      <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
+                          <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
+                          <HighlightedText 
+                              text={selectedHistoryItem.ocr_text} 
+                              errors={selectedHistoryItem.analysis_json?.errors} 
+                              onErrorPress={handleOpenPopover} 
+                          />
+                      </View>
 
-      {/* DETAY OVERLAY (GEÇMİŞ İÇİN) */}
-      {showDetailOverlay && selectedHistoryItem && (
-          <View style={styles.fullScreenOverlay}>
-             <View style={styles.detailContainer}>
-                 <View style={styles.sheetHeader}>
-                    <Text style={styles.sheetTitle}>Ödev Raporu</Text>
-                    <TouchableOpacity onPress={() => setShowDetailOverlay(false)} style={styles.closeBtn}>
-                        <Text style={styles.closeBtnText}>✕</Text>
-                    </TouchableOpacity>
-                 </View>
-                 <ScrollView contentContainerStyle={{padding:20}}>
-                     <View style={styles.analysisCard}>
-                        <HighlightedText 
-                            text={selectedHistoryItem.ocr_text} 
-                            errors={selectedHistoryItem.analysis_json?.errors} 
-                            onErrorPress={handleOpenPopover} 
-                        />
-                     </View>
-                     {selectedHistoryItem.human_note && (
-                        <View style={styles.noteCard}>
-                            <Text style={styles.noteTitle}>👨‍🏫 Öğretmeninizin Notu:</Text>
-                            <Text style={styles.noteText}>{selectedHistoryItem.human_note}</Text>
+                      {/* --- GEÇMİŞTE DE LİSTE VAR ARTIK --- */}
+                      {selectedHistoryItem.analysis_json?.errors?.map((err, index) => (
+                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
+                                <Text style={styles.errorText}>
+                                    <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
+                                    {' ➜ '} 
+                                    <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
+                                </Text>
+                                <Text style={styles.errorDesc}>{err.explanation}</Text>
+                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
+                            </TouchableOpacity>
+                      ))}
+                      
+                      {selectedHistoryItem.human_note && (
+                        <View style={[styles.noteCard, {backgroundColor:'#fef9e7', borderLeftColor:'#d35400', marginBottom:20}]}>
+                            <Text style={[styles.noteTitle, {color:'#d35400'}]}>👨‍🏫 Öğretmeninizin Notu:</Text>
+                            <Text style={[styles.noteText, {color:'#d35400'}]}>{selectedHistoryItem.human_note}</Text>
                         </View>
-                     )}
-                     <View style={{height:50}}></View>
-                 </ScrollView>
-             </View>
+                      )}
+                      <View style={{height:50}}></View>
+                  </ScrollView>
+              )}
           </View>
-      )}
+      </Modal>
+
+      {/* POPOVER BALONCUK (EN ÜST KATMAN) */}
+      {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
     
     </View>
   );
@@ -499,10 +496,8 @@ const styles = StyleSheet.create({
   ruleInfoText: { fontSize: 12, fontWeight: 'bold', color: '#2c3e50' },
   explanationText: { fontSize: 13, color: '#34495e', lineHeight: 18 },
 
-  // FULL SCREEN OVERLAY (GEÇMİŞ İÇİN)
-  fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
-  detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
-  sheetTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
-  closeBtn: { padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 },
+  modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
+  modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
+  modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
+  closeButton: { backgroundColor:'#e74c3c', paddingHorizontal:15, paddingVertical:8, borderRadius:8 }
 });
