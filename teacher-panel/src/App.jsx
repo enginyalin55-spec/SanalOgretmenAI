@@ -1,485 +1,560 @@
-import { useEffect, useState, useRef } from 'react';
-import { supabase } from './supabase';
-import { BarChart2, Save, Edit3, Globe, Download, LogOut, Lock, Plus, Trash2, CheckCircle, Maximize2, X, ZoomIn, ZoomOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { 
+  LayoutDashboard, Users, FileText, LogOut, ChevronRight, 
+  Search, Download, Save, X, Trash2, Plus, ZoomIn, ZoomOut 
+} from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
-// --- AYARLAR ---
-const API_URL = "https://sanalogretmenai.onrender.com"; // Render adresin
+// --- SUPABASE AYARLARI ---
+// Buraya kendi Supabase URL ve Key bilgilerini girmelisin veya mevcut import'unu kullanmalısın.
+import { supabase } from './supabase'; 
 
-const COUNTRY_NAMES = {
-  "TR": "Türkiye", "US": "ABD", "GB": "İngiltere", "DE": "Almanya", "FR": "Fransa",
-  "RU": "Rusya", "UA": "Ukrayna", "AZ": "Azerbaycan", "KZ": "Kazakistan", "UZ": "Özbekistan",
-  "TM": "Türkmenistan", "KG": "Kırgızistan", "AF": "Afganistan", "TJ": "Tacikistan",
-  "SY": "Suriye", "IQ": "Irak", "IR": "İran", "SA": "S. Arabistan", "AE": "BAE", 
-  "QA": "Katar", "KW": "Kuveyt", "LB": "Lübnan", "JO": "Ürdün", "PS": "Filistin", 
-  "EG": "Mısır", "LY": "Libya", "DZ": "Cezayir", "MA": "Fas", "TN": "Tunus", 
-  "SD": "Sudan", "SO": "Somali", "YE": "Yemen", "CN": "Çin", "JP": "Japonya", 
-  "KR": "Güney Kore", "IN": "Hindistan", "PK": "Pakistan", "BD": "Bangladeş", 
-  "ID": "Endonezya", "MY": "Malezya", "BA": "Bosna Hersek", "AL": "Arnavutluk", 
-  "MK": "Makedonya", "XK": "Kosova", "GR": "Yunanistan", "BG": "Bulgaristan", "RO": "Romanya"
-};
-
-const getFlag = (countryCode) => {
-  if (!countryCode || countryCode.length !== 2) return '🌍';
-  const codePoints = countryCode.toUpperCase().split('').map(char =>  127397 + char.charCodeAt());
-  return String.fromCodePoint(...codePoints);
-}
-
-const generateClassCode = () => Math.random().toString(36).substring(2, 7).toUpperCase();
-
-// --- TDK KURAL SÖZLÜĞÜ (BAŞLIKLAR) ---
+// --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
-  "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'nin Yazımı",
-  "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'nin Yazımı",
-  "TDK_03_SORU_EKI": "Soru Eki 'mı/mi'nin Yazımı",
-  "TDK_04_SEY_SOZ": "'Şey' Sözcüğünün Yazımı",
+  "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'",
+  "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'",
+  "TDK_03_SORU_EKI": "Soru Eki 'mı/mi'",
+  "TDK_04_SEY_SOZ": "'Şey' Sözcüğü",
   "TDK_05_BUYUK_CUMLE": "Cümle Başı Büyük Harf",
-  "TDK_06_BUYUK_OZEL": "Özel İsimlerin Yazımı",
-  "TDK_07_BUYUK_KURUM": "Kurum ve Kuruluş Adları",
-  "TDK_08_TARIH_GUN_AY": "Belirli Tarihlerin Yazımı",
-  "TDK_09_KESME_OZEL": "Özel İsimlere Gelen Ekler",
-  "TDK_10_KESME_KURUM": "Kurum Adlarına Gelen Ekler",
-  "TDK_11_YARDIMCI_FIIL_SES": "Yardımcı Fiillerde Ses Olayı",
-  "TDK_12_SAYI_AYRI": "Sayıların Yazımı (Ayrı)",
+  "TDK_06_BUYUK_OZEL": "Özel İsimler",
+  "TDK_07_BUYUK_KURUM": "Kurum Adları",
+  "TDK_08_TARIH_GUN_AY": "Tarihlerin Yazımı",
+  "TDK_09_KESME_OZEL": "Kesme İşareti (Özel)",
+  "TDK_10_KESME_KURUM": "Kurum Ekleri",
+  "TDK_11_YARDIMCI_FIIL_SES": "Yardımcı Fiiller",
+  "TDK_12_SAYI_AYRI": "Sayıların Yazımı",
   "TDK_13_ULESTIRME": "Üleştirme Sayıları",
-  "TDK_14_KISALTMA_BUYUK": "Büyük Harfli Kısaltmalar",
-  "TDK_15_IKILEMELER": "İkilemelerin Yazımı",
-  "TDK_16_PEKISTIRME": "Pekiştirmelerin Yazımı",
-  "TDK_17_YUMUSAK_G": "Yumuşak G Başlangıcı",
-  "TDK_18_HER_BIR": "'Her' Kelimesinin Yazımı",
-  "TDK_19_BELIRSIZLIK_SIFATLARI": "Belirsizlik Sıfatları",
+  "TDK_14_KISALTMA_BUYUK": "Kısaltmalar",
+  "TDK_15_IKILEMELER": "İkilemeler",
+  "TDK_16_PEKISTIRME": "Pekiştirmeler",
+  "TDK_17_YUMUSAK_G": "Yumuşak G Kuralı",
+  "TDK_18_HER_BIR": "'Her' Kelimesi",
+  "TDK_19_BELIRSIZLIK_SIFATLARI": "Bitişik Kelimeler",
   "TDK_20_NOKTA": "Nokta Kullanımı",
   "TDK_21_VIRGUL": "Virgül Kullanımı",
-  "TDK_22_DARALMA_KURALI": "Gereksiz Ünlü Daralması (Yazı Dili)",
-  "TDK_23_YANLIS_YALNIZ": "Yanlış/Yalnız Yazımı",
-  "TDK_24_HERKES": "Herkes (s/z) Yazımı",
-  "TDK_25_SERTLESME": "Ünsüz Benzeşmesi (Sertleşme)",
-  "TDK_26_HANE": "Hane Kelimesinin Yazımı",
-  "TDK_27_ART_ARDA": "Art Arda Yazımı",
-  "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimelerin Yazımı",
-  "TDK_29_UNVANLAR": "Unvanların Yazımı",
-  "TDK_30_YONLER": "Yön Adlarının Yazımı",
+  "TDK_22_DARALMA_KURALI": "Gereksiz Daralma",
+  "TDK_23_YANLIS_YALNIZ": "Yanlış/Yalnız",
+  "TDK_24_HERKES": "Herkes (s/z)",
+  "TDK_25_SERTLESME": "Ünsüz Benzeşmesi",
+  "TDK_26_HANE": "Hane Kelimesi",
+  "TDK_27_ART_ARDA": "Art Arda",
+  "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
+  "TDK_29_UNVANLAR": "Unvanlar",
+  "TDK_30_YONLER": "Yön Adları",
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GLOBAL STYLES (KIRMIZI ÇİZGİLER VE KART STİLİ BURADA) ---
-const GLOBAL_STYLES = `
-  /* Hata vurgulama stili */
-  .tdk-err {
+// --- GLOBAL CSS STİLLERİ ---
+const STYLES = `
+  .highlight-error {
     background-color: #fff0f0;
     color: #c0392b;
     font-weight: 700;
     border-bottom: 2px solid #e74c3c;
     cursor: pointer;
-    border-radius: 3px;
+    transition: all 0.2s;
     padding: 0 2px;
-    transition: all 0.2s ease;
+    border-radius: 3px;
   }
-  .tdk-err:hover, .tdk-err:focus {
-    background-color: #ffe1e1;
-    outline: none;
+  .highlight-error:hover {
+    background-color: #e74c3c;
+    color: white;
   }
-  
-  /* Kart açılınca yanıp sönme efekti */
-  @keyframes flash-highlight {
-    0% { background-color: #fff0f0; transform: scale(1); }
-    50% { background-color: #ffeaa7; transform: scale(1.05); box-shadow: 0 0 10px rgba(253, 203, 110, 0.5); }
-    100% { background-color: #fff0f0; transform: scale(1); }
+  .popover-card {
+    animation: popIn 0.2s ease-out;
   }
-  .flash-active {
-    animation: flash-highlight 0.6s ease-in-out;
+  @keyframes popIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 `;
 
-// --- PUAN EDİTÖRÜ ---
-const ScoreEditor = ({ rubric, onUpdate }) => {
-    if (!rubric) return null;
-    const handleChange = (key, val, max) => {
-        let newVal = parseInt(val);
-        if (isNaN(newVal)) newVal = 0; if (newVal > max) newVal = max; if (newVal < 0) newVal = 0;
-        onUpdate(key, newVal);
-    };
-    const items = [
-        { key: "uzunluk", label: "Uzunluk", max: 16 }, { key: "noktalama", label: "Noktalama", max: 14 },
-        { key: "dil_bilgisi", label: "Dil Bilgisi", max: 16 }, { key: "soz_dizimi", label: "Söz Dizimi", max: 20 },
-        { key: "kelime", label: "Kelime", max: 14 }, { key: "icerik", label: "İçerik", max: 20 },
-    ];
-    return (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(100px, 1fr))', gap:10, marginTop:15, padding:15, backgroundColor:'#f8f9fa', borderRadius:10}}>
-            {items.map((item) => (
-                <div key={item.key} style={{textAlign:'center', border:'1px solid #eee', padding:5, borderRadius:8, backgroundColor:'white'}}>
-                    <div style={{fontSize:10, color:'#7f8c8d', textTransform:'uppercase', fontWeight:'bold', marginBottom:4}}>{item.label}</div>
-                    <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:2}}>
-                        <input type="number" value={rubric[item.key] || 0} onChange={(e) => handleChange(item.key, e.target.value, item.max)}
-                            style={{width:40, textAlign:'center', fontWeight:'bold', fontSize:16, border:'1px solid #3498db', borderRadius:4, color:'#2c3e50', padding:'2px 0'}} />
-                        <span style={{fontSize:11, color:'#bdc3c7'}}>/{item.max}</span>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-};
+// --- WEB İÇİN HIGHLIGHT BİLEŞENİ ---
+const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
+  if (!text) return <p className="text-gray-400 italic">Metin bulunamadı.</p>;
 
-// --- ZIRHLI BOYAMA BİLEŞENİ (METNİ KIRMIZI YAPAN KISIM) ---
-const HighlightedText = ({ text, errors, onErrorClick }) => {
-  if (typeof text !== "string" || text.length === 0) return null;
+  const safeErrors = (errors || [])
+    .filter(e => e?.span?.start !== undefined)
+    .sort((a, b) => a.span.start - b.span.start);
 
-  // Hataları güvenli hale getir ve sırala
-  const safeErrors = Array.isArray(errors)
-    ? errors.filter((e) => {
-          const s = e?.span?.start;
-          const ed = e?.span?.end;
-          return Number.isInteger(s) && Number.isInteger(ed) && s >= 0 && ed > s && ed <= text.length;
-        })
-        .slice()
-        .sort((a, b) => a.span.start - b.span.start)
-    : [];
-
-  if (safeErrors.length === 0) return <div style={{ whiteSpace: "pre-wrap" }}>{text}</div>;
+  if (safeErrors.length === 0) return <p className="leading-relaxed text-gray-800 text-lg whitespace-pre-wrap">{text}</p>;
 
   const elements = [];
   let cursor = 0;
 
-  for (let i = 0; i < safeErrors.length; i++) {
-    const err = safeErrors[i];
-    const start = err.span.start;
-    const end = err.span.end;
+  safeErrors.forEach((err, index) => {
+    const start = Math.max(0, err.span.start);
+    let end = err.span.end;
+    if (end > text.length) end = text.length;
+    if (start >= end || start < cursor) return;
 
-    if (start < cursor) continue; // Çakışma varsa atla
-
-    // Hata öncesindeki normal metin
+    // Normal Metin
     if (start > cursor) {
-        elements.push(<span key={`txt-${cursor}-${start}`}>{text.slice(cursor, start)}</span>);
+      elements.push(<span key={`txt-${cursor}`}>{text.slice(cursor, start)}</span>);
     }
 
-    // HATALI KISIM (Tıklanabilir Span)
+    // Hatalı Metin (Span)
     elements.push(
       <span
-        key={`err-${start}-${end}`}
-        id={`err-span-${start}-${end}`} 
-        className="tdk-err"
-        role="button"
-        tabIndex={0}
-        onClick={(e) => { 
-            e.stopPropagation(); 
-            onErrorClick?.(err); // Tıklanınca App'teki fonksiyonu çağır
+        key={`err-${index}`}
+        className="highlight-error"
+        onClick={(e) => {
+          e.stopPropagation();
+          // Tıklanan elementin koordinatlarını al
+          const rect = e.target.getBoundingClientRect();
+          onErrorClick(err, { x: rect.left + window.scrollX, y: rect.bottom + window.scrollY });
         }}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onErrorClick?.(err); } }}
-        title="Detay için tıklayın"
       >
         {text.slice(start, end)}
       </span>
     );
+
     cursor = end;
-  }
+  });
 
-  // Kalan metin
   if (cursor < text.length) {
-      elements.push(<span key={`txt-${cursor}-end`}>{text.slice(cursor)}</span>);
+    elements.push(<span key="txt-end">{text.slice(cursor)}</span>);
   }
-
-  return <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.8", fontSize: "16px" }}>{elements}</div>;
-};
-
-// --- HATA MÜFETTİŞİ KARTI (SAĞ ALTTAN ÇIKAN KUTU) ---
-const ErrorInspector = ({ error, onClose }) => {
-  if (!error) return null;
-  const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Genel Kural";
 
   return (
-    <div style={{
-        position: "fixed", bottom: 30, right: 30, width: 340, backgroundColor: "white", borderRadius: 12, 
-        boxShadow: "0 10px 40px rgba(0,0,0,0.25)", border: "1px solid #eee", zIndex: 9999, overflow: "hidden",
-        animation: "slideIn 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28)", fontFamily: "'Segoe UI', sans-serif"
-    }}>
-      <style>{`@keyframes slideIn { from { transform: translateY(60px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }`}</style>
-      
-      {/* Kart Başlığı */}
-      <div style={{ backgroundColor: "#e74c3c", color: "white", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14 }}>⚠️ HATA DETAYI</div>
-        <button onClick={onClose} style={{ background: "rgba(255,255,255,0.2)", border: "none", color: "white", cursor: "pointer", width: 28, height: 28, borderRadius: 6, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
-      </div>
+    <div className="leading-relaxed text-gray-800 text-lg whitespace-pre-wrap font-medium">
+      {elements}
+    </div>
+  );
+};
 
-      {/* Kart İçeriği */}
-      <div style={{ padding: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 15 }}>
-            <div style={{ textAlign: "center", flex: 1 }}>
-                <div style={{ fontSize: 11, color: "#95a5a6", fontWeight: 800, marginBottom: 4 }}>YANLIŞ</div>
-                <div style={{ color: "#e74c3c", fontWeight: 800, textDecoration: "line-through", fontSize: 16, wordBreak:'break-word' }}>{error.wrong || "-"}</div>
-            </div>
-            <div style={{ color: "#bdc3c7", fontSize: 20 }}>➜</div>
-            <div style={{ textAlign: "center", flex: 1 }}>
-                <div style={{ fontSize: 11, color: "#95a5a6", fontWeight: 800, marginBottom: 4 }}>DOĞRU</div>
-                <div style={{ color: "#27ae60", fontWeight: 800, fontSize: 16, wordBreak:'break-word' }}>{error.correct || "-"}</div>
-            </div>
+// --- HATA KARTI (POPOVER) ---
+const ErrorPopover = ({ data, onClose }) => {
+  if (!data) return null;
+  const { err, x, y } = data;
+  const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-start justify-start" 
+      onClick={onClose} // Dışarı tıklayınca kapat
+    >
+      <div 
+        className="popover-card absolute bg-white rounded-xl shadow-2xl border border-gray-200 w-80 p-5"
+        style={{ left: Math.min(x - 20, window.innerWidth - 340), top: y + 10 }}
+        onClick={(e) => e.stopPropagation()} // İçeriye tıklayınca kapanmasın
+      >
+        <div className="flex justify-between items-center mb-4 border-b pb-2">
+          <h4 className="font-bold text-red-600 flex items-center gap-2">⚠️ Hata Detayı</h4>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
         </div>
-        
-        <div style={{ backgroundColor: "#f8f9fa", padding: 12, borderRadius: 8, marginBottom: 12, borderLeft: "4px solid #3498db" }}>
-            <div style={{ fontSize: 10, color: "#3498db", fontWeight: 800, letterSpacing: 0.5, textTransform:'uppercase' }}>İHLAL EDİLEN KURAL</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#2c3e50", marginTop: 4 }}>{ruleTitle}</div>
-            <div style={{ fontSize: 11, color: "#7f8c8d", marginTop: 2, fontFamily:'monospace' }}>{error.rule_id}</div>
+
+        <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg mb-4">
+          <div className="text-center flex-1">
+            <div className="text-xs text-red-500 font-bold mb-1">YANLIŞ</div>
+            <div className="text-red-700 font-bold line-through">{err.wrong}</div>
+          </div>
+          <div className="text-gray-300 text-xl mx-2">➜</div>
+          <div className="text-center flex-1">
+            <div className="text-xs text-green-600 font-bold mb-1">DOĞRU</div>
+            <div className="text-green-700 font-bold">{err.correct}</div>
+          </div>
         </div>
-        
-        <div style={{ fontSize: 13, color: "#555", lineHeight: 1.5 }}>
-            {error.explanation || "Açıklama bulunamadı."}
+
+        <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-500 mb-3">
+          <div className="text-xs text-blue-600 font-bold">KURAL</div>
+          <div className="text-sm font-bold text-gray-800">{ruleTitle}</div>
         </div>
+
+        <p className="text-sm text-gray-600 leading-relaxed">{err.explanation}</p>
       </div>
     </div>
   );
 };
 
-// --- RESİM MODAL ---
-const ImageViewerModal = ({ src, onClose }) => {
-    const [scale, setScale] = useState(1);
-    const handleWheel = (e) => { e.preventDefault(); setScale(Math.min(Math.max(0.5, scale - e.deltaY * 0.002), 5)); };
-    if (!src) return null;
-    return (
-        <div onWheel={handleWheel} style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'}}>
-            <div style={{position: 'absolute', top: 20, right: 20, display:'flex', gap:15, zIndex: 10000}}>
-                 <button onClick={() => setScale(scale > 1 ? 1 : 2.5)} style={{backgroundColor: 'white', borderRadius:'50%', width:50, height:50, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', border:'none'}}>{scale > 1 ? <ZoomOut/> : <ZoomIn/>}</button>
-                 <button onClick={onClose} style={{backgroundColor: '#e74c3c', color:'white', borderRadius:'50%', width:50, height:50, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', border:'none'}}><X/></button>
-            </div>
-            <div style={{overflow: 'auto', width: '100%', height: '100%', display: 'flex', alignItems: scale > 1 ? 'flex-start' : 'center', justifyContent: scale > 1 ? 'flex-start' : 'center', padding: 20}}>
-                <img src={src} style={{maxWidth: scale <= 1 ? '100%' : 'none', maxHeight: scale <= 1 ? '100%' : 'none', transform: `scale(${scale})`, transformOrigin: 'top left', transition: 'transform 0.1s ease-out'}} />
-            </div>
-        </div>
-    )
-}
-
-// --- ANA UYGULAMA ---
-export default function App() {
+// --- ANA BİLEŞEN ---
+export default function TeacherPanel() {
   const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [classrooms, setClassrooms] = useState([]); 
-  const [selectedClassCode, setSelectedClassCode] = useState("ALL"); 
-  const [showCreateClass, setShowCreateClass] = useState(false); 
-  const [newClassName, setNewClassName] = useState(""); 
-  const [isEditingClass, setIsEditingClass] = useState(false);
-  const [editClassName, setEditClassName] = useState("");
-  const [submissions, setSubmissions] = useState([]);
-  const [filteredSubmissions, setFilteredSubmissions] = useState([]); 
-  const [selectedSubmission, setSelectedSubmission] = useState(null);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [editableRubric, setEditableRubric] = useState(null);
-  const [calculatedTotal, setCalculatedTotal] = useState(0);
-  const [isScoreChanged, setIsScoreChanged] = useState(false);
-  const [chartData, setChartData] = useState([]);
-  const [countryData, setCountryData] = useState([]);
-  const [teacherNote, setTeacherNote] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
-  // KART STATE'İ: Hangi hataya tıklandı?
-  const [activeError, setActiveError] = useState(null);
+  // Veriler
+  const [classrooms, setClassrooms] = useState([]);
+  const [selectedClass, setSelectedClass] = useState("ALL");
+  const [submissions, setSubmissions] = useState([]);
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
+  
+  // UI State
+  const [activeError, setActiveError] = useState(null); // { err, x, y }
+  const [teacherNote, setTeacherNote] = useState("");
+  const [rubric, setRubric] = useState({});
+  const [totalScore, setTotalScore] = useState(0);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [showCreateClass, setShowCreateClass] = useState(false);
+  const [newClassName, setNewClassName] = useState("");
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    // Session kontrolü
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if(session) fetchData();
+    });
 
-  // ESC TUŞU İLE HER ŞEYİ KAPATMA
-  useEffect(() => {
-    const onKey = (e) => { 
-        if (e.key === "Escape") {
-            setActiveError(null);      // Kartı kapat
-            setShowImageModal(false);  // Resmi kapat
-        }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if(session) fetchData();
+    });
 
-  useEffect(() => {
-    const initSession = async () => { await supabase.auth.signOut(); setSession(null); };
-    initSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => { setSession(session); });
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => { if (session) { fetchClassrooms(); fetchSubmissions(); } }, [session]);
+  const fetchData = async () => {
+    setLoading(true);
+    // 1. Sınıfları Çek
+    const { data: classData } = await supabase.from('classrooms').select('*');
+    setClassrooms(classData || []);
 
-  useEffect(() => {
-    if (selectedClassCode === "ALL") {
-      setFilteredSubmissions(submissions);
-      calculateStats(submissions);
-      setIsEditingClass(false); 
-    } else {
-      const filtered = submissions.filter(sub => sub.classroom_code === selectedClassCode);
-      setFilteredSubmissions(filtered);
-      calculateStats(filtered);
+    // 2. Ödevleri Çek
+    const { data: subData } = await supabase.from('submissions').select('*').order('created_at', { ascending: false });
+    setSubmissions(subData || []);
+    setLoading(false);
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert(error.message);
+    setLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  };
+
+  const handleCreateClass = async () => {
+    if(!newClassName) return;
+    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const { error } = await supabase.from('classrooms').insert([{ 
+        name: newClassName, 
+        code: code, 
+        teacher_email: session.user.email 
+    }]);
+    if(!error) {
+        alert(`Sınıf Oluşturuldu! Kod: ${code}`);
+        setNewClassName("");
+        setShowCreateClass(false);
+        fetchData();
     }
-  }, [selectedClassCode, submissions]);
-
-  // YENİ ÖDEV SEÇİLİNCE SIFIRLA
-  useEffect(() => {
-      if (selectedSubmission) {
-          setTeacherNote(selectedSubmission.human_note || "");
-          const rubric = selectedSubmission.analysis_json?.rubric || {uzunluk:0, noktalama:0, dil_bilgisi:0, soz_dizimi:0, kelime:0, icerik:0};
-          setEditableRubric({...rubric});
-          setCalculatedTotal(selectedSubmission.score_total);
-          setIsScoreChanged(false);
-          setActiveError(null); // Kartı kapat
-          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-      }
-  }, [selectedSubmission?.id]);
-
-  const handleRubricUpdate = (key, value) => {
-      const newRubric = { ...editableRubric, [key]: value };
-      setEditableRubric(newRubric);
-      const total = Object.values(newRubric).reduce((a, b) => a + b, 0);
-      setCalculatedTotal(total);
-      setIsScoreChanged(true);
   };
 
-  async function saveUpdatedScore() {
-    setIsSaving(true);
-    const fullJson = { ...selectedSubmission.analysis_json, rubric: editableRubric };
-    try {
-        const response = await fetch(`${API_URL}/update-score`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ submission_id: selectedSubmission.id, new_rubric: fullJson, new_total: calculatedTotal })
-        });
-        if (response.ok) {
-            const updated = submissions.map(sub => sub.id === selectedSubmission.id ? { ...sub, score_total: calculatedTotal, analysis_json: fullJson } : sub);
-            setSubmissions(updated);
-            setSelectedSubmission({ ...selectedSubmission, score_total: calculatedTotal, analysis_json: fullJson });
-            alert("✅ Kaydedildi!");
-            setIsScoreChanged(false);
-        } else alert("❌ Hata oluştu.");
-    } catch (error) { alert("❌ Sunucu hatası."); }
-    setIsSaving(false);
-  }
+  const deleteSubmission = async (id) => {
+      if(!window.confirm("Bu ödevi silmek istediğinize emin misiniz?")) return;
+      await supabase.from('submissions').delete().eq('id', id);
+      setSubmissions(submissions.filter(s => s.id !== id));
+      if(selectedSubmission?.id === id) setSelectedSubmission(null);
+  };
 
-  // --- HATA TIKLANDIĞINDA ÇALIŞAN FONKSİYON ---
-  const handleErrorClick = (err) => {
-      setActiveError(err);
-      // Kaydırma ve Parlatma Efekti
-      if (Number.isInteger(err?.span?.start) && Number.isInteger(err?.span?.end)) {
-          const el = document.getElementById(`err-span-${err.span.start}-${err.span.end}`);
-          if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              setTimeout(() => { window.scrollBy({ top: -80, left: 0, behavior: 'smooth' }); }, 250);
-              el.classList.remove('flash-active');
-              void el.offsetWidth; 
-              el.classList.add('flash-active');
-              const onAnimEnd = () => {
-                  el.classList.remove('flash-active');
-                  el.removeEventListener('animationend', onAnimEnd);
-              };
-              el.addEventListener('animationend', onAnimEnd);
-          }
+  // Ödev Seçilince Çalışır
+  const openSubmission = (sub) => {
+      setSelectedSubmission(sub);
+      setTeacherNote(sub.human_note || "");
+      setRubric(sub.analysis_json?.rubric || {
+          "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, 
+          "soz_dizimi": 0, "kelime": 0, "icerik": 0
+      });
+      setTotalScore(sub.score_total || 0);
+      setActiveError(null);
+      setImageZoom(1);
+  };
+
+  // Rubric Güncelleme
+  const updateRubric = (key, val, max) => {
+      let newVal = parseInt(val) || 0;
+      if(newVal > max) newVal = max;
+      if(newVal < 0) newVal = 0;
+      
+      const newRubric = { ...rubric, [key]: newVal };
+      setRubric(newRubric);
+      
+      const newTotal = Object.values(newRubric).reduce((a,b) => a+b, 0);
+      setTotalScore(newTotal);
+  };
+
+  const saveChanges = async () => {
+      const fullJson = { ...selectedSubmission.analysis_json, rubric: rubric };
+      
+      const { error } = await supabase.from('submissions').update({
+          score_total: totalScore,
+          analysis_json: fullJson,
+          human_note: teacherNote
+      }).eq('id', selectedSubmission.id);
+
+      if(!error) {
+          alert("✅ Kaydedildi!");
+          // Listeyi güncelle
+          setSubmissions(prev => prev.map(s => s.id === selectedSubmission.id ? {...s, score_total: totalScore, human_note: teacherNote} : s));
+      } else {
+          alert("Hata oluştu.");
       }
   };
 
-  async function fetchClassrooms() { const { data } = await supabase.from('classrooms').select('*').eq('teacher_email', session.user.email); setClassrooms(data || []); }
-  async function createClassroom() { if (!newClassName) return alert("İsim girin"); const newCode = generateClassCode(); const { error } = await supabase.from('classrooms').insert([{ name: newClassName, code: newCode, teacher_email: session.user.email }]); if (!error) { alert(`Sınıf: ${newCode}`); setNewClassName(""); setShowCreateClass(false); fetchClassrooms(); } }
-  async function updateClassroom() { if (!editClassName) return; const { error } = await supabase.from('classrooms').update({ name: editClassName }).eq('code', selectedClassCode); if (!error) { alert("Güncellendi"); setIsEditingClass(false); fetchClassrooms(); } }
-  async function deleteClassroom() { if (selectedClassCode === "ALL" || !window.confirm("Silinsin mi?")) return; await supabase.from('classrooms').delete().eq('code', selectedClassCode); setSelectedClassCode("ALL"); fetchClassrooms(); fetchSubmissions(); }
-  async function deleteSubmission(id) { if(window.confirm("Silinsin mi?")) { await supabase.from('submissions').delete().eq('id', id); setSubmissions(submissions.filter(s => s.id !== id)); if(selectedSubmission?.id === id) setSelectedSubmission(null); } }
-  async function fetchSubmissions() { const { data } = await supabase.from('submissions').select('*').order('created_at', { ascending: false }); setSubmissions(data || []); }
-  const handleLogout = async () => { await supabase.auth.signOut(); setSubmissions([]); setClassrooms([]); };
-  const handleLogin = async (e) => { e.preventDefault(); setLoading(true); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) alert(error.message); setLoading(false); };
-  async function saveTeacherNote() { setIsSaving(true); await supabase.from('submissions').update({ human_note: teacherNote }).eq('id', selectedSubmission.id); const updated = submissions.map(sub => sub.id === selectedSubmission.id ? { ...sub, human_note: teacherNote } : sub); setSubmissions(updated); setSelectedSubmission({ ...selectedSubmission, human_note: teacherNote }); alert("✅ Not kaydedildi!"); setIsSaving(false); }
-  
-  const downloadPDF = async () => {
-    const source = document.getElementById("report-content");
-    if (!source) return;
-    const opt = { margin: 10, filename: `Rapor.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } };
-    html2pdf().set(opt).from(source).save();
+  const downloadPDF = () => {
+      const element = document.getElementById('report-container');
+      const opt = {
+          margin: 10,
+          filename: `Odev_Raporu_${selectedSubmission.student_name}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      html2pdf().set(opt).from(element).save();
   };
 
-  function calculateStats(data) { 
-    let stats = { 'Dilbilgisi': 0, 'Söz Dizimi': 0, 'Yazım/Nokt.': 0, 'Kelime': 0 }; let countries = {}; 
-    data.forEach(sub => { 
-      if (sub.analysis_json?.errors) sub.analysis_json.errors.forEach(err => { const t = ((err.type||"")+" "+(err.explanation||"")).toLowerCase(); if (t.includes('söz')||t.includes('cümle')) stats['Söz Dizimi']++; else if (t.includes('yazım')||t.includes('nokta')) stats['Yazım/Nokt.']++; else if (t.includes('keli')) stats['Kelime']++; else stats['Dilbilgisi']++; }); 
-      const c = sub.country || 'Belirsiz'; countries[c] = (countries[c] || 0) + 1; 
-    }); 
-    setChartData(Object.keys(stats).map(key => ({ name: key, HataSayisi: stats[key] }))); 
-    setCountryData(Object.keys(countries).map(key => ({ name: key, value: countries[key] }))); 
-  }
+  // --- RENDER ---
 
-  if (!session) return ( <div style={{ display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', backgroundColor:'#f0f2f5', fontFamily: "'Segoe UI', sans-serif" }}> <div style={{ backgroundColor:'white', padding:40, borderRadius:15, boxShadow:'0 10px 25px rgba(0,0,0,0.05)', width:350, textAlign:'center' }}> <div style={{backgroundColor:'#e8f0fe', width:60, height:60, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 20px'}}><Lock size={30} color="#3498db"/></div> <h2 style={{color:'#2c3e50', marginBottom:10}}>Öğretmen Girişi</h2> <form onSubmit={handleLogin}> <input type="email" placeholder="E-posta" value={email} onChange={(e) => setEmail(e.target.value)} style={{width:'100%', padding:12, marginBottom:15, borderRadius:8, border:'1px solid #ddd'}} required /> <input type="password" placeholder="Şifre" value={password} onChange={(e) => setPassword(e.target.value)} style={{width:'100%', padding:12, marginBottom:25, borderRadius:8, border:'1px solid #ddd'}} required /> <button type="submit" disabled={loading} style={{width:'100%', padding:12, backgroundColor:'#3498db', color:'white', border:'none', borderRadius:8, fontWeight:'bold', cursor:'pointer'}}>{loading ? '...' : 'Giriş Yap'}</button> </form> </div> </div> );
+  if (!session) return (
+    <div className="flex h-screen items-center justify-center bg-gray-100 font-sans">
+      <form onSubmit={handleLogin} className="bg-white p-10 rounded-2xl shadow-xl w-96">
+        <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
+                <Users size={32} />
+            </div>
+        </div>
+        <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Öğretmen Girişi</h2>
+        <input className="w-full p-3 mb-4 border rounded-lg bg-gray-50" type="email" placeholder="E-posta" value={email} onChange={e=>setEmail(e.target.value)} required />
+        <input className="w-full p-3 mb-6 border rounded-lg bg-gray-50" type="password" placeholder="Şifre" value={password} onChange={e=>setPassword(e.target.value)} required />
+        <button disabled={loading} className="w-full bg-blue-600 text-white p-3 rounded-lg font-bold hover:bg-blue-700 transition">
+            {loading ? "Giriş Yapılıyor..." : "Giriş Yap"}
+        </button>
+      </form>
+    </div>
+  );
 
-  // GLOBAL STYLES (CSS) BURAYA EKLENDİ
   return (
-    <div style={{ padding: '30px', fontFamily: "'Segoe UI', sans-serif", backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
-      <style>{GLOBAL_STYLES}</style>
-      
-      {showImageModal && <ImageViewerModal src={selectedSubmission?.image_url} onClose={() => setShowImageModal(false)} />}
-      
-      {!selectedSubmission ? (
-        <>
-            <div style={{marginBottom: 25, display:'flex', justifyContent:'space-between'}}><div><h1 style={{ color: '#2c3e50', margin: 0 }}>🎓 Paneli</h1><p style={{ margin:0, color:'#7f8c8d' }}>{session.user.email}</p></div><button onClick={handleLogout} style={{background:'#e74c3c', color:'white', border:'none', padding:'8px 15px', borderRadius:8, cursor:'pointer'}}>Çıkış</button></div>
-            <div style={{backgroundColor:'white', padding:15, borderRadius:12, marginBottom:25, display:'flex', gap:15}}>
-                <select value={selectedClassCode} onChange={(e) => setSelectedClassCode(e.target.value)} style={{padding:8, borderRadius:6, border:'1px solid #ddd'}}><option value="ALL">Tüm Sınıflar</option>{classrooms.map(c => <option key={c.id} value={c.code}>{c.name}</option>)}</select>
-                <button onClick={() => setShowCreateClass(!showCreateClass)} style={{background:'#2ecc71', color:'white', border:'none', padding:'8px 15px', borderRadius:6, cursor:'pointer'}}>+ Sınıf</button>
-                {showCreateClass && <><input value={newClassName} onChange={e=>setNewClassName(e.target.value)} placeholder="İsim" style={{padding:6}} /><button onClick={createClassroom} style={{background:'#3498db', color:'white', border:'none', padding:'6px'}}>Kaydet</button></>}
-            </div>
-            <div style={{backgroundColor:'white', borderRadius:12, overflow:'hidden'}}>
-            <table style={{width:'100%', borderCollapse:'collapse'}}>
-                <thead><tr style={{background:'#fafafa', textAlign:'left'}}><th style={{padding:15}}>Tarih</th><th style={{padding:15}}>Öğrenci</th><th style={{padding:15}}>Puan</th><th style={{padding:15}}>İşlem</th><th style={{padding:15}}>Sil</th></tr></thead>
-                <tbody>
-                {filteredSubmissions.map(sub => (
-                    <tr key={sub.id} style={{borderBottom:'1px solid #eee'}}>
-                    <td style={{padding:15}}>{new Date(sub.created_at).toLocaleDateString()}</td>
-                    <td style={{padding:15}}>{sub.student_name} {sub.student_surname}</td>
-                    <td style={{padding:15}}><span style={{background: sub.score_total >= 70 ? '#e8f8f5':'#fdedec', color: sub.score_total >= 70 ? '#27ae60':'#c0392b', padding:'4px 10px', borderRadius:15, fontWeight:'bold'}}>{sub.score_total}</span></td>
-                    <td style={{padding:15}}><button onClick={() => setSelectedSubmission(sub)} style={{background:'#34495e', color:'white', border:'none', padding:'6px 15px', borderRadius:6, cursor:'pointer'}}>İncele</button></td>
-                    <td style={{padding:15}}><button onClick={()=>deleteSubmission(sub.id)} style={{background:'none', border:'none', cursor:'pointer'}}>🗑️</button></td>
-                    </tr>
-                ))}
-                </tbody>
-            </table>
-            </div>
-        </>
-      ) : (
-        <>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 20 }}>
-                <button onClick={() => setSelectedSubmission(null)} style={{ border:'none', background:'none', color:'#3498db', fontWeight:'bold', cursor:'pointer' }}>← Geri Dön</button>
-                <button onClick={downloadPDF} style={{ backgroundColor:'#2c3e50', color:'white', padding:'8px 20px', borderRadius:8, border:'none', cursor:'pointer' }}>PDF İndir</button>
-            </div>
-            <div id="report-content" style={{ display: 'flex', gap: 25, flexDirection: isMobile ? 'column' : 'row' }}>
-                <div style={{ flex: 1, display:'flex', flexDirection:'column', gap:20 }}>
-                    <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
-                        <h3>📄 Orijinal Kağıt</h3>
-                        <img src={selectedSubmission.image_url} onClick={() => setShowImageModal(true)} style={{width:'100%', cursor:'zoom-in', border:'1px solid #eee', borderRadius:8}} />
-                    </div>
-                    <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', textAlign:'center' }}>
-                        <div style={{fontSize:12, color:'#95a5a6', fontWeight:'bold'}}>PUAN</div>
-                        <div style={{fontSize:64, fontWeight:'800', color: calculatedTotal >= 70 ? '#27ae60':'#e74c3c'}}>{calculatedTotal}</div>
-                        {isScoreChanged && <button onClick={saveUpdatedScore} style={{background:'#e67e22', color:'white', border:'none', padding:'8px 20px', borderRadius:20, cursor:'pointer', marginBottom:15}}>Kaydet</button>}
-                        <ScoreEditor rubric={editableRubric} onUpdate={handleRubricUpdate} />
+    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      <style>{STYLES}</style>
+
+      {/* SOL MENÜ (SIDEBAR) */}
+      <div className="w-64 bg-white border-r flex flex-col">
+        <div className="p-6 border-b flex items-center gap-3">
+            <div className="bg-blue-600 text-white p-2 rounded-lg"><LayoutDashboard size={20}/></div>
+            <h1 className="font-bold text-gray-800 text-lg">Panel</h1>
+        </div>
+        
+        <div className="p-4 flex-1 overflow-y-auto">
+            <div className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">Sınıflar</div>
+            <button 
+                onClick={() => setSelectedClass("ALL")}
+                className={`w-full text-left p-3 rounded-lg mb-2 flex items-center gap-2 ${selectedClass === "ALL" ? 'bg-blue-50 text-blue-600 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+                <Users size={18}/> Tüm Öğrenciler
+            </button>
+            {classrooms.map(c => (
+                <button 
+                    key={c.id} 
+                    onClick={() => setSelectedClass(c.code)}
+                    className={`w-full text-left p-3 rounded-lg mb-2 flex items-center justify-between ${selectedClass === c.code ? 'bg-blue-50 text-blue-600 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                    <span>{c.name}</span>
+                    <span className="text-xs bg-gray-200 px-2 py-1 rounded">{c.code}</span>
+                </button>
+            ))}
+            
+            {!showCreateClass ? (
+                <button onClick={() => setShowCreateClass(true)} className="w-full border border-dashed border-gray-300 p-3 rounded-lg text-gray-500 hover:border-blue-500 hover:text-blue-500 flex items-center justify-center gap-2 mt-4">
+                    <Plus size={16}/> Sınıf Ekle
+                </button>
+            ) : (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
+                    <input className="w-full p-2 border rounded mb-2 text-sm" placeholder="Sınıf Adı" value={newClassName} onChange={e=>setNewClassName(e.target.value)} />
+                    <div className="flex gap-2">
+                        <button onClick={handleCreateClass} className="flex-1 bg-green-500 text-white text-xs p-2 rounded">Kaydet</button>
+                        <button onClick={() => setShowCreateClass(false)} className="flex-1 bg-gray-300 text-gray-600 text-xs p-2 rounded">İptal</button>
                     </div>
                 </div>
-                <div style={{ flex: 1.2 }}>
-                    <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', minHeight:600 }}>
-                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:20}}><h3>📝 Analiz</h3><span style={{background:'#f1f2f6', padding:'4px 8px', borderRadius:4, fontSize:12}}>OCR</span></div>
+            )}
+        </div>
+
+        <div className="p-4 border-t">
+            <button onClick={handleLogout} className="w-full flex items-center gap-2 text-red-500 hover:bg-red-50 p-3 rounded-lg transition">
+                <LogOut size={18}/> Çıkış Yap
+            </button>
+        </div>
+      </div>
+
+      {/* ANA İÇERİK */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {selectedSubmission ? (
+            // --- DETAY GÖRÜNÜMÜ ---
+            <div className="flex flex-col h-full">
+                {/* Üst Bar */}
+                <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm z-10">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setSelectedSubmission(null)} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">← Geri</button>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-800">{selectedSubmission.student_name} {selectedSubmission.student_surname}</h2>
+                            <span className="text-sm text-gray-500">{new Date(selectedSubmission.created_at).toLocaleString('tr-TR')}</span>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${totalScore >= 70 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {totalScore} Puan
+                        </span>
+                        <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-bold border border-yellow-200">
+                            Seviye: {selectedSubmission.level || "A1"}
+                        </span>
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={saveChanges} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">
+                            <Save size={18}/> Kaydet
+                        </button>
+                        <button onClick={downloadPDF} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg hover:bg-gray-900 font-medium">
+                            <Download size={18}/> PDF
+                        </button>
+                    </div>
+                </div>
+
+                {/* İçerik Alanı (Scroll edilebilir) */}
+                <div className="flex-1 overflow-hidden flex bg-gray-100 p-6 gap-6">
+                    
+                    {/* SOL: Resim */}
+                    <div className="flex-1 bg-white rounded-xl shadow-lg border overflow-hidden flex flex-col">
+                        <div className="p-3 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 className="font-bold text-gray-700">📄 Orijinal Kağıt</h3>
+                            <div className="flex gap-2">
+                                <button onClick={() => setImageZoom(z => Math.min(z + 0.5, 3))} className="p-1 bg-white border rounded hover:bg-gray-100"><ZoomIn size={16}/></button>
+                                <button onClick={() => setImageZoom(z => Math.max(z - 0.5, 1))} className="p-1 bg-white border rounded hover:bg-gray-100"><ZoomOut size={16}/></button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-4">
+                            <img 
+                                src={selectedSubmission.image_url} 
+                                alt="Ödev" 
+                                style={{ transform: `scale(${imageZoom})`, transition: 'transform 0.2s' }}
+                                className="max-w-full shadow-xl"
+                            />
+                        </div>
+                    </div>
+
+                    {/* SAĞ: Analiz ve Rapor (PDF Alanı) */}
+                    <div className="flex-1 overflow-y-auto pr-2" id="report-container">
                         
-                        {/* İŞTE SİHİRLİ KISIM BURADA */}
-                        <div style={{ lineHeight:1.8, fontSize:16, color:'#2d3436' }}>
-                            <HighlightedText 
-                                text={selectedSubmission.ocr_text} 
-                                errors={selectedSubmission.analysis_json?.errors} 
-                                onErrorClick={handleErrorClick} 
+                        {/* 1. Metin Analizi */}
+                        <div className="bg-white rounded-xl shadow-lg border p-8 mb-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">📝 Metin Analizi (OCR)</h3>
+                            <div className="bg-gray-50 p-6 rounded-lg border border-gray-100">
+                                <HighlightedTextWeb 
+                                    text={selectedSubmission.ocr_text} 
+                                    errors={selectedSubmission.analysis_json?.errors} 
+                                    onErrorClick={(err, coords) => setActiveError({ err, ...coords })}
+                                />
+                            </div>
+                        </div>
+
+                        {/* 2. Puanlama Tablosu */}
+                        <div className="bg-white rounded-xl shadow-lg border p-6 mb-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">📊 Puanlama (Rubric)</h3>
+                            <div className="grid grid-cols-3 gap-4">
+                                {[
+                                    { k: "uzunluk", l: "Uzunluk", m: 16 },
+                                    { k: "noktalama", l: "Noktalama", m: 14 },
+                                    { k: "dil_bilgisi", l: "Dil Bilgisi", m: 16 },
+                                    { k: "soz_dizimi", l: "Söz Dizimi", m: 20 },
+                                    { k: "kelime", l: "Kelime Bilgisi", m: 14 },
+                                    { k: "icerik", l: "İçerik", m: 20 }
+                                ].map((item) => (
+                                    <div key={item.k} className="bg-gray-50 p-3 rounded-lg border text-center">
+                                        <div className="text-xs font-bold text-gray-500 uppercase mb-2">{item.l}</div>
+                                        <div className="flex items-center justify-center gap-1">
+                                            <input 
+                                                type="number" 
+                                                className="w-12 text-center font-bold text-lg border-b-2 border-blue-500 bg-transparent focus:outline-none"
+                                                value={rubric[item.k] || 0}
+                                                onChange={(e) => updateRubric(item.k, e.target.value, item.m)}
+                                                min="0" max={item.m}
+                                            />
+                                            <span className="text-gray-400 text-sm">/ {item.m}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-4 flex justify-between items-center bg-gray-100 p-4 rounded-lg">
+                                <span className="font-bold text-gray-600">TOPLAM PUAN</span>
+                                <span className={`text-3xl font-extrabold ${totalScore >= 70 ? 'text-green-600' : 'text-red-600'}`}>{totalScore} / 100</span>
+                            </div>
+                        </div>
+
+                        {/* 3. Öğretmen Notu */}
+                        <div className="bg-white rounded-xl shadow-lg border p-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">👨‍🏫 Öğretmen Notu</h3>
+                            <textarea 
+                                className="w-full border rounded-lg p-4 h-32 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                                placeholder="Öğrenciye iletmek istediğiniz not..."
+                                value={teacherNote}
+                                onChange={(e) => setTeacherNote(e.target.value)}
                             />
                         </div>
 
                     </div>
-                    <div style={{ backgroundColor: 'white', padding: 25, borderRadius: 12, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginTop:20 }}>
-                        <h4>Öğretmen Notu</h4>
-                        <textarea value={teacherNote} onChange={(e) => setTeacherNote(e.target.value)} style={{width:'100%', height:100, padding:10, borderRadius:8, border:'1px solid #ddd'}} />
-                        <button onClick={saveTeacherNote} disabled={isSaving} style={{marginTop:10, background:'#3498db', color:'white', border:'none', padding:'8px 20px', borderRadius:6, cursor:'pointer'}}>Kaydet</button>
-                    </div>
                 </div>
             </div>
-            {/* KART BURADA RENDER EDİLİYOR */}
-            {activeError && <ErrorInspector error={activeError} onClose={() => setActiveError(null)} />}
-        </>
-      )}
+        ) : (
+            // --- LİSTE GÖRÜNÜMÜ ---
+            <div className="p-8 h-full overflow-y-auto">
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-800">Ödev Teslimleri</h1>
+                        <p className="text-gray-500 mt-1">
+                            {selectedClass === "ALL" ? "Tüm Sınıflar" : `${classrooms.find(c=>c.code===selectedClass)?.name || selectedClass} Sınıfı`}
+                        </p>
+                    </div>
+                    <div className="relative">
+                        <Search className="absolute left-3 top-3 text-gray-400" size={20}/>
+                        <input className="pl-10 pr-4 py-2 border rounded-full w-64 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Öğrenci ara..." />
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 border-b">
+                            <tr>
+                                <th className="p-4 font-bold text-gray-600">Öğrenci</th>
+                                <th className="p-4 font-bold text-gray-600">Sınıf</th>
+                                <th className="p-4 font-bold text-gray-600">Tarih</th>
+                                <th className="p-4 font-bold text-gray-600">Seviye</th>
+                                <th className="p-4 font-bold text-gray-600">Puan</th>
+                                <th className="p-4 font-bold text-gray-600 text-right">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {submissions.filter(s => selectedClass === "ALL" || s.classroom_code === selectedClass).map(sub => (
+                                <tr key={sub.id} className="hover:bg-gray-50 transition cursor-pointer" onClick={() => openSubmission(sub)}>
+                                    <td className="p-4 font-medium text-gray-800">{sub.student_name} {sub.student_surname}</td>
+                                    <td className="p-4 text-gray-600"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{sub.classroom_code}</span></td>
+                                    <td className="p-4 text-gray-600">{new Date(sub.created_at).toLocaleDateString()}</td>
+                                    <td className="p-4"><span className="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold">{sub.level || "A1"}</span></td>
+                                    <td className="p-4">
+                                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${sub.score_total >= 70 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                            {sub.score_total}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 text-right flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <button onClick={() => openSubmission(sub)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg"><ChevronRight size={20}/></button>
+                                        <button onClick={() => deleteSubmission(sub.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg"><Trash2 size={18}/></button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {submissions.length === 0 && (
+                                <tr>
+                                    <td colSpan="6" className="p-10 text-center text-gray-400">Henüz ödev yüklenmemiş.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
+      </div>
+
+      {/* POPOVER BALONCUK */}
+      <ErrorPopover data={activeError} onClose={() => setActiveError(null)} />
     </div>
   );
 }
