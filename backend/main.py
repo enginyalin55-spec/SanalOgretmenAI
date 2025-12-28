@@ -178,7 +178,7 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         "title": "Yanlış/Yalnız Yazımı",
         "text": "Doğrusu: Yanlış (yanılmaktan), Yalnız (yalından).",
         "category": "Yazım"
-  },
+      },
       {
         "rule_id": "TDK_24_HERKES",
         "title": "Herkes Yazımı",
