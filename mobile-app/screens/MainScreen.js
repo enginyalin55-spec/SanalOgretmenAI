@@ -45,29 +45,31 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GARANTİLİ HIGHLIGHT BİLEŞENİ (FLEX-WRAP VIEW) ---
-// Bu yöntem metni kelime/parça bloklarına böler. Tıklama %100 çalışır.
+// --- HIGHLIGHT BİLEŞENİ (ESNEK FİLTRE + SAĞLAM PRESSABLE) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
+  // Hataları sadece span VARLIĞINA göre filtrele (Length kontrolü yapma, aşağıda düzelteceğiz)
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
 
   if (safeErrors.length === 0) {
-    return <Text style={{ fontSize: 16, lineHeight: 24, color: '#2c3e50' }}>{text}</Text>;
+    return <Text style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>{text}</Text>;
   }
 
   const parts = [];
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
+    // Math.max ve Math.min ile sınırları zorla, hata olsa bile uygulamayı çökertme
     const start = Math.max(0, err.span.start);
     const end = Math.min(text.length, err.span.end);
 
-    if (start < cursor || start >= end) return;
+    // Eğer başlangıç noktası cursor'dan gerideyse (çakışma), bu hatayı atla
+    if (start < cursor) return;
 
-    // 1. Normal Metin
+    // 1. Normal Metin (Hata öncesi)
     if (start > cursor) {
       parts.push({
         type: 'text',
@@ -79,7 +81,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     // 2. Hatalı Kısım
     parts.push({
       type: 'error',
-      key: `e-${index}`,
+      key: `e-${index}-${start}`,
       content: text.slice(start, end),
       errorData: err
     });
@@ -101,46 +103,64 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       {parts.map((p) => {
         if (p.type === 'text') {
           return (
-            <Text key={p.key} style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>
+            <Text key={p.key} style={{ fontSize: 16, lineHeight: 32, color: '#2c3e50' }}>
               {p.content}
             </Text>
           );
         }
         return (
-          <TouchableOpacity
+          <Pressable
             key={p.key}
-            onPress={() => onErrorPress(p.errorData)}
-            activeOpacity={0.7}
-            style={{
-              backgroundColor: '#fff0f0',
+            onPress={() => {
+                console.log("TIKLANDI:", p.errorData.wrong); // LOG KONTROLÜ
+                onErrorPress(p.errorData);
+            }}
+            style={({ pressed }) => ({
+              backgroundColor: pressed ? '#ffe1e1' : '#fff0f0',
               borderRadius: 4,
               paddingHorizontal: 2,
               marginHorizontal: 1,
               borderBottomWidth: 2,
               borderBottomColor: '#e74c3c',
-              marginBottom: 4 // Satır arası mesafe için
-            }}
+              marginBottom: 4
+            })}
           >
-            <Text style={{ fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' }}>
+            <Text style={{ fontSize: 16, lineHeight: 32, color: '#c0392b', fontWeight: 'bold' }}>
               {p.content}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
     </View>
   );
 };
 
-// --- HATA KARTI MODAL ---
+// --- HATA KARTI MODAL (GPT ÖNERİLİ - GÖRÜNÜR KART) ---
 const ErrorCardModal = ({ error, visible, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
   
     return (
-      <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}>
+      <Modal 
+        animationType="fade" 
+        transparent={true} 
+        visible={visible} 
+        onRequestClose={onClose}
+        presentationStyle="overFullScreen" // iOS fix
+        statusBarTranslucent={true}        // Android fix
+      >
+        {/* Backdrop */}
+        <Pressable 
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} 
+            onPress={onClose} 
+        >
+          {/* İçerik Kutusu - Buraya tıklayınca kapanmasın diye boş onPress veriyoruz */}
+          <Pressable 
+            onPress={() => {}} 
+            style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}
+          >
                 
+                {/* Başlık */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
                     <TouchableOpacity onPress={onClose} style={{ padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 }}>
@@ -148,6 +168,7 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </TouchableOpacity>
                 </View>
     
+                {/* Karşılaştırma */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12 }}>
                     <View style={{ flex: 1, alignItems: 'center' }}>
                         <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
@@ -160,15 +181,18 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </View>
                 </View>
     
+                {/* Kural */}
                 <View style={{ backgroundColor: '#e8f4fd', padding: 12, borderRadius: 8, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 }}>
                     <Text style={{ fontSize: 11, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
                     <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 }}>{ruleTitle}</Text>
                 </View>
     
+                {/* Açıklama */}
                 <Text style={{ fontSize: 15, color: '#34495e', lineHeight: 22 }}>{error.explanation}</Text>
+                
                 <View style={{height: 30}}/>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     );
 };
@@ -257,13 +281,12 @@ export default function MainScreen({ user, setUser }) {
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailModal(true); };
 
-  // --- KART AÇMA FONKSİYONU ---
+  // --- KART AÇMA FONKSİYONU (GECİKMELİ) ---
   const handleOpenError = (err) => {
-      // Öncekini temizle ve yenisini aç (Gecikmeli)
-      setActiveError(null);
+      // 100ms gecikme ile aç ki önceki modal tamamen kapansın veya touch event bitsin
       setTimeout(() => {
           setActiveError(err);
-      }, 50);
+      }, 100);
   };
 
   return (
@@ -336,7 +359,7 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* --- YENİ EKLENDİ: LİSTE ELEMANLARINA DA TIKLAMA ÖZELLİĞİ --- */}
+                        {/* ALTTAKİ LİSTE İÇİN DE TIKLAMA */}
                         {result.errors && result.errors.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenError(err)}>
                                 <Text style={styles.errorText}>
@@ -345,7 +368,7 @@ export default function MainScreen({ user, setUser }) {
                                     <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
                                 </Text>
                                 <Text style={styles.errorDesc}>{err.explanation}</Text>
-                                <Text style={{fontSize:10, color:'#3498db', marginTop:5}}>Detay için dokun 👇</Text>
+                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
                             </TouchableOpacity>
                         ))}
                         
@@ -419,6 +442,7 @@ export default function MainScreen({ user, setUser }) {
           </View>
       </Modal>
 
+      {/* TEK VE MERKEZİ HATA KARTI MODALI */}
       <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
     
     </View>
