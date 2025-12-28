@@ -46,10 +46,11 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (GEVŞEK FİLTRE - TÜM HATALARI GÖSTERİR) ---
+// --- HIGHLIGHT BİLEŞENİ (TÜM HATALARI GÖSTEREN GÜÇLÜ SÜRÜM) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
+  // 1. ADIM: Hataları sadece başlangıç noktasına göre sırala (Filtreyi gevşettik)
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined) 
     .sort((a, b) => a.span.start - b.span.start);
@@ -62,13 +63,17 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
+    // Matematiksel güvenlik: Negatif sayıları ve taşmaları önle
     const start = Math.max(0, err.span.start);
     let end = err.span.end;
     
+    // Eğer AI metinden daha uzun bir yer verdiyse, metnin sonuna eşitle (HATA SİLİNMEZ)
     if (end > text.length) end = text.length;
 
+    // Eğer veri bozuksa (start > end) veya bir önceki hatayla çakışıyorsa atla
     if (start >= end || start < cursor) return;
 
+    // 1. Normal Metin (Hata öncesi)
     if (start > cursor) {
       parts.push({
         type: 'text',
@@ -77,6 +82,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       });
     }
 
+    // 2. Hatalı Kısım (KUTU İÇİNDE - TIKLANABİLİR)
     parts.push({
       type: 'error',
       key: `e-${index}`,
@@ -87,6 +93,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     cursor = end;
   });
 
+  // 3. Kalan Metin
   if (cursor < text.length) {
     parts.push({ type: 'text', key: `t-end`, content: text.slice(cursor) });
   }
@@ -101,6 +108,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
           <TouchableOpacity
             key={p.key}
             onPress={(evt) => {
+                // Koordinatları al ve gönder
                 const { pageX, pageY } = evt.nativeEvent;
                 onErrorPress(p.errorData, { x: pageX, y: pageY });
             }}
@@ -115,24 +123,31 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- POPOVER KART (BALONCUK) ---
+// --- KÜÇÜK POP-UP KART (BALONCUK) ---
 const ErrorPopover = ({ data, onClose }) => {
     if (!data?.err) return null;
   
     const { err, x, y } = data;
     const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
   
+    // Konum Hesaplama (Ekranın dışına taşmasın)
     let left = x - 150; 
     let top = y + 35;   
   
+    // Sola taşarsa düzelt
     if (left < 10) left = 10;
+    // Sağa taşarsa düzelt
     if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
+    
+    // Alta taşarsa (Yukarı al)
     if (top + 250 > SCREEN_HEIGHT) top = y - 260;
   
     return (
       <View style={styles.overlayContainer}>
+        {/* Arka plan (Basınca kapanır) */}
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         
+        {/* Popover Kart */}
         <View style={[styles.popover, { left, top }]}>
             <View style={styles.popoverHeader}>
                 <Text style={styles.popoverTitle}>⚠️ HATA DETAYI</Text>
@@ -171,7 +186,7 @@ export default function MainScreen({ user, setUser }) {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
   const [showDetailModal, setShowDetailModal] = useState(false);
   
-  // KART STATE'i
+  // KART STATE'i (Hata + Koordinat)
   const [activeErrorData, setActiveErrorData] = useState(null);
 
   const [step, setStep] = useState(1); 
@@ -180,6 +195,16 @@ export default function MainScreen({ user, setUser }) {
   const [loading, setLoading] = useState(false);
   const [editableText, setEditableText] = useState(""); 
   const [result, setResult] = useState(null);
+
+  // --- KRİTİK DÜZELTME: BOŞ EKRAN ÇÖZÜMÜ ---
+  if (!user) {
+      return (
+          <View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}>
+              <ActivityIndicator size="large" color="#3498db" />
+              <Text style={{marginTop:10, color:'#7f8c8d'}}>Kullanıcı bilgileri yükleniyor...</Text>
+          </View>
+      );
+  }
 
   const { studentName, studentSurname, studentLevel, studentCountry, studentLanguage, classCode } = user;
 
@@ -250,6 +275,8 @@ export default function MainScreen({ user, setUser }) {
 
   // --- POPOVER AÇMA ---
   const handleOpenPopover = (err, coords) => {
+      // coords: {x, y}
+      // Eğer listeden tıklanırsa koordinat olmaz, varsayılan olarak ortaya koyalım
       const safeCoords = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
       setActiveErrorData({ err, ...safeCoords });
   };
@@ -324,7 +351,7 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* LISTE */}
+                        {/* LİSTE */}
                         {result.errors && result.errors.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                                 <Text style={styles.errorText}>
@@ -354,6 +381,7 @@ export default function MainScreen({ user, setUser }) {
                      <FlatList 
                         data={historyData}
                         keyExtractor={item => item.id.toString()}
+                        scrollEnabled={false} 
                         renderItem={({item}) => (
                             <View style={styles.historyCard}>
                                 <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
@@ -377,7 +405,7 @@ export default function MainScreen({ user, setUser }) {
           )}
       </View>
 
-      {/* GEÇMİŞ DETAY MODALI (DÜZELTİLDİ: ARTIK LİSTE DE VAR) */}
+      {/* GEÇMİŞ DETAY MODALI */}
       <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modalContainer}>
               <View style={styles.modalHeader}>
@@ -397,7 +425,7 @@ export default function MainScreen({ user, setUser }) {
                           />
                       </View>
 
-                      {/* --- EKLENEN KISIM: HATA LİSTESİ --- */}
+                      {/* GEÇMİŞTE DE LİSTE VAR ARTIK */}
                       {selectedHistoryItem.analysis_json?.errors?.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                                 <Text style={styles.errorText}>
