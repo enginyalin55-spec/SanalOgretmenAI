@@ -46,11 +46,11 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (TÜM HATALARI GÖSTEREN GÜÇLÜ SÜRÜM) ---
+// --- HIGHLIGHT BİLEŞENİ (GEVŞEK FİLTRE - TÜM HATALARI GÖSTERİR) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // 1. ADIM: Hataları sadece başlangıç noktasına göre sırala (Filtreyi gevşettik)
+  // FİLTRE GEVŞETİLDİ: Sadece 'start' varsa kabul et. Uzunluk kontrolünü aşağıda yapacağız.
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined) 
     .sort((a, b) => a.span.start - b.span.start);
@@ -63,14 +63,14 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
-    // Matematiksel güvenlik: Negatif sayıları ve taşmaları önle
+    // Matematiksel güvenlik: Negatifse 0 yap, metinden uzunsa metin sonuna çek.
     const start = Math.max(0, err.span.start);
     let end = err.span.end;
     
-    // Eğer AI metinden daha uzun bir yer verdiyse, metnin sonuna eşitle (HATA SİLİNMEZ)
+    // Eğer AI metinden daha uzun bir yer verdiyse, kırp (Hatayı silme!)
     if (end > text.length) end = text.length;
 
-    // Eğer veri bozuksa (start > end) veya bir önceki hatayla çakışıyorsa atla
+    // Eğer veri tamamen bozuksa (start > end) veya üst üste biniyorsa atla
     if (start >= end || start < cursor) return;
 
     // 1. Normal Metin (Hata öncesi)
@@ -82,7 +82,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       });
     }
 
-    // 2. Hatalı Kısım (KUTU İÇİNDE - TIKLANABİLİR)
+    // 2. Hatalı Kısım (KUTU)
     parts.push({
       type: 'error',
       key: `e-${index}`,
@@ -108,7 +108,6 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
           <TouchableOpacity
             key={p.key}
             onPress={(evt) => {
-                // Koordinatları al ve gönder
                 const { pageX, pageY } = evt.nativeEvent;
                 onErrorPress(p.errorData, { x: pageX, y: pageY });
             }}
@@ -123,7 +122,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// --- KÜÇÜK POP-UP KART (BALONCUK) ---
+// --- POPOVER KART (BALONCUK - DÜZELTİLDİ) ---
 const ErrorPopover = ({ data, onClose }) => {
     if (!data?.err) return null;
   
@@ -134,9 +133,9 @@ const ErrorPopover = ({ data, onClose }) => {
     let left = x - 150; 
     let top = y + 35;   
   
-    // Sola taşarsa düzelt
+    // Sola taşarsa
     if (left < 10) left = 10;
-    // Sağa taşarsa düzelt
+    // Sağa taşarsa
     if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
     
     // Alta taşarsa (Yukarı al)
@@ -184,7 +183,7 @@ export default function MainScreen({ user, setUser }) {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
-  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDetailOverlay, setShowDetailOverlay] = useState(false);
   
   // KART STATE'i (Hata + Koordinat)
   const [activeErrorData, setActiveErrorData] = useState(null);
@@ -195,16 +194,6 @@ export default function MainScreen({ user, setUser }) {
   const [loading, setLoading] = useState(false);
   const [editableText, setEditableText] = useState(""); 
   const [result, setResult] = useState(null);
-
-  // --- KRİTİK DÜZELTME: BOŞ EKRAN ÇÖZÜMÜ ---
-  if (!user) {
-      return (
-          <View style={[styles.container, {justifyContent:'center', alignItems:'center'}]}>
-              <ActivityIndicator size="large" color="#3498db" />
-              <Text style={{marginTop:10, color:'#7f8c8d'}}>Kullanıcı bilgileri yükleniyor...</Text>
-          </View>
-      );
-  }
 
   const { studentName, studentSurname, studentLevel, studentCountry, studentLanguage, classCode } = user;
 
@@ -271,7 +260,7 @@ export default function MainScreen({ user, setUser }) {
     } catch (error) { Alert.alert("Hata", "Analiz yapılamadı."); } finally { setLoading(false); }
   };
 
-  const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailModal(true); };
+  const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
 
   // --- POPOVER AÇMA ---
   const handleOpenPopover = (err, coords) => {
@@ -283,27 +272,29 @@ export default function MainScreen({ user, setUser }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-            <Text style={styles.greeting}>Merhaba,</Text>
-            <Text style={styles.name}>{studentName} {studentSurname}</Text>
-            <View style={{flexDirection:'row', gap:5, marginTop:5}}>
-                 <View style={styles.badgeContainer}><Text style={styles.badgeText}>{classCode}</Text></View>
-                 <View style={[styles.badgeContainer, {backgroundColor:'#fff3cd'}]}><Text style={[styles.badgeText, {color:'#856404'}]}>{studentLevel}</Text></View>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+          {/* HEADER */}
+          <View style={styles.header}>
+            <View>
+                <Text style={styles.greeting}>Merhaba,</Text>
+                <Text style={styles.name}>{studentName} {studentSurname}</Text>
+                <View style={{flexDirection:'row', gap:5, marginTop:5}}>
+                    <View style={styles.badgeContainer}><Text style={styles.badgeText}>{classCode}</Text></View>
+                    <View style={[styles.badgeContainer, {backgroundColor:'#fff3cd'}]}><Text style={[styles.badgeText, {color:'#856404'}]}>{studentLevel}</Text></View>
+                </View>
             </View>
-        </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
-      </View>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
+          </View>
 
-      <View style={styles.tabsContainer}>
-          <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}><Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}><Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>📂 Geçmişim</Text></TouchableOpacity>
-      </View>
+          {/* SEKMELER */}
+          <View style={styles.tabsContainer}>
+              <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}><Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}><Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>📂 Geçmişim</Text></TouchableOpacity>
+          </View>
 
-      <View style={{flex:1}}>
-          {/* YENİ ÖDEV EKRANI */}
+          {/* YENİ ÖDEV */}
           {activeTab === 'new' && (
-             <ScrollView contentContainerStyle={styles.content}>
+             <View style={styles.contentArea}>
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>{step === 1 ? "1. Fotoğraf Yükle" : step === 2 ? "2. Metni Kontrol Et" : "3. Sonuçlar"}</Text>
                     {image && (
@@ -328,7 +319,7 @@ export default function MainScreen({ user, setUser }) {
                         <View style={{width:'100%'}}>
                             <TextInput style={styles.ocrInput} multiline={true} value={editableText} onChangeText={setEditableText} />
                             <TouchableOpacity style={[styles.sendButton, {marginTop:15, backgroundColor:'#27ae60'}]} onPress={startAnalysis} disabled={loading}>
-                                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>✅ Analiz Et ve Gönder</Text>}
+                                {loading ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>✅ Analiz Et</Text>}
                             </TouchableOpacity>
                             <TouchableOpacity onPress={resetFlow} style={{alignItems:'center', marginTop:15}}><Text style={{color:'#e74c3c'}}>İptal</Text></TouchableOpacity>
                         </View>
@@ -337,13 +328,13 @@ export default function MainScreen({ user, setUser }) {
 
                 {step === 3 && result && (
                     <View style={styles.resultContainer}>
-                        <View style={{backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71'}}>
-                             <Text style={{color:'#27ae60', fontWeight:'bold', fontSize:16, textAlign:'center'}}>Ödevin Başarıyla Gönderildi! ✅</Text>
-                             <Text style={{textAlign:'center', color:'#555', marginTop:5, fontSize:13}}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
+                        <View style={styles.successBox}>
+                             <Text style={styles.successText}>Ödevin Başarıyla Gönderildi! ✅</Text>
+                             <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
                         </View>
                         
-                        <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
-                             <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Analiz Sonucu:</Text>
+                        <View style={styles.analysisCard}>
+                             <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
                              <HighlightedText 
                                 text={editableText} 
                                 errors={result.errors} 
@@ -351,7 +342,7 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* LİSTE */}
+                        {/* LISTE */}
                         {result.errors && result.errors.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                                 <Text style={styles.errorText}>
@@ -367,16 +358,16 @@ export default function MainScreen({ user, setUser }) {
                         <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, {backgroundColor:'#34495e', marginTop:20}]}><Text style={styles.sendButtonText}>Yeni Ödev Yükle</Text></TouchableOpacity>
                     </View>
                 )}
-             </ScrollView>
+             </View>
           )}
 
-          {/* GEÇMİŞ EKRANI */}
+          {/* GEÇMİŞ */}
           {activeTab === 'history' && (
-             <View style={{flex:1, padding:20}}>
+             <View style={styles.contentArea}>
                  {loadingHistory ? (
                      <ActivityIndicator size="large" color="#3498db" style={{marginTop:20}} />
                  ) : historyData.length === 0 ? (
-                     <View style={{alignItems:'center', marginTop:50}}><Text style={{color:'#95a5a6'}}>Henüz hiç ödev göndermediniz.</Text></View>
+                     <View style={{alignItems:'center', marginTop:50}}><Text style={{color:'#95a5a6'}}>Geçmiş yok.</Text></View>
                  ) : (
                      <FlatList 
                         data={historyData}
@@ -389,9 +380,7 @@ export default function MainScreen({ user, setUser }) {
                                         {new Date(item.created_at).toLocaleDateString('tr-TR')}
                                     </Text>
                                     <View style={{backgroundColor: '#ecf0f1', paddingHorizontal:10, paddingVertical:4, borderRadius:12}}>
-                                        <Text style={{fontWeight:'bold', color: '#7f8c8d'}}>
-                                            {item.score_total ? `${item.score_total} Puan` : 'İncelendi'}
-                                        </Text>
+                                        <Text style={{fontWeight:'bold', color: '#7f8c8d'}}>{item.score_total ? `${item.score_total} Puan` : 'İncelendi'}</Text>
                                     </View>
                                 </View>
                                 <TouchableOpacity onPress={() => openDetail(item)} style={{backgroundColor:'#3498db', padding:10, borderRadius:8, alignItems:'center', marginTop:5}}>
@@ -403,55 +392,40 @@ export default function MainScreen({ user, setUser }) {
                  )}
              </View>
           )}
-      </View>
+      </ScrollView>
 
-      {/* GEÇMİŞ DETAY MODALI */}
-      <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
-          <View style={styles.modalContainer}>
-              <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Ödev Raporu</Text>
-                  <TouchableOpacity onPress={() => setShowDetailModal(false)} style={styles.closeButton}>
-                      <Text style={{color:'white', fontWeight:'bold'}}>Kapat</Text>
-                  </TouchableOpacity>
-              </View>
-              {selectedHistoryItem && (
-                  <ScrollView contentContainerStyle={{padding:20}}>
-                      <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
-                          <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
-                          <HighlightedText 
-                              text={selectedHistoryItem.ocr_text} 
-                              errors={selectedHistoryItem.analysis_json?.errors} 
-                              onErrorPress={handleOpenPopover} 
-                          />
-                      </View>
-
-                      {/* GEÇMİŞTE DE LİSTE VAR ARTIK */}
-                      {selectedHistoryItem.analysis_json?.errors?.map((err, index) => (
-                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
-                                <Text style={styles.errorText}>
-                                    <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
-                                    {' ➜ '} 
-                                    <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
-                                </Text>
-                                <Text style={styles.errorDesc}>{err.explanation}</Text>
-                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
-                            </TouchableOpacity>
-                      ))}
-                      
-                      {selectedHistoryItem.human_note && (
-                        <View style={[styles.noteCard, {backgroundColor:'#fef9e7', borderLeftColor:'#d35400', marginBottom:20}]}>
-                            <Text style={[styles.noteTitle, {color:'#d35400'}]}>👨‍🏫 Öğretmeninizin Notu:</Text>
-                            <Text style={[styles.noteText, {color:'#d35400'}]}>{selectedHistoryItem.human_note}</Text>
-                        </View>
-                      )}
-                      <View style={{height:50}}></View>
-                  </ScrollView>
-              )}
-          </View>
-      </Modal>
-
-      {/* POPOVER BALONCUK (EN ÜST KATMAN) */}
+      {/* --- POPOVER (BALONCUK) --- */}
       {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
+
+      {/* DETAY OVERLAY (GEÇMİŞ İÇİN) */}
+      {showDetailOverlay && selectedHistoryItem && (
+          <View style={styles.fullScreenOverlay}>
+             <View style={styles.detailContainer}>
+                 <View style={styles.sheetHeader}>
+                    <Text style={styles.sheetTitle}>Ödev Raporu</Text>
+                    <TouchableOpacity onPress={() => setShowDetailOverlay(false)} style={styles.closeBtn}>
+                        <Text style={styles.closeBtnText}>✕</Text>
+                    </TouchableOpacity>
+                 </View>
+                 <ScrollView contentContainerStyle={{padding:20}}>
+                     <View style={styles.analysisCard}>
+                        <HighlightedText 
+                            text={selectedHistoryItem.ocr_text} 
+                            errors={selectedHistoryItem.analysis_json?.errors} 
+                            onErrorPress={handleOpenPopover} 
+                        />
+                     </View>
+                     {selectedHistoryItem.human_note && (
+                        <View style={styles.noteCard}>
+                            <Text style={styles.noteTitle}>👨‍🏫 Öğretmeninizin Notu:</Text>
+                            <Text style={styles.noteText}>{selectedHistoryItem.human_note}</Text>
+                        </View>
+                     )}
+                     <View style={{height:50}}></View>
+                 </ScrollView>
+             </View>
+          </View>
+      )}
     
     </View>
   );
@@ -459,19 +433,20 @@ export default function MainScreen({ user, setUser }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa', paddingTop: Platform.OS === 'android' ? 40 : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 25, backgroundColor: 'white', borderBottomLeftRadius: 20, borderBottomRightRadius: 20, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
+  scrollContent: { paddingBottom: 50 }, 
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 25, backgroundColor: 'white', borderBottomLeftRadius: 20, borderBottomRightRadius: 20, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
   greeting: { fontSize: 14, color: '#7f8c8d' },
   name: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
   badgeContainer: { backgroundColor: '#e8f0fe', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, alignSelf: 'flex-start' },
   badgeText: { color: '#3498db', fontWeight: 'bold', fontSize: 12 },
   logoutButton: { backgroundColor: '#fff0f0', padding: 10, borderRadius: 10 },
   logoutText: { color: '#e74c3c', fontWeight: 'bold', fontSize: 12 },
-  tabsContainer: { flexDirection: 'row', backgroundColor:'white', marginTop:15, marginHorizontal:20, borderRadius:12, overflow:'hidden', ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 2 } }) },
+  tabsContainer: { flexDirection: 'row', backgroundColor:'white', marginHorizontal:20, borderRadius:12, overflow:'hidden', marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 2 } }) },
   tab: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
   activeTab: { borderBottomColor: '#3498db', backgroundColor:'#fcfcfc' },
   tabText: { fontSize: 14, fontWeight: '600', color: '#95a5a6' },
   activeTabText: { color: '#3498db' },
-  content: { padding: 20 },
+  contentArea: { paddingHorizontal: 20 },
   card: { backgroundColor: 'white', borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#34495e', marginBottom: 15 },
   placeholder: { width: '100%', height: 200, backgroundColor: '#f1f2f6', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: '#e1e1e1', borderStyle: 'dashed' },
@@ -524,8 +499,10 @@ const styles = StyleSheet.create({
   ruleInfoText: { fontSize: 12, fontWeight: 'bold', color: '#2c3e50' },
   explanationText: { fontSize: 13, color: '#34495e', lineHeight: 18 },
 
-  modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
-  modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
-  modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
-  closeButton: { backgroundColor:'#e74c3c', paddingHorizontal:15, paddingVertical:8, borderRadius:8 }
+  // FULL SCREEN OVERLAY (GEÇMİŞ İÇİN)
+  fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
+  detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
+  sheetTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
+  closeBtn: { padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 },
 });
