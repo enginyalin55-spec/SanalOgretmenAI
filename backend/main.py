@@ -36,7 +36,7 @@ app.add_middleware(
 
 MODELS_TO_TRY = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"]
 
-# --- MODELLER (PYDANTIC) - EN ÜSTE ALINDI (HATA GİDERİLDİ) ---
+# --- MODELLER (PYDANTIC) ---
 class AnalyzeRequest(BaseModel):
     ocr_text: str
     image_url: str
@@ -59,7 +59,7 @@ CEFR_KRITERLERI = {
 }
 
 # =======================================================
-# 🛡️ TDK KURALLARI (YENİ: DİLBİLGİSİ KURALI EKLENDİ!)
+# 🛡️ TDK KURALLARI (ZAMAN UYUMU DAHİL)
 # =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
@@ -93,8 +93,7 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_28_YABANCI_KELIMELER", "title": "Yabancı Kelimeler", "text": "Şoför, egzoz, metot.", "category": "Yazım"},
         {"rule_id": "TDK_29_UNVANLAR", "title": "Unvanlar", "text": "Unvanlar büyük başlar.", "category": "Büyük Harfler"},
         {"rule_id": "TDK_30_YONLER", "title": "Yönler", "text": "Özel isimden önceyse büyük.", "category": "Büyük Harfler"},
-        # --- İŞTE EKSİK OLAN KURAL: DİLBİLGİSİ ---
-        {"rule_id": "TDK_31_DILBILGISI", "title": "Dilbilgisi ve Anlatım", "text": "Özne-yüklem uyumu (Ben gittim), zaman uyumu ve eklerin doğru kullanımı.", "category": "Dilbilgisi"}
+        {"rule_id": "TDK_31_ZAMAN_UYUMU", "title": "Zaman ve Kip Uyumu", "text": "Zaman zarfları (yarın, dün) ile yüklem uyumlu olmalıdır (Yarın gitti -> Yarın gidecek).", "category": "Dilbilgisi"}
     ]
 
 # --- YENİ NESİL METİN VE SPAN İŞLEMLERİ (AUTO-FIX) ---

@@ -9,71 +9,145 @@ import axios from 'axios';
 // --- SUNUCU ADRESİ ---
 const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
 
-// --- HIGHLIGHTED TEXT BİLEŞENİ ---
-const HighlightedText = ({ text, errors }) => {
+// --- TDK KURAL SÖZLÜĞÜ (KART İÇİN) ---
+const TDK_LOOKUP = {
+  "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'",
+  "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'",
+  "TDK_03_SORU_EKI": "Soru Eki 'mı/mi'",
+  "TDK_04_SEY_SOZ": "'Şey' Sözcüğü",
+  "TDK_05_BUYUK_CUMLE": "Cümle Başı Büyük Harf",
+  "TDK_06_BUYUK_OZEL": "Özel İsimler",
+  "TDK_07_BUYUK_KURUM": "Kurum Adları",
+  "TDK_08_TARIH_GUN_AY": "Tarihlerin Yazımı",
+  "TDK_09_KESME_OZEL": "Kesme İşareti (Özel)",
+  "TDK_10_KESME_KURUM": "Kurum Ekleri",
+  "TDK_11_YARDIMCI_FIIL_SES": "Yardımcı Fiiller",
+  "TDK_12_SAYI_AYRI": "Sayıların Yazımı",
+  "TDK_13_ULESTIRME": "Üleştirme Sayıları",
+  "TDK_14_KISALTMA_BUYUK": "Kısaltmalar",
+  "TDK_15_IKILEMELER": "İkilemeler",
+  "TDK_16_PEKISTIRME": "Pekiştirmeler",
+  "TDK_17_YUMUSAK_G": "Yumuşak G Kuralı",
+  "TDK_18_HER_BIR": "'Her' Kelimesi",
+  "TDK_19_BELIRSIZLIK_SIFATLARI": "Bitişik Kelimeler",
+  "TDK_20_NOKTA": "Nokta Kullanımı",
+  "TDK_21_VIRGUL": "Virgül Kullanımı",
+  "TDK_22_DARALMA_KURALI": "Gereksiz Daralma",
+  "TDK_23_YANLIS_YALNIZ": "Yanlış/Yalnız",
+  "TDK_24_HERKES": "Herkes (s/z)",
+  "TDK_25_SERTLESME": "Ünsüz Benzeşmesi",
+  "TDK_26_HANE": "Hane Kelimesi",
+  "TDK_27_ART_ARDA": "Art Arda",
+  "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
+  "TDK_29_UNVANLAR": "Unvanlar",
+  "TDK_30_YONLER": "Yön Adları",
+  "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
+};
+
+// --- YENİ NESİL HIGHLIGHT BİLEŞENİ (SPAN BAZLI) ---
+const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
-  if (!errors || errors.length === 0) return <Text style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>{text}</Text>;
 
-  let ranges = [];
-  const lowerText = text.toLowerCase(); 
+  // Hataları span (start) değerine göre sırala
+  const safeErrors = (errors || [])
+    .filter(e => e?.span?.start !== undefined && e?.span?.end !== undefined)
+    .sort((a, b) => a.span.start - b.span.start);
 
-  errors.forEach(err => {
-    if (!err.wrong) return;
-    const searchStr = err.wrong.toLowerCase().trim();
-    if (searchStr.length < 2) return; 
-
-    let pos = lowerText.indexOf(searchStr);
-    while (pos !== -1) {
-        ranges.push({ start: pos, end: pos + searchStr.length, error: err });
-        pos = lowerText.indexOf(searchStr, pos + 1);
-    }
-  });
-
-  ranges.sort((a, b) => a.start - b.start);
-
-  let uniqueRanges = [];
-  let lastEnd = -1;
-  ranges.forEach(r => {
-    if (r.start >= lastEnd) {
-        uniqueRanges.push(r);
-        lastEnd = r.end;
-    }
-  });
+  if (safeErrors.length === 0) return <Text style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>{text}</Text>;
 
   const elements = [];
-  let currentIndex = 0;
+  let cursor = 0;
 
-  uniqueRanges.forEach((range, i) => {
-    if (range.start > currentIndex) {
-        elements.push(
-            <Text key={`text-${i}`}>{text.substring(currentIndex, range.start)}</Text>
-        );
-    }
-    elements.push(
-        <Text 
-            key={`err-${i}`}
-            onPress={() => Alert.alert(
-                "❌ Hata Detayı", 
-                `Yanlış: ${range.error.wrong}\n✅ Doğrusu: ${range.error.correct}\n\n💡 Açıklama: ${range.error.explanation}`
-            )}
-            style={{ 
-                color: '#e74c3c', 
-                fontWeight: 'bold', 
-                textDecorationLine: 'underline',
-                backgroundColor: '#fff0f0' 
-            }}
-        >
-            {text.substring(range.start, range.end)}
+  safeErrors.forEach((err, index) => {
+    const { start, end } = err.span;
+
+    // Çakışma kontrolü (Basit)
+    if (start < cursor) return;
+
+    // Hata öncesindeki normal metin
+    if (start > cursor) {
+      elements.push(
+        <Text key={`txt-${cursor}`} style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>
+          {text.slice(cursor, start)}
         </Text>
+      );
+    }
+
+    // Hatalı kısım (Kırmızı, Altı Çizili, Tıklanabilir)
+    elements.push(
+      <Text
+        key={`err-${index}`}
+        onPress={() => onErrorPress(err)}
+        style={{ 
+            color: '#c0392b', 
+            fontWeight: 'bold', 
+            textDecorationLine: 'underline',
+            backgroundColor: '#fff0f0' 
+        }}
+      >
+        {text.slice(start, end)}
+      </Text>
     );
-    currentIndex = range.end;
+
+    cursor = end;
   });
 
-  if (currentIndex < text.length) {
-      elements.push(<Text key="text-end">{text.substring(currentIndex)}</Text>);
+  // Kalan metin
+  if (cursor < text.length) {
+    elements.push(
+      <Text key={`txt-end`} style={{fontSize:16, lineHeight:24, color:'#2c3e50'}}>
+        {text.slice(cursor)}
+      </Text>
+    );
   }
 
-  return <Text style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>{elements}</Text>;
+  return <Text>{elements}</Text>;
+};
+
+// --- HATA KARTI MODAL (GÜZEL GÖRÜNÜM) ---
+const ErrorCardModal = ({ error, visible, onClose }) => {
+    if (!error) return null;
+    const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
+  
+    return (
+      <Modal animationType="slide" transparent={true} visible={visible} onRequestClose={onClose}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, minHeight: 300, padding: 20 }}>
+            {/* Başlık */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 }}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
+              <TouchableOpacity onPress={onClose} style={{ padding: 5 }}>
+                <Text style={{ fontSize: 20, color: '#95a5a6', fontWeight: 'bold' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+  
+            {/* Karşılaştırma */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+               <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 10, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
+                  <Text style={{ color: '#e74c3c', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 16 }}>{error.wrong}</Text>
+               </View>
+               <Text style={{ fontSize: 20, color: '#bdc3c7' }}>➜</Text>
+               <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 10, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 }}>DOĞRU</Text>
+                  <Text style={{ color: '#27ae60', fontWeight: 'bold', fontSize: 16 }}>{error.correct}</Text>
+               </View>
+            </View>
+  
+            {/* Kural Bilgisi */}
+            <View style={{ backgroundColor: '#f8f9fa', padding: 10, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#3498db', marginBottom: 15 }}>
+              <Text style={{ fontSize: 10, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
+              <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#2c3e50', marginTop: 2 }}>{ruleTitle}</Text>
+            </View>
+  
+            {/* Açıklama */}
+            <Text style={{ fontSize: 14, color: '#34495e', lineHeight: 20 }}>{error.explanation}</Text>
+            
+            <View style={{height:30}}/>
+          </View>
+        </View>
+      </Modal>
+    );
 };
 
 export default function MainScreen({ user, setUser }) {
@@ -82,6 +156,9 @@ export default function MainScreen({ user, setUser }) {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
   const [showDetailModal, setShowDetailModal] = useState(false);
+
+  // KART STATE'i
+  const [activeError, setActiveError] = useState(null);
 
   const [step, setStep] = useState(1); 
   const [image, setImage] = useState(null);
@@ -124,15 +201,14 @@ export default function MainScreen({ user, setUser }) {
     if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
 
-  // --- DÜZELTİLEN KISIM ---
   const resetFlow = () => { 
       setStep(1); 
-      setImage(null); // <--- BU SATIR EKSİKTİ, ARTIK RESİM SİLİNECEK
+      setImage(null); 
       setEditableText(""); 
       setResult(null); 
       setImageUrl(""); 
+      setActiveError(null);
   };
-  // ------------------------
 
   const startOCR = async () => {
     if(!image) return Alert.alert("Uyarı", "Lütfen fotoğraf seçin.");
@@ -165,6 +241,7 @@ export default function MainScreen({ user, setUser }) {
 
   return (
     <View style={styles.container}>
+      {/* HEADER */}
       <View style={styles.header}>
         <View>
             <Text style={styles.greeting}>Merhaba,</Text>
@@ -177,6 +254,7 @@ export default function MainScreen({ user, setUser }) {
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
       </View>
 
+      {/* SEKMELER */}
       <View style={styles.tabsContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}><Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}><Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>📂 Geçmişim</Text></TouchableOpacity>
@@ -223,24 +301,18 @@ export default function MainScreen({ user, setUser }) {
                     <View style={styles.resultContainer}>
                         <View style={{backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71'}}>
                              <Text style={{color:'#27ae60', fontWeight:'bold', fontSize:16, textAlign:'center'}}>Ödevin Başarıyla Gönderildi! ✅</Text>
-                             <Text style={{textAlign:'center', color:'#555', marginTop:5, fontSize:13}}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
+                             <Text style={{textAlign:'center', color:'#555', marginTop:5, fontSize:13}}>Hatalı kelimelerin üzerine dokunarak detayları görebilirsin.</Text>
                         </View>
                         
                         <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                              <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Analiz Sonucu:</Text>
-                             <HighlightedText text={editableText} errors={result.errors} />
+                             {/* İŞTE YENİ NESİL HIGHLIGHTER */}
+                             <HighlightedText 
+                                text={editableText} 
+                                errors={result.errors} 
+                                onErrorPress={(err) => setActiveError(err)}
+                             />
                         </View>
-                        
-                        {result.errors && result.errors.map((err, index) => (
-                            <View key={index} style={styles.errorItem}>
-                                <Text style={styles.errorText}>
-                                    <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
-                                    {' ➜ '} 
-                                    <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
-                                </Text>
-                                <Text style={styles.errorDesc}>{err.explanation}</Text>
-                            </View>
-                        ))}
                         
                         <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, {backgroundColor:'#34495e', marginTop:20}]}><Text style={styles.sendButtonText}>Yeni Ödev Yükle</Text></TouchableOpacity>
                     </View>
@@ -267,7 +339,7 @@ export default function MainScreen({ user, setUser }) {
                                     </Text>
                                     <View style={{backgroundColor: '#ecf0f1', paddingHorizontal:10, paddingVertical:4, borderRadius:12}}>
                                         <Text style={{fontWeight:'bold', color: '#7f8c8d'}}>
-                                            İncelendi
+                                            {item.score_total ? `${item.score_total} Puan` : 'İncelendi'}
                                         </Text>
                                     </View>
                                 </View>
@@ -282,6 +354,7 @@ export default function MainScreen({ user, setUser }) {
           )}
       </View>
 
+      {/* ÖDEV RAPORU DETAY MODALI (GEÇMİŞ İÇİN) */}
       <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
           <View style={styles.modalContainer}>
               <View style={styles.modalHeader}>
@@ -292,46 +365,35 @@ export default function MainScreen({ user, setUser }) {
               </View>
               {selectedHistoryItem && (
                   <ScrollView contentContainerStyle={{padding:20}}>
-                      <View style={{backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71', alignItems:'center'}}>
-                            <Text style={{color:'#27ae60', fontWeight:'bold'}}>Öğretmen Değerlendirmesi Bekleniyor</Text>
-                      </View>
                       <View style={{backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee'}}>
                           <Text style={{fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14}}>📝 Yazınız :</Text>
+                          {/* GEÇMİŞTE DE YENİ SİSTEM ÇALIŞIR */}
                           <HighlightedText 
                               text={selectedHistoryItem.ocr_text} 
                               errors={selectedHistoryItem.analysis_json?.errors} 
+                              onErrorPress={(err) => setActiveError(err)}
                           />
                       </View>
-                      {selectedHistoryItem.analysis_json?.errors?.length > 0 ? (
-                          <View style={styles.errorsCard}>
-                            <Text style={styles.errorTitle}>⚠️ Hata Özeti:</Text>
-                            {selectedHistoryItem.analysis_json.errors.map((err, index) => (
-                                <View key={index} style={styles.errorItem}>
-                                    <Text style={styles.errorText}>
-                                        <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
-                                        {' ➜ '} 
-                                        <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
-                                    </Text>
-                                    <Text style={styles.errorDesc}>{err.explanation}</Text>
-                                </View>
-                            ))}
-                          </View>
-                      ) : (
-                          <View style={{padding:20, alignItems:'center'}}><Text style={{color:'#27ae60', fontWeight:'bold'}}>Harika! Hiç hata bulunamadı. 🎉</Text></View>
-                      )}
-                      {selectedHistoryItem.human_note ? (
+                      
+                      {selectedHistoryItem.human_note && (
                         <View style={[styles.noteCard, {backgroundColor:'#fef9e7', borderLeftColor:'#d35400', marginBottom:20}]}>
                             <Text style={[styles.noteTitle, {color:'#d35400'}]}>👨‍🏫 Öğretmeninizin Notu:</Text>
                             <Text style={[styles.noteText, {color:'#d35400'}]}>{selectedHistoryItem.human_note}</Text>
                         </View>
-                      ) : (
-                          <View style={{marginBottom:10}}><Text style={{fontStyle:'italic', color:'#95a5a6', textAlign:'center'}}>Öğretmeniniz henüz not eklemedi.</Text></View>
                       )}
+                      
                       <View style={{height:50}}></View>
                   </ScrollView>
               )}
           </View>
+          
+          {/* İÇ MODAL (KART) - Geçmişte de çalışsın diye buraya koydum */}
+          <ErrorCardModal error={activeError} visible={!!activeError} onClose={() => setActiveError(null)} />
       </Modal>
+
+      {/* ANA EKRAN İÇİN KART MODALI */}
+      <ErrorCardModal error={activeError} visible={!!activeError && !showDetailModal} onClose={() => setActiveError(null)} />
+    
     </View>
   );
 }
@@ -366,17 +428,9 @@ const styles = StyleSheet.create({
   ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width:'100%' },
   historyCard: { backgroundColor:'white', padding:15, borderRadius:12, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.03)' }, default: { elevation: 2 } }) },
   resultContainer: { width: '100%', paddingBottom: 30 },
-  scoreCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, alignItems: 'center', marginBottom: 15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
-  scoreTitle: { fontSize: 14, color: '#95a5a6', fontWeight: 'bold', marginBottom: 5 },
-  scoreValue: { fontSize: 48, fontWeight: 'bold' },
   noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
-  errorsCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
-  errorTitle: { fontSize: 16, fontWeight: 'bold', color: '#e74c3c', marginBottom: 15 },
-  errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
-  errorText: { fontSize: 16, marginBottom: 5 },
-  errorDesc: { fontSize: 13, color: '#7f8c8d' },
   modalContainer: { flex: 1, backgroundColor: '#f5f6fa' },
   modalHeader: { backgroundColor:'white', padding:20, flexDirection:'row', justifyContent:'space-between', alignItems:'center', borderBottomWidth:1, borderBottomColor:'#eee' },
   modalTitle: { fontSize:20, fontWeight:'bold', color:'#2c3e50' },
