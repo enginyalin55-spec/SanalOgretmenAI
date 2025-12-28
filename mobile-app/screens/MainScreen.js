@@ -9,7 +9,7 @@ import axios from 'axios';
 
 // --- AYARLAR ---
 const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
@@ -41,88 +41,105 @@ const TDK_LOOKUP = {
   "TDK_26_HANE": "Hane Kelimesi",
   "TDK_27_ART_ARDA": "Art Arda",
   "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
-  "TDK_29_UNVANLAR": "Unvanlar",
+  "TDK_29_UNVANLAR": "Unvanların Yazımı",
   "TDK_30_YONLER": "Yön Adları",
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (DOĞAL TEXT YAPISI - EN GÜVENİLİR YÖNTEM) ---
+// --- HIGHLIGHT BİLEŞENİ (RESPONDER + FLEX WRAP) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
-  if (typeof text !== "string" || !text) return null;
+  if (!text) return null;
 
-  // Güvenli filtreleme ve sıralama
-  const safeErrors = Array.isArray(errors)
-    ? errors
-        .filter(e =>
-          Number.isInteger(e?.span?.start) &&
-          Number.isInteger(e?.span?.end) &&
-          e.span.start >= 0 &&
-          e.span.end > e.span.start &&
-          e.span.end <= text.length
-        )
-        .sort((a,b) => a.span.start - b.span.start)
-    : [];
+  // Hataları sadece başlangıç noktasına göre sırala.
+  // Filtreyi gevşettik: Backend ne yollarsa yollasın, biz onu "kırpıp" (clamp) göstereceğiz.
+  const sortedErrors = (errors || [])
+    .filter(e => e?.span?.start !== undefined)
+    .sort((a, b) => a.span.start - b.span.start);
 
-  if (safeErrors.length === 0) {
-      return <Text style={styles.normalText}>{text}</Text>;
+  if (sortedErrors.length === 0) {
+    return <Text style={styles.normalText}>{text}</Text>;
   }
 
-  const elements = [];
+  const parts = [];
   let cursor = 0;
 
-  safeErrors.forEach((err, i) => {
-    const start = err.span.start;
-    const end = err.span.end;
+  sortedErrors.forEach((err, index) => {
+    // Matematiksel güvenli sınırlar (Crash önleyici)
+    const start = Math.max(0, err.span.start);
+    const end = Math.min(text.length, err.span.end);
 
-    if (start < cursor) return;
+    // Eğer veri bozuksa veya üst üste biniyorsa atla
+    if (start < cursor || start >= end) return;
 
-    // Normal Metin (Hata öncesi)
-    const before = text.slice(cursor, start);
-    if (before) {
-        elements.push(<Text key={`txt-${i}`}>{before}</Text>);
+    // 1. Normal Metin (Hata öncesi)
+    if (start > cursor) {
+      parts.push({
+        type: 'text',
+        key: `t-${cursor}`,
+        content: text.slice(cursor, start)
+      });
     }
 
-    // Hatalı Metin (Tıklanabilir)
-    const wrongText = text.slice(start, end);
-    elements.push(
-      <Text
-        key={`err-${i}`}
-        onPress={() => {
-            // Hata ayıklama için Alert koyduk
-            // console.log("TIKLANDI:", wrongText); 
-            onErrorPress(err);
-        }}
-        style={styles.errorTextHighlight}
-      >
-        {wrongText}
-      </Text>
-    );
+    // 2. Hatalı Metin (View + Responder)
+    parts.push({
+      type: 'error',
+      key: `e-${index}-${start}`,
+      content: text.slice(start, end),
+      errorData: err
+    });
 
     cursor = end;
   });
 
-  // Kalan Metin
+  // 3. Kalan Metin
   if (cursor < text.length) {
-      elements.push(<Text key="txt-end">{text.slice(cursor)}</Text>);
+    parts.push({
+      type: 'text',
+      key: `t-end`,
+      content: text.slice(cursor)
+    });
   }
 
-  // TEK BİR ANA TEXT İÇİNDE RENDER EDİYORUZ
   return (
-    <Text style={styles.paragraph}>
-      {elements}
-    </Text>
+    <View style={styles.textWrapper}>
+      {parts.map((p) => {
+        if (p.type === 'text') {
+          return <Text key={p.key} style={styles.normalText}>{p.content}</Text>;
+        }
+        
+        // --- İŞTE ÇÖZÜM BURASI: RESPONDER KULLANIMI ---
+        return (
+          <View
+            key={p.key}
+            // Bu iki satır dokunmayı ScrollView'den çalar ve bize verir
+            onStartShouldSetResponder={() => true}
+            onResponderRelease={() => {
+                console.log("TIKLANDI:", p.errorData.wrong); // Konsol kontrolü
+                onErrorPress(p.errorData);
+            }}
+            style={styles.errorBox}
+          >
+            <Text style={styles.errorTextInner}>{p.content}</Text>
+          </View>
+        );
+      })}
+    </View>
   );
 };
 
-// --- GÜVENLİ KART (OVERLAY) ---
+// --- KART BİLEŞENİ (ABSOLUTE OVERLAY) ---
 const ErrorCardOverlay = ({ error, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
   
     return (
       <View style={styles.overlayContainer}>
-        {/* Arka plan (Basınca kapanır) */}
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        {/* Arka plan */}
+        <TouchableOpacity 
+            style={styles.backdrop} 
+            activeOpacity={1} 
+            onPress={onClose} 
+        />
         
         {/* Kart */}
         <View style={styles.sheet}>
@@ -240,16 +257,17 @@ export default function MainScreen({ user, setUser }) {
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
 
-  // --- KART AÇMA ---
+  // --- KART AÇMA (DOĞRUDAN STATE GÜNCELLEME) ---
   const handleOpenError = (err) => {
-      // Alert.alert("Tıklandı", err.wrong); // Test etmek istersen açabilirsin
+      // Artık setTimeout gerekmez, overlay kullanıyoruz ama güvenlik için bırakabiliriz.
+      // Konsola yazalım ki tıklamanın çalıştığını görelim.
+      console.log("AÇILACAK HATA:", err.wrong);
       setActiveError(err);
   };
 
   return (
     <View style={styles.container}>
-      {/* ScrollView: keyboardShouldPersistTaps='handled' ÇOK ÖNEMLİ */}
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* HEADER */}
           <View style={styles.header}>
             <View>
@@ -319,7 +337,7 @@ export default function MainScreen({ user, setUser }) {
                              />
                         </View>
 
-                        {/* LISTE - TEST BUTONU GİBİ ÇALIŞIR */}
+                        {/* LISTE */}
                         {result.errors && result.errors.map((err, index) => (
                             <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenError(err)}>
                                 <Text style={styles.errorText}>
@@ -371,10 +389,12 @@ export default function MainScreen({ user, setUser }) {
           )}
       </ScrollView>
 
-      {/* --- OVERLAY KART (EN ÜSTTE) --- */}
+      {/* --- ABSOLUTE OVERLAYS (EN ÜST KATMAN) --- */}
+      
+      {/* 1. HATA KARTI OVERLAY */}
       {activeError && <ErrorCardOverlay error={activeError} onClose={() => setActiveError(null)} />}
 
-      {/* DETAY (GEÇMİŞ İÇİN) - BU DA OVERLAY */}
+      {/* 2. DETAY OVERLAY (GEÇMİŞ İÇİN) */}
       {showDetailOverlay && selectedHistoryItem && (
           <View style={styles.fullScreenOverlay}>
              <View style={styles.detailContainer}>
@@ -445,17 +465,10 @@ const styles = StyleSheet.create({
   successSubText: { textAlign:'center', color:'#555', marginTop:5, fontSize:13 },
   analysisCard: { backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee' },
   analysisTitle: { fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14 },
-  
-  // --- HIGHLIGHT STYLES ---
-  paragraph: { fontSize: 16, lineHeight: 30, color: '#2c3e50' }, // Ana Text stili
-  normalText: { fontSize: 16, lineHeight: 30, color: '#2c3e50' },
-  errorTextHighlight: { 
-      color: '#c0392b', 
-      fontWeight: 'bold', 
-      textDecorationLine: 'underline', 
-      backgroundColor: '#fff0f0' 
-  },
-
+  textWrapper: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  normalText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
+  errorBox: { backgroundColor: '#fff0f0', borderRadius: 4, paddingHorizontal: 4, marginHorizontal: 2, borderBottomWidth: 2, borderBottomColor: '#e74c3c', marginBottom: 4 },
+  errorTextInner: { fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' },
   errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
   errorDesc: { fontSize: 13, color: '#7f8c8d' },
@@ -463,7 +476,7 @@ const styles = StyleSheet.create({
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
 
-  // --- OVERLAY STYLES ---
+  // --- OVERLAY STYLES (EN KRİTİK KISIM) ---
   overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300, width: '100%', paddingBottom: 50 },
