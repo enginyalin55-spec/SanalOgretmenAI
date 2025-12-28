@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Dimensions, Pressable 
+  ActivityIndicator, TextInput, FlatList, Modal, Pressable, Dimensions 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -46,65 +46,95 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (KESİN TIKLAMA İÇİN VIEW YAPISI) ---
+// --- HIGHLIGHT BİLEŞENİ (SIKI FİLTRE + GARANTİ TIKLAMA) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
-  if (!text) return null;
+  if (typeof text !== "string" || text.length === 0) return null;
 
-  const safeErrors = (errors || [])
-    .filter(e => e?.span?.start !== undefined)
-    .sort((a, b) => a.span.start - b.span.start);
+  // 1. SIKI FİLTRELEME (GPT ÖNERİSİ)
+  const safeErrors = Array.isArray(errors)
+    ? errors
+        .filter((e) => {
+          const s = e?.span?.start;
+          const ed = e?.span?.end;
+          // Span değerlerinin sayı olup olmadığını ve metin sınırları içinde kalıp kalmadığını kontrol et
+          return (
+            Number.isInteger(s) &&
+            Number.isInteger(ed) &&
+            s >= 0 &&
+            ed > s &&
+            ed <= text.length
+          );
+        })
+        .slice() // Orijinal diziyi bozma
+        .sort((a, b) => a.span.start - b.span.start) // Sırala
+    : [];
 
   if (safeErrors.length === 0) {
-    return <Text style={styles.normalText}>{text}</Text>;
+    return <Text style={{ fontSize: 16, lineHeight: 28, color: "#2c3e50" }}>{text}</Text>;
   }
 
   const parts = [];
   let cursor = 0;
 
-  safeErrors.forEach((err, index) => {
-    const start = Math.max(0, err.span.start);
-    const end = Math.min(text.length, err.span.end);
+  for (let i = 0; i < safeErrors.length; i++) {
+    const err = safeErrors[i];
+    const start = err.span.start;
+    const end = err.span.end;
 
-    if (start < cursor) return;
+    // Çakışma kontrolü
+    if (start < cursor) continue;
 
-    // Normal Metin
+    // Normal Metin (Hata öncesi)
     if (start > cursor) {
-      parts.push({ type: 'text', key: `t-${cursor}`, content: text.slice(cursor, start) });
+      parts.push({ type: "text", key: `t-${cursor}-${start}`, value: text.slice(cursor, start) });
     }
 
-    // Hatalı Metin (KUTU)
-    parts.push({ type: 'error', key: `e-${index}`, content: text.slice(start, end), errorData: err });
+    // Hatalı Kısım
+    parts.push({ type: "error", key: `e-${start}-${end}`, value: text.slice(start, end), err });
 
     cursor = end;
-  });
+  }
 
+  // Kalan Metin
   if (cursor < text.length) {
-    parts.push({ type: 'text', key: `t-end`, content: text.slice(cursor) });
+    parts.push({ type: "text", key: `t-${cursor}-end`, value: text.slice(cursor) });
   }
 
   return (
-    <View style={styles.textWrapper}>
-      {parts.map((p) => {
-        if (p.type === 'text') {
-          return <Text key={p.key} style={styles.normalText}>{p.content}</Text>;
-        }
-        return (
-          <TouchableOpacity
+    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: 'center' }}>
+      {parts.map((p) =>
+        p.type === "text" ? (
+          <Text key={p.key} style={{ fontSize: 16, lineHeight: 32, color: "#2c3e50" }}>
+            {p.value}
+          </Text>
+        ) : (
+          <Pressable
             key={p.key}
-            onPress={() => onErrorPress(p.errorData)}
-            activeOpacity={0.6}
-            style={styles.errorBox}
+            onPress={() => onErrorPress?.(p.err)}
+            style={({ pressed }) => ({
+              backgroundColor: pressed ? "#ffe1e1" : "#fff0f0",
+              borderRadius: 4,
+              paddingHorizontal: 4, // Dokunma alanı genişletildi
+              marginHorizontal: 2,
+              borderBottomWidth: 2,
+              borderBottomColor: "#e74c3c",
+              marginBottom: 6,      // Satır arası mesafe
+              height: 30,           // Yükseklik garantisi
+              justifyContent: 'center'
+            })}
           >
-            <Text style={styles.errorTextInner}>{p.content}</Text>
-          </TouchableOpacity>
-        );
-      })}
+            <Text style={{ fontSize: 16, color: "#c0392b", fontWeight: "bold" }}>
+              {p.value}
+            </Text>
+          </Pressable>
+        )
+      )}
     </View>
   );
 };
 
-// --- GARANTİLİ KART (MODAL DEĞİL, OVERLAY VIEW) ---
-// Bu bileşen "Modal" kullanmaz, direkt ekranın üzerine çizilir. %100 görünür.
+// --- GARANTİLİ KART (OVERLAY VIEW YÖNTEMİ) ---
+// Modal yerine View kullanıyoruz, böylece "açılmama" riski sıfıra iniyor.
 const ErrorCardOverlay = ({ error, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
@@ -151,10 +181,8 @@ export default function MainScreen({ user, setUser }) {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
-  const [showDetailModal, setShowDetailModal] = useState(false); // Bu hala Modal olabilir çünkü tam ekran
-  
-  // KART STATE'i
-  const [activeError, setActiveError] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [activeError, setActiveError] = useState(null); // KART STATE'i
 
   const [step, setStep] = useState(1); 
   const [image, setImage] = useState(null);
@@ -224,7 +252,18 @@ export default function MainScreen({ user, setUser }) {
     try {
         const payload = { ocr_text: editableText, image_url: imageUrl, student_name: studentName, student_surname: studentSurname, classroom_code: classCode, level: studentLevel, country: studentCountry, native_language: studentLanguage };
         const response = await axios.post(`${BASE_URL}/analyze`, payload);
-        if (response.data.status === "success") { setResult(response.data.data); setStep(3); }
+        
+        // --- DEBUG İÇİN KONSOLA YAZDIRMA ---
+        if (response.data.status === "success") { 
+            console.log("ANALİZ BAŞARILI");
+            if (response.data.data.errors && response.data.data.errors.length > 0) {
+                console.log("İLK HATA ÖRNEĞİ:", JSON.stringify(response.data.data.errors[0], null, 2));
+            } else {
+                console.log("HATA BULUNAMADI LİSTESİ BOŞ");
+            }
+            setResult(response.data.data); 
+            setStep(3); 
+        }
     } catch (error) { Alert.alert("Hata", "Analiz yapılamadı."); } finally { setLoading(false); }
   };
 
@@ -232,7 +271,6 @@ export default function MainScreen({ user, setUser }) {
 
   return (
     <View style={styles.container}>
-      {/* ScrollView Kapsayıcısı */}
       <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* HEADER */}
           <View style={styles.header}>
@@ -253,7 +291,7 @@ export default function MainScreen({ user, setUser }) {
               <TouchableOpacity style={[styles.tab, activeTab === 'history' && styles.activeTab]} onPress={() => setActiveTab('history')}><Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>📂 Geçmişim</Text></TouchableOpacity>
           </View>
 
-          {/* İÇERİK: YENİ ÖDEV */}
+          {/* YENİ ÖDEV */}
           {activeTab === 'new' && (
              <View style={styles.contentArea}>
                 <View style={styles.card}>
@@ -296,11 +334,12 @@ export default function MainScreen({ user, setUser }) {
                         
                         <View style={styles.analysisCard}>
                              <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
+                             {/* FİNAL HIGHLIGHTER */}
                              <HighlightedText 
                                 text={editableText} 
                                 errors={result.errors} 
                                 onErrorPress={(err) => {
-                                    console.log("HATA TIKLANDI:", err.wrong);
+                                    console.log("KART AÇILIYOR:", err.wrong);
                                     setActiveError(err);
                                 }} 
                              />
@@ -324,7 +363,7 @@ export default function MainScreen({ user, setUser }) {
              </View>
           )}
 
-          {/* İÇERİK: GEÇMİŞ */}
+          {/* GEÇMİŞ */}
           {activeTab === 'history' && (
              <View style={styles.contentArea}>
                  {loadingHistory ? (
@@ -335,7 +374,7 @@ export default function MainScreen({ user, setUser }) {
                      <FlatList 
                         data={historyData}
                         keyExtractor={item => item.id.toString()}
-                        scrollEnabled={false} // Ana scroll ile çakışmasın
+                        scrollEnabled={false} 
                         renderItem={({item}) => (
                             <View style={styles.historyCard}>
                                 <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
@@ -357,25 +396,22 @@ export default function MainScreen({ user, setUser }) {
           )}
       </ScrollView>
 
-      {/* --- OVERLAY KART (MODAL YERİNE VIEW) --- */}
-      {/* Bu bileşen "Absolute" olduğu için ScrollView'in dışında ve en üstte durur */}
+      {/* --- KART BURADA (OVERLAY) --- */}
       {activeError && <ErrorCardOverlay error={activeError} onClose={() => setActiveError(null)} />}
 
-      {/* DETAY MODALI (GEÇMİŞ İÇİN) - Bu native modal kalabilir */}
+      {/* GEÇMİŞ DETAY MODALI (NATIVE MODAL) */}
       <Modal visible={showDetailModal} animationType="slide" presentationStyle="pageSheet">
-          {/* İçerik aynı... Sadece HighlightedText'e onPress ekliyoruz */}
           <View style={{flex:1, padding:20, paddingTop:50}}>
              <TouchableOpacity onPress={() => setShowDetailModal(false)} style={{alignSelf:'flex-end', padding:10}}><Text style={{fontWeight:'bold', fontSize:18}}>X</Text></TouchableOpacity>
              {selectedHistoryItem && (
                  <ScrollView>
-                     <HighlightedText 
-                        text={selectedHistoryItem.ocr_text} 
-                        errors={selectedHistoryItem.analysis_json?.errors} 
-                        onErrorPress={(err) => {
-                            // Modal içinde modal olmaz, o yüzden burada Alert kullanabiliriz veya özel bir state
-                            Alert.alert("Hata", `${err.explanation}\n\nDoğrusu: ${err.correct}`);
-                        }} 
-                     />
+                     <View style={styles.analysisCard}>
+                        <HighlightedText 
+                            text={selectedHistoryItem.ocr_text} 
+                            errors={selectedHistoryItem.analysis_json?.errors} 
+                            onErrorPress={(err) => Alert.alert("Hata", `${err.explanation}\n\nDoğrusu: ${err.correct}`)} 
+                        />
+                     </View>
                  </ScrollView>
              )}
           </View>
@@ -387,7 +423,7 @@ export default function MainScreen({ user, setUser }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa', paddingTop: Platform.OS === 'android' ? 40 : 0 },
-  scrollContent: { paddingBottom: 50 }, // Scroll için alt boşluk
+  scrollContent: { paddingBottom: 50 }, 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 25, backgroundColor: 'white', borderBottomLeftRadius: 20, borderBottomRightRadius: 20, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } }) },
   greeting: { fontSize: 14, color: '#7f8c8d' },
   name: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
@@ -416,17 +452,14 @@ const styles = StyleSheet.create({
   ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width:'100%' },
   historyCard: { backgroundColor:'white', padding:15, borderRadius:12, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.03)' }, default: { elevation: 2 } }) },
   
-  // --- YENİ EKLENEN STİLLER ---
   resultContainer: { width: '100%', paddingBottom: 30 },
   successBox: { backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71' },
   successText: { color:'#27ae60', fontWeight:'bold', fontSize:16, textAlign:'center' },
   successSubText: { textAlign:'center', color:'#555', marginTop:5, fontSize:13 },
   analysisCard: { backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee' },
   analysisTitle: { fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14 },
-  textWrapper: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  
   normalText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
-  errorBox: { backgroundColor: '#fff0f0', borderRadius: 4, paddingHorizontal: 4, marginHorizontal: 2, borderBottomWidth: 2, borderBottomColor: '#e74c3c', marginBottom: 4 },
-  errorTextInner: { fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' },
   errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
   errorDesc: { fontSize: 13, color: '#7f8c8d' },
