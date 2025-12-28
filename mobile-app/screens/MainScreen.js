@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Modal, Pressable 
+  ActivityIndicator, TextInput, FlatList, Modal 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,106 +45,89 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GARANTİLİ HIGHLIGHT BİLEŞENİ ---
+// --- HIGHLIGHT BİLEŞENİ (TEXT İÇİNDE TEXT - EN GARANTİ YÖNTEM) ---
+// Not: View wrap yerine Text nesting kullanıyoruz çünkü bu kelime bütünlüğünü bozmaz ve tıklamayı garanti eder.
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // Hataları span (start) değerine göre sırala
-  // Hata kaybını önlemek için filtreyi gevşek tutuyoruz ama sıralamayı sıkı yapıyoruz
+  // Hataları sırala (Filtreyi gevşettik, artık hata yutmaz)
   const safeErrors = (errors || [])
-    .filter(e => e?.span?.start !== undefined && e?.span?.end !== undefined)
+    .filter(e => e?.span?.start !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
 
   if (safeErrors.length === 0) {
     return <Text style={{ fontSize: 16, lineHeight: 28, color: '#2c3e50' }}>{text}</Text>;
   }
 
-  const parts = [];
+  const elements = [];
   let cursor = 0;
 
   safeErrors.forEach((err, index) => {
-    const { start, end } = err.span;
-    
-    // Çakışma varsa (backend hatası), bu hatayı atla ama diğerlerini bozma
-    if (start < cursor) return;
+    // Sınırları güvenli hale getir (Taşmaları önle ama hatayı silme)
+    const start = Math.max(0, err.span.start);
+    const end = Math.min(text.length, err.span.end);
 
-    // 1. Normal Metin (Hata öncesi)
+    // Çakışma veya geçersiz veri varsa atla
+    if (start < cursor || start >= end) return;
+
+    // 1. Normal Metin
     if (start > cursor) {
-      parts.push({
-        type: 'text',
-        key: `t-${cursor}`,
-        value: text.slice(cursor, start),
-      });
+      elements.push(
+        <Text key={`t-${cursor}`} style={{color: '#2c3e50'}}>
+          {text.slice(cursor, start)}
+        </Text>
+      );
     }
 
-    // 2. Hatalı Kısım (Tıklanabilir Kutu)
-    parts.push({
-      type: 'error',
-      key: `e-${index}-${start}`,
-      value: text.slice(start, end),
-      err,
-    });
+    // 2. Hatalı Kısım (TIKLANABİLİR TEXT)
+    elements.push(
+      <Text
+        key={`e-${index}`}
+        onPress={() => onErrorPress(err)}
+        style={{ 
+            color: '#c0392b', 
+            fontWeight: 'bold', 
+            textDecorationLine: 'underline',
+            backgroundColor: '#fff0f0' 
+        }}
+      >
+        {text.slice(start, end)}
+      </Text>
+    );
 
     cursor = end;
   });
 
   // 3. Kalan Metin
   if (cursor < text.length) {
-    parts.push({
-      type: 'text',
-      key: `t-end-${cursor}`,
-      value: text.slice(cursor),
-    });
+    elements.push(
+      <Text key={`t-end`} style={{color: '#2c3e50'}}>
+        {text.slice(cursor)}
+      </Text>
+    );
   }
 
-  // Flex-wrap View içinde Pressable kullanımı (En garantili yöntem)
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
-      {parts.map(p => {
-        if (p.type === 'text') {
-          return (
-            <Text key={p.key} style={{ fontSize: 16, lineHeight: 32, color: '#2c3e50' }}>
-              {p.value}
-            </Text>
-          );
-        }
-
-        return (
-          <Pressable
-            key={p.key}
-            onPress={() => onErrorPress(p.err)}
-            style={({ pressed }) => ({
-              backgroundColor: pressed ? '#ffe1e1' : '#fff0f0',
-              borderRadius: 4,
-              paddingHorizontal: 2,
-              marginHorizontal: 1,
-              borderBottomWidth: 2,
-              borderBottomColor: '#e74c3c'
-            })}
-          >
-            <Text style={{ fontSize: 16, lineHeight: 32, color: '#c0392b', fontWeight: 'bold' }}>
-              {p.value}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+    <Text style={{ fontSize: 16, lineHeight: 30 }}>
+      {elements}
+    </Text>
   );
 };
 
-// --- HATA KARTI MODAL (SADECE X İLE KAPANIR) ---
+// --- HATA KARTI MODAL ---
 const ErrorCardModal = ({ error, visible, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
   
     return (
       <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
-        {/* BACKDROP - onPress YOK (Kapanmayı engeller) */}
+        {/* Arka plan: Yarı saydam siyah */}
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           
+          {/* Kartın Kendisi */}
           <View style={{ backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300 }}>
                 
-                {/* Başlık */}
+                {/* Başlık ve Kapat Butonu */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#e74c3c' }}>⚠️ HATA DETAYI</Text>
                     <TouchableOpacity onPress={onClose} style={{ padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 }}>
@@ -152,7 +135,7 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </TouchableOpacity>
                 </View>
     
-                {/* Karşılaştırma */}
+                {/* Karşılaştırma (Yanlış -> Doğru) */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12 }}>
                     <View style={{ flex: 1, alignItems: 'center' }}>
                         <Text style={{ fontSize: 12, color: '#e74c3c', fontWeight: 'bold', marginBottom: 5 }}>YANLIŞ</Text>
@@ -165,7 +148,7 @@ const ErrorCardModal = ({ error, visible, onClose }) => {
                     </View>
                 </View>
     
-                {/* Kural */}
+                {/* Kural Bilgisi */}
                 <View style={{ backgroundColor: '#e8f4fd', padding: 12, borderRadius: 8, borderLeftWidth: 5, borderLeftColor: '#3498db', marginBottom: 20 }}>
                     <Text style={{ fontSize: 11, color: '#3498db', fontWeight: 'bold' }}>İHLAL EDİLEN KURAL</Text>
                     <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#2c3e50', marginTop: 4 }}>{ruleTitle}</Text>
@@ -265,12 +248,14 @@ export default function MainScreen({ user, setUser }) {
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailModal(true); };
 
-  // --- KART AÇMA FONKSİYONU (GECİKMELİ) ---
-  // Bu gecikme, dokunmatik ekranda "basar basmaz kapanma" sorununu çözer
+  // --- KART AÇMA FONKSİYONU ---
   const handleOpenError = (err) => {
+      // Önceki hatayı temizle (state'i sıfırla)
+      setActiveError(null);
+      // Çok kısa bir gecikmeyle yenisini set et (Render sorunu olmaması için)
       setTimeout(() => {
           setActiveError(err);
-      }, 10);
+      }, 50);
   };
 
   return (
@@ -333,7 +318,6 @@ export default function MainScreen({ user, setUser }) {
                     )}
                 </View>
 
-                {/* --- CANLI SONUÇ EKRANI (STEP 3) --- */}
                 {step === 3 && result && (
                     <View style={styles.resultContainer}>
                         <View style={{backgroundColor:'#e8f8f5', padding:15, borderRadius:12, marginBottom:15, borderWidth:1, borderColor:'#2ecc71'}}>
