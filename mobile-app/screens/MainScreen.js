@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, Image, Alert, ScrollView, Platform, 
-  ActivityIndicator, TextInput, FlatList, Dimensions 
+  ActivityIndicator, TextInput, FlatList, Modal, Dimensions 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,7 +9,7 @@ import axios from 'axios';
 
 // --- AYARLAR ---
 const BASE_URL = 'https://sanalogretmenai.onrender.com'; 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
@@ -41,93 +41,76 @@ const TDK_LOOKUP = {
   "TDK_26_HANE": "Hane Kelimesi",
   "TDK_27_ART_ARDA": "Art Arda",
   "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
-  "TDK_29_UNVANLAR": "Unvanların Yazımı",
+  "TDK_29_UNVANLAR": "Unvanlar",
   "TDK_30_YONLER": "Yön Adları",
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- HIGHLIGHT BİLEŞENİ (RESPONDER + FLEX WRAP) ---
+// --- KESİN ÇALIŞAN HIGHLIGHTER (NESTED TEXT) ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
-  // Hataları sadece başlangıç noktasına göre sırala.
-  // Filtreyi gevşettik: Backend ne yollarsa yollasın, biz onu "kırpıp" (clamp) göstereceğiz.
-  const sortedErrors = (errors || [])
-    .filter(e => e?.span?.start !== undefined)
-    .sort((a, b) => a.span.start - b.span.start);
+  // Hataları sırala
+  const sortedErrors = (errors || []).sort((a, b) => a.span.start - b.span.start);
 
   if (sortedErrors.length === 0) {
     return <Text style={styles.normalText}>{text}</Text>;
   }
 
-  const parts = [];
+  const elements = [];
   let cursor = 0;
 
   sortedErrors.forEach((err, index) => {
-    // Matematiksel güvenli sınırlar (Crash önleyici)
-    const start = Math.max(0, err.span.start);
-    const end = Math.min(text.length, err.span.end);
+    const start = err.span.start;
+    const end = err.span.end;
 
-    // Eğer veri bozuksa veya üst üste biniyorsa atla
-    if (start < cursor || start >= end) return;
+    // Hatalı veri varsa (negatif index vb.) düzelt
+    if (start < 0 || end > text.length || start >= end) return;
+    if (start < cursor) return; // Çakışma varsa atla
 
     // 1. Normal Metin (Hata öncesi)
     if (start > cursor) {
-      parts.push({
-        type: 'text',
-        key: `t-${cursor}`,
-        content: text.slice(cursor, start)
-      });
+      elements.push(
+        <Text key={`t-${cursor}`} style={styles.normalText}>
+          {text.slice(cursor, start)}
+        </Text>
+      );
     }
 
-    // 2. Hatalı Metin (View + Responder)
-    parts.push({
-      type: 'error',
-      key: `e-${index}-${start}`,
-      content: text.slice(start, end),
-      errorData: err
-    });
+    // 2. Hatalı Kısım (TIKLANABİLİR TEXT)
+    // React Native'de Text içinde Text kullanıp onPress verirsen %100 çalışır.
+    elements.push(
+      <Text
+        key={`e-${index}`}
+        onPress={() => onErrorPress(err)}
+        suppressHighlighting={false} // Tıklayınca gri olsun
+        style={styles.errorTextHighlight}
+      >
+        {text.slice(start, end)}
+      </Text>
+    );
 
     cursor = end;
   });
 
   // 3. Kalan Metin
   if (cursor < text.length) {
-    parts.push({
-      type: 'text',
-      key: `t-end`,
-      content: text.slice(cursor)
-    });
+    elements.push(
+      <Text key={`t-end`} style={styles.normalText}>
+        {text.slice(cursor)}
+      </Text>
+    );
   }
 
+  // ANA TEXT (Her şeyi kapsar)
   return (
-    <View style={styles.textWrapper}>
-      {parts.map((p) => {
-        if (p.type === 'text') {
-          return <Text key={p.key} style={styles.normalText}>{p.content}</Text>;
-        }
-        
-        // --- İŞTE ÇÖZÜM BURASI: RESPONDER KULLANIMI ---
-        return (
-          <View
-            key={p.key}
-            // Bu iki satır dokunmayı ScrollView'den çalar ve bize verir
-            onStartShouldSetResponder={() => true}
-            onResponderRelease={() => {
-                console.log("TIKLANDI:", p.errorData.wrong); // Konsol kontrolü
-                onErrorPress(p.errorData);
-            }}
-            style={styles.errorBox}
-          >
-            <Text style={styles.errorTextInner}>{p.content}</Text>
-          </View>
-        );
-      })}
-    </View>
+    <Text style={styles.paragraph}>
+      {elements}
+    </Text>
   );
 };
 
-// --- KART BİLEŞENİ (ABSOLUTE OVERLAY) ---
+// --- GÜVENLİ KART (OVERLAY) ---
 const ErrorCardOverlay = ({ error, onClose }) => {
     if (!error) return null;
     const ruleTitle = TDK_LOOKUP[error.rule_id] || error.rule_id || "Kural İhlali";
@@ -135,11 +118,7 @@ const ErrorCardOverlay = ({ error, onClose }) => {
     return (
       <View style={styles.overlayContainer}>
         {/* Arka plan */}
-        <TouchableOpacity 
-            style={styles.backdrop} 
-            activeOpacity={1} 
-            onPress={onClose} 
-        />
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         
         {/* Kart */}
         <View style={styles.sheet}>
@@ -257,11 +236,9 @@ export default function MainScreen({ user, setUser }) {
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
 
-  // --- KART AÇMA (DOĞRUDAN STATE GÜNCELLEME) ---
+  // --- KART AÇMA ---
   const handleOpenError = (err) => {
-      // Artık setTimeout gerekmez, overlay kullanıyoruz ama güvenlik için bırakabiliriz.
-      // Konsola yazalım ki tıklamanın çalıştığını görelim.
-      console.log("AÇILACAK HATA:", err.wrong);
+      console.log("TIKLANDI:", err.wrong);
       setActiveError(err);
   };
 
@@ -339,14 +316,13 @@ export default function MainScreen({ user, setUser }) {
 
                         {/* LISTE */}
                         {result.errors && result.errors.map((err, index) => (
-                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenError(err)}>
+                            <TouchableOpacity key={index} style={styles.errorItem} onPress={() => setActiveError(err)}>
                                 <Text style={styles.errorText}>
                                     <Text style={{textDecorationLine:'line-through', color:'#e74c3c'}}>{err.wrong}</Text> 
                                     {' ➜ '} 
                                     <Text style={{fontWeight:'bold', color:'#2ecc71'}}>{err.correct}</Text>
                                 </Text>
                                 <Text style={styles.errorDesc}>{err.explanation}</Text>
-                                <Text style={{fontSize:10, color:'#3498db', marginTop:5, textAlign:'right'}}>Detay 👉</Text>
                             </TouchableOpacity>
                         ))}
                         
@@ -389,12 +365,10 @@ export default function MainScreen({ user, setUser }) {
           )}
       </ScrollView>
 
-      {/* --- ABSOLUTE OVERLAYS (EN ÜST KATMAN) --- */}
-      
-      {/* 1. HATA KARTI OVERLAY */}
+      {/* --- OVERLAY KART (EN ÜSTTE) --- */}
       {activeError && <ErrorCardOverlay error={activeError} onClose={() => setActiveError(null)} />}
 
-      {/* 2. DETAY OVERLAY (GEÇMİŞ İÇİN) */}
+      {/* DETAY (GEÇMİŞ İÇİN) - BU DA OVERLAY */}
       {showDetailOverlay && selectedHistoryItem && (
           <View style={styles.fullScreenOverlay}>
              <View style={styles.detailContainer}>
@@ -465,10 +439,11 @@ const styles = StyleSheet.create({
   successSubText: { textAlign:'center', color:'#555', marginTop:5, fontSize:13 },
   analysisCard: { backgroundColor:'white', padding:20, borderRadius:12, marginBottom:20, borderWidth:1, borderColor:'#eee' },
   analysisTitle: { fontWeight:'bold', color:'#34495e', marginBottom:10, fontSize:14 },
-  textWrapper: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  normalText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
-  errorBox: { backgroundColor: '#fff0f0', borderRadius: 4, paddingHorizontal: 4, marginHorizontal: 2, borderBottomWidth: 2, borderBottomColor: '#e74c3c', marginBottom: 4 },
-  errorTextInner: { fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' },
+  
+  paragraph: { lineHeight: 30, fontSize: 16, flexWrap: 'wrap', flexDirection: 'row' },
+  normalText: { fontSize: 16, color: '#2c3e50' },
+  errorTextHighlight: { color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'underline', backgroundColor: 'rgba(255,0,0,0.1)' },
+
   errorItem: { backgroundColor:'white', padding:15, borderRadius:10, marginBottom:10, borderBottomWidth:1, borderBottomColor:'#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
   errorDesc: { fontSize: 13, color: '#7f8c8d' },
@@ -476,8 +451,8 @@ const styles = StyleSheet.create({
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
 
-  // --- OVERLAY STYLES (EN KRİTİK KISIM) ---
-  overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999, justifyContent: 'flex-end' },
+  // --- OVERLAY STYLES ---
+  overlayContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25, minHeight: 300, width: '100%', paddingBottom: 50 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
