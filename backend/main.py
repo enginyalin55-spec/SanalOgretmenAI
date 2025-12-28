@@ -1,11 +1,13 @@
-# main.py - FINAL (Span Doğrulamalı, Halüsinasyon Önleyici, TDK+CEFR)
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import os, json, uuid, re
+import os
+import json
+import uuid
+import re
 from pydantic import BaseModel
 from typing import Union, List, Dict, Any
 
@@ -21,6 +23,7 @@ client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,72 +35,195 @@ app.add_middleware(
 MODELS_TO_TRY = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"]
 WORD_COUNTS = {"A1": 75, "A2": 100, "B1": 125, "B2": 150, "C1": 175, "C2": 200}
 
-CEFR_KRITERLERI = {
-    "A1": "Basit cümleler, kendini tanıtma. Kelime sırası hatalarını daha hoşgörülü değerlendir.",
-    "A2": "Basit bağlaçlarla cümle bağlayabilmeli; temel zamanları ve en sık ekleri genelde doğru kullanmalı.",
-    "B1": "Bağlantılı metin, neden-sonuç, daha tutarlı anlatım.",
-    "B2": "Daha akıcı, daha doğru yazım. Sık yazım/noktalama hataları daha fazla puan kırdırır.",
-    "C1": "Geniş söz varlığı, neredeyse kusursuz yazım/dil bilgisi beklenir.",
-}
-
-class AnalyzeRequest(BaseModel):
-    ocr_text: str
-    image_url: str
-    student_name: str
-    student_surname: str
-    classroom_code: str
-    level: str
-    country: str
-    native_language: str
-
-class UpdateScoreRequest(BaseModel):
-    submission_id: Union[int, str]
-    new_rubric: dict
-    new_total: int
-
-# =========================
-# TDK RULES LOADER (TAM ADRES GARANTİLİ)
-# =========================
-# Dosya yolunu ortam değişkeninden almazsa otomatik bulur
-TDK_RULES_PATH = os.getenv("TDK_RULES_PATH", "tdk_rules.json")
-
+# =======================================================
+# 🛡️ TDK KURALLARI (KOD İÇİNE GÖMÜLÜ - DOSYA HATASINA SON)
+# =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
-    try:
-        # YÖNTEM 1: Önce dosyanın tam yolunu (Absolute Path) hesapla
-        # Bu, main.py nerede ise JSON'u orada arar.
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(base_dir, "tdk_rules.json")
-        
-        print(f"📂 TDK Dosyası Aranıyor: {json_path}") # Loglara yazdıralım
+    # Dosya okuma riskini kaldırdık. Kurallar burada sabit.
+    return [
+      {
+        "rule_id": "TDK_01_BAGLAC_DE",
+        "title": "Bağlaç Olan 'da/de'nin Yazımı",
+        "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır. Cümleden çıkarılınca anlam bozulmaz.",
+        "category": "Bağlaçlar"
+      },
+      {
+        "rule_id": "TDK_02_BAGLAC_KI",
+        "title": "Bağlaç Olan 'ki'nin Yazımı",
+        "text": "Bağlaç olan 'ki' ayrı yazılır. (İstisnalar: sanki, oysaki, mademki, belki, halbuki, çünkü, meğerki, illaki).",
+        "category": "Bağlaçlar"
+      },
+      {
+        "rule_id": "TDK_03_SORU_EKI",
+        "title": "Soru Eki 'mı/mi'nin Yazımı",
+        "text": "Soru eki olan 'mı, mi, mu, mü' her zaman ayrı yazılır.",
+        "category": "Ekler"
+      },
+      {
+        "rule_id": "TDK_04_SEY_SOZ",
+        "title": "'Şey' Sözcüğünün Yazımı",
+        "text": "'Şey' sözcüğü her zaman ayrı yazılır (her şey, bir şey, çok şey).",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_05_BUYUK_CUMLE",
+        "title": "Cümle Başı Büyük Harf",
+        "text": "Cümleler her zaman büyük harfle başlar.",
+        "category": "Büyük Harfler"
+      },
+      {
+        "rule_id": "TDK_06_BUYUK_OZEL",
+        "title": "Özel İsimlerin Yazımı",
+        "text": "Kişi, ülke, şehir, dil ve millet adları büyük harfle başlar (Ahmet, Ankara, Türkçe).",
+        "category": "Büyük Harfler"
+      },
+      {
+        "rule_id": "TDK_07_BUYUK_KURUM",
+        "title": "Kurum ve Kuruluş Adları",
+        "text": "Kurum adlarının her kelimesi büyük harfle başlar (Türk Dil Kurumu).",
+        "category": "Büyük Harfler"
+      },
+      {
+        "rule_id": "TDK_08_TARIH_GUN_AY",
+        "title": "Belirli Tarihlerin Yazımı",
+        "text": "Tam tarih bildiren ay ve gün adları büyük harfle başlar (29 Mayıs 1453 Salı).",
+        "category": "Büyük Harfler"
+      },
+      {
+        "rule_id": "TDK_09_KESME_OZEL",
+        "title": "Özel İsimlere Gelen Ekler",
+        "text": "Özel isimlere gelen çekim ekleri kesme işareti (') ile ayrılır (Ayşe'nin).",
+        "category": "Noktalama"
+      },
+      {
+        "rule_id": "TDK_10_KESME_KURUM",
+        "title": "Kurum Adlarına Gelen Ekler",
+        "text": "Kurum ve kuruluş adlarına gelen ekler kesmeyle ayrılmaz (Bakanlığına).",
+        "category": "Noktalama"
+      },
+      {
+        "rule_id": "TDK_11_YARDIMCI_FIIL_SES",
+        "title": "Yardımcı Fiillerde Ses Olayı",
+        "text": "Ses düşmesi/türemesi varsa bitişik (kaybolmak), yoksa ayrı (terk etmek) yazılır.",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_12_SAYI_AYRI",
+        "title": "Sayıların Yazımı",
+        "text": "Birden fazla kelimeden oluşan sayılar ayrı yazılır (on beş, yüz elli).",
+        "category": "Sayılar"
+      },
+      {
+        "rule_id": "TDK_13_ULESTIRME",
+        "title": "Üleştirme Sayıları",
+        "text": "Üleştirme sayıları rakamla değil yazıyla yazılır (5'er değil beşer).",
+        "category": "Sayılar"
+      },
+      {
+        "rule_id": "TDK_14_KISALTMA_BUYUK",
+        "title": "Büyük Harfli Kısaltmalar",
+        "text": "Büyük harfli kısaltmalara gelen ekler, son harfin okunuşuna göre gelir (TDK'dan değil TDK'den).",
+        "category": "Kısaltmalar"
+      },
+      {
+        "rule_id": "TDK_15_IKILEMELER",
+        "title": "İkilemelerin Yazımı",
+        "text": "İkilemeler ayrı yazılır ve araya noktalama konmaz (yavaş yavaş).",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_16_PEKISTIRME",
+        "title": "Pekiştirmelerin Yazımı",
+        "text": "Pekiştirmeli sıfatlar bitişik yazılır (masmavi, tertemiz).",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_17_YUMUSAK_G",
+        "title": "Yumuşak G Başlangıcı",
+        "text": "Türkçede kelimeler 'ğ' ile başlamaz.",
+        "category": "Yazım"
+      },
+      {
+        "rule_id": "TDK_18_HER_BIR",
+        "title": "'Her' Kelimesi",
+        "text": "'Her' kelimesi genellikle ayrı yazılır (her bir, her gün). İstisna: Herkes, herhangi.",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_19_BELIRSIZLIK_SIFATLARI",
+        "title": "Bitişik Yazılan Belirsizlik Kelimeleri",
+        "text": "Biraz, birçok, birkaç, birtakım, herhangi kelimeleri bitişik yazılır.",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_20_NOKTA",
+        "title": "Cümle Sonu Nokta",
+        "text": "Tamamlanmış cümlelerin sonuna nokta konur.",
+        "category": "Noktalama"
+      },
+      {
+        "rule_id": "TDK_21_VIRGUL",
+        "title": "Virgül Kullanımı",
+        "text": "Eş görevli kelimeler ve sıralı cümleler arasına virgül konur.",
+        "category": "Noktalama"
+      },
+      {
+        "rule_id": "TDK_22_DARALMA_KURALI",
+        "title": "Gereksiz Ünlü Daralması",
+        "text": "Yor eki dışında, konuşma dilindeki daralmalar yazıya geçirilmez. (Yapcam -> Yapacağım, Gelcem -> Geleceğim).",
+        "category": "Yazım"
+      },
+      {
+        "rule_id": "TDK_23_YANLIS_YALNIZ",
+        "title": "Yanlış/Yalnız Yazımı",
+        "text": "Doğrusu: Yanlış (yanılmaktan), Yalnız (yalından).",
+        "category": "Yazım"
+  },
+      {
+        "rule_id": "TDK_24_HERKES",
+        "title": "Herkes Yazımı",
+        "text": "'Herkes' kelimesi 's' ile biter, 'z' ile bitmez.",
+        "category": "Yazım"
+      },
+      {
+        "rule_id": "TDK_25_SERTLESME",
+        "title": "Ünsüz Benzeşmesi (Sertleşme)",
+        "text": "Fıstıkçı Şahap ünsüzlerinden sonra 'c, d, g' -> 'ç, t, k' olur (kitapda değil kitapta, 1923'de değil 1923'te).",
+        "category": "Yazım"
+      },
+      {
+        "rule_id": "TDK_26_HANE",
+        "title": "Hane Kelimesi",
+        "text": "Sesliyle bitenlerde 'ha' düşer (hastane, postane). Ünsüzle bitenlerde kalır (dershane).",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_27_ART_ARDA",
+        "title": "Art Arda Yazımı",
+        "text": "'Art arda' ayrı ve 't' ile yazılır (ardarda değil).",
+        "category": "Ayrı/Bitişik Yazım"
+      },
+      {
+        "rule_id": "TDK_28_YABANCI_KELIMELER",
+        "title": "Sık Karıştırılan Kelimeler",
+        "text": "Doğrular: Şoför, egzoz, metot, tıraş, kılavuz, kulüp, sürpriz.",
+        "category": "Yazım"
+      },
+      {
+        "rule_id": "TDK_29_UNVANLAR",
+        "title": "Unvanların Yazımı",
+        "text": "Kişi adlarıyla kullanılan unvanlar büyük harfle başlar (Ayşe Hanım, Doktor Ali).",
+        "category": "Büyük Harfler"
+      },
+      {
+        "rule_id": "TDK_30_YONLER",
+        "title": "Yön Adlarının Yazımı",
+        "text": "Yön adları özel isimden önceyse büyük (Doğu Anadolu), sonraysa küçük (Anadolu'nun doğusu) yazılır.",
+        "category": "Büyük Harfler"
+      }
+    ]
 
-        with open(json_path, "r", encoding="utf-8") as f:
-            rules = json.load(f)
-            
-        if not isinstance(rules, list):
-            raise ValueError("tdk_rules.json bir liste (array) olmalı.")
-            
-        cleaned = []
-        for r in rules:
-            if isinstance(r, dict) and r.get("rule_id") and r.get("title") and r.get("text"):
-                cleaned.append(r)
-        return cleaned
-
-    except FileNotFoundError:
-        # YÖNTEM 2: Eğer yukarıdaki çalışmazsa düz ismi dene (Fallback)
-        print("⚠️ Tam yolda bulunamadı, düz isim deneniyor...")
-        try:
-            with open("tdk_rules.json", "r", encoding="utf-8") as f:
-                rules = json.load(f)
-            return rules
-        except Exception as e:
-            print(f"❌ KRİTİK HATA: TDK dosyası hiçbir yerde yok! Hata: {e}")
-            return []
-            
-    except Exception as e:
-        print(f"⚠️ TDK Kuralları Yüklenemedi (Genel Hata): {e}")
-        return []
-
-# --- GUARDRAILS ---
+# --- METİN TEMİZLİĞİ ---
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 def normalize_text(text: str) -> str:
     if not text: return ""
@@ -120,10 +246,9 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
         if not isinstance(err, dict): continue
 
         rid = err.get("rule_id")
-        if not rid or rid not in allowed_rule_ids: continue # Kural listemizde yoksa sil
+        if not rid or rid not in allowed_rule_ids: continue 
 
         span = err.get("span")
-        # SPAN YOKSA REDDET (Jüri Güvenliği)
         if not isinstance(span, dict) or "start" not in span or "end" not in span:
             print(f"🗑️ Span yok, hata reddedildi: {err.get('wrong','')}")
             continue
@@ -137,7 +262,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
         wrong = err.get("wrong", "")
         evidence_fragment = full_text[start:end]
 
-        # KANIT KONTROLÜ (Büyük/Küçük harf duyarlı)
         if normalize_text(evidence_fragment) != normalize_text(wrong):
             print(f"🗑️ Kanıt uyuşmazlığı: Model='{wrong}' Metin='{evidence_fragment}'")
             continue
@@ -151,7 +275,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
             "span": {"start": start, "end": end}
         })
 
-    # Çakışma Temizliği (Uzun olanı tut)
     clean_errors.sort(key=lambda x: (x["span"]["start"], -(x["span"]["end"] - x["span"]["start"])))
     final_errors = []
     last_end = -1
@@ -205,9 +328,9 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 async def analyze_submission(data: AnalyzeRequest):
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
+    # KODDAN OKUYORUZ (Dosya Yok)
     all_rules = load_tdk_rules()
-    if not all_rules: raise HTTPException(status_code=500, detail="TDK kuralları yüklenemedi.")
-
+    
     allowed_ids = {r["rule_id"] for r in all_rules}
     rules_text = "\n".join([f"- ID: {r['rule_id']} | {r['title']}: {r['text']}" for r in all_rules])
     cefr_text = CEFR_KRITERLERI.get(data.level, "Genel değerlendirme.")
@@ -240,7 +363,6 @@ async def analyze_submission(data: AnalyzeRequest):
             text_resp = (response.text or "").strip().replace("```json", "").replace("```", "")
             raw_result = json.loads(text_resp)
             
-            # GÜVENLİK KONTROLÜ
             sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
             
             sanitized["score_total"] = sum(sanitized.get("rubric", {}).values())
@@ -262,7 +384,6 @@ async def analyze_submission(data: AnalyzeRequest):
         return {"status": "success", "data": analysis_result}
     except Exception as e: return {"status": "success", "data": analysis_result, "warning": "DB Hatası"}
 
-# Diğer endpointler (history, update) aynı kalacak...
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
     try:
