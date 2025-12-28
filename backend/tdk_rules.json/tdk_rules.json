@@ -1,0 +1,182 @@
+[
+  {
+    "rule_id": "TDK_01_BAGLAC_DE",
+    "title": "Bağlaç Olan 'da/de'nin Yazımı",
+    "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır. Cümleden çıkarılınca anlam bozulmaz.",
+    "category": "Bağlaçlar"
+  },
+  {
+    "rule_id": "TDK_02_BAGLAC_KI",
+    "title": "Bağlaç Olan 'ki'nin Yazımı",
+    "text": "Bağlaç olan 'ki' ayrı yazılır. (İstisnalar: sanki, oysaki, mademki, belki, halbuki, çünkü, meğerki, illaki).",
+    "category": "Bağlaçlar"
+  },
+  {
+    "rule_id": "TDK_03_SORU_EKI",
+    "title": "Soru Eki 'mı/mi'nin Yazımı",
+    "text": "Soru eki olan 'mı, mi, mu, mü' her zaman ayrı yazılır.",
+    "category": "Ekler"
+  },
+  {
+    "rule_id": "TDK_04_SEY_SOZ",
+    "title": "'Şey' Sözcüğünün Yazımı",
+    "text": "'Şey' sözcüğü her zaman ayrı yazılır (her şey, bir şey, çok şey).",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_05_BUYUK_CUMLE",
+    "title": "Cümle Başı Büyük Harf",
+    "text": "Cümleler her zaman büyük harfle başlar.",
+    "category": "Büyük Harfler"
+  },
+  {
+    "rule_id": "TDK_06_BUYUK_OZEL",
+    "title": "Özel İsimlerin Yazımı",
+    "text": "Kişi, ülke, şehir, dil ve millet adları büyük harfle başlar (Ahmet, Ankara, Türkçe).",
+    "category": "Büyük Harfler"
+  },
+  {
+    "rule_id": "TDK_07_BUYUK_KURUM",
+    "title": "Kurum ve Kuruluş Adları",
+    "text": "Kurum adlarının her kelimesi büyük harfle başlar (Türk Dil Kurumu).",
+    "category": "Büyük Harfler"
+  },
+  {
+    "rule_id": "TDK_08_TARIH_GUN_AY",
+    "title": "Belirli Tarihlerin Yazımı",
+    "text": "Tam tarih bildiren ay ve gün adları büyük harfle başlar (29 Mayıs 1453 Salı).",
+    "category": "Büyük Harfler"
+  },
+  {
+    "rule_id": "TDK_09_KESME_OZEL",
+    "title": "Özel İsimlere Gelen Ekler",
+    "text": "Özel isimlere gelen çekim ekleri kesme işareti (') ile ayrılır (Ayşe'nin).",
+    "category": "Noktalama"
+  },
+  {
+    "rule_id": "TDK_10_KESME_KURUM",
+    "title": "Kurum Adlarına Gelen Ekler",
+    "text": "Kurum ve kuruluş adlarına gelen ekler kesmeyle ayrılmaz (Bakanlığına).",
+    "category": "Noktalama"
+  },
+  {
+    "rule_id": "TDK_11_YARDIMCI_FIIL_SES",
+    "title": "Yardımcı Fiillerde Ses Olayı",
+    "text": "Ses düşmesi/türemesi varsa bitişik (kaybolmak), yoksa ayrı (terk etmek) yazılır.",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_12_SAYI_AYRI",
+    "title": "Sayıların Yazımı",
+    "text": "Birden fazla kelimeden oluşan sayılar ayrı yazılır (on beş, yüz elli).",
+    "category": "Sayılar"
+  },
+  {
+    "rule_id": "TDK_13_ULESTIRME",
+    "title": "Üleştirme Sayıları",
+    "text": "Üleştirme sayıları rakamla değil yazıyla yazılır (5'er değil beşer).",
+    "category": "Sayılar"
+  },
+  {
+    "rule_id": "TDK_14_KISALTMA_BUYUK",
+    "title": "Büyük Harfli Kısaltmalar",
+    "text": "Büyük harfli kısaltmalara gelen ekler, son harfin okunuşuna göre gelir (TDK'dan değil TDK'den).",
+    "category": "Kısaltmalar"
+  },
+  {
+    "rule_id": "TDK_15_IKILEMELER",
+    "title": "İkilemelerin Yazımı",
+    "text": "İkilemeler ayrı yazılır ve araya noktalama konmaz (yavaş yavaş).",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_16_PEKISTIRME",
+    "title": "Pekiştirmelerin Yazımı",
+    "text": "Pekiştirmeli sıfatlar bitişik yazılır (masmavi, tertemiz).",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_17_YUMUSAK_G",
+    "title": "Yumuşak G Başlangıcı",
+    "text": "Türkçede kelimeler 'ğ' ile başlamaz.",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_18_HER_BIR",
+    "title": "'Her' Kelimesi",
+    "text": "'Her' kelimesi genellikle ayrı yazılır (her bir, her gün). İstisna: Herkes, herhangi.",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_19_BELIRSIZLIK_SIFATLARI",
+    "title": "Bitişik Yazılan Belirsizlik Kelimeleri",
+    "text": "Biraz, birçok, birkaç, birtakım, herhangi kelimeleri bitişik yazılır.",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_20_NOKTA",
+    "title": "Cümle Sonu Nokta",
+    "text": "Tamamlanmış cümlelerin sonuna nokta konur.",
+    "category": "Noktalama"
+  },
+  {
+    "rule_id": "TDK_21_VIRGUL",
+    "title": "Virgül Kullanımı",
+    "text": "Eş görevli kelimeler ve sıralı cümleler arasına virgül konur.",
+    "category": "Noktalama"
+  },
+  {
+    "rule_id": "TDK_22_DARALMA_KURALI",
+    "title": "Gereksiz Ünlü Daralması",
+    "text": "Yor eki dışında, konuşma dilindeki daralmalar yazıya geçirilmez. (Yapcam -> Yapacağım, Gelcem -> Geleceğim).",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_23_YANLIS_YALNIZ",
+    "title": "Yanlış/Yalnız Yazımı",
+    "text": "Doğrusu: Yanlış (yanılmaktan), Yalnız (yalından).",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_24_HERKES",
+    "title": "Herkes Yazımı",
+    "text": "'Herkes' kelimesi 's' ile biter, 'z' ile bitmez.",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_25_SERTLESME",
+    "title": "Ünsüz Benzeşmesi (Sertleşme)",
+    "text": "Fıstıkçı Şahap ünsüzlerinden sonra 'c, d, g' -> 'ç, t, k' olur (kitapda değil kitapta, 1923'de değil 1923'te).",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_26_HANE",
+    "title": "Hane Kelimesi",
+    "text": "Sesliyle bitenlerde 'ha' düşer (hastane, postane). Ünsüzle bitenlerde kalır (dershane).",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_27_ART_ARDA",
+    "title": "Art Arda Yazımı",
+    "text": "'Art arda' ayrı ve 't' ile yazılır (ardarda değil).",
+    "category": "Ayrı/Bitişik Yazım"
+  },
+  {
+    "rule_id": "TDK_28_YABANCI_KELIMELER",
+    "title": "Sık Karıştırılan Kelimeler",
+    "text": "Doğrular: Şoför, egzoz, metot, tıraş, kılavuz, kulüp, sürpriz.",
+    "category": "Yazım"
+  },
+  {
+    "rule_id": "TDK_29_UNVANLAR",
+    "title": "Unvanların Yazımı",
+    "text": "Kişi adlarıyla kullanılan unvanlar büyük harfle başlar (Ayşe Hanım, Doktor Ali).",
+    "category": "Büyük Harfler"
+  },
+  {
+    "rule_id": "TDK_30_YONLER",
+    "title": "Yön Adlarının Yazımı",
+    "text": "Yön adları özel isimden önceyse büyük (Doğu Anadolu), sonraysa küçük (Anadolu'nun doğusu) yazılır.",
+    "category": "Büyük Harfler"
+  }
+]
