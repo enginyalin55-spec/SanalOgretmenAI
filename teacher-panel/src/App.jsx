@@ -1837,8 +1837,9 @@ export default function App() {
             </div>
 
             {/* YZ Analizi kutusu (WEBDE GÖZÜKSÜN ama PDF’e girmesin) */}
+            {/* DÜZELTME: className="force-hide" KALDIRILDI. data-yz-box EKLENDİ. */}
             <div
-              className="force-hide"
+              data-yz-box="true" 
               style={{
                 backgroundColor: "white",
                 padding: 18,
@@ -1861,10 +1862,9 @@ export default function App() {
               >
                 🤖 Yapay Zeka Analizi
               </strong>
-              <span style={{ color: "#5e4a18", fontSize: 15 }}>
-                {selectedSubmission.analysis_json?.teacher_note ||
-                  selectedSubmission.analysis_json?.ai_insight ||
-                  "YZ analizi yok (backend üretmiyorsa boş kalır)."}
+              <span style={{ color: "#5e4a18", fontSize: 15, lineHeight: 1.5, display:'block' }}>
+                {/* DÜZELTME: Doğrudan state'i (aiInsight) kullanıyoruz */}
+                {aiInsight || "YZ analizi henüz oluşturulmadı."}
               </span>
             </div>
 
