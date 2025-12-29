@@ -705,20 +705,29 @@ export default function App() {
   }, [selectedClassCode, submissions]);
 
   useEffect(() => {
-  if (selectedSubmission) {
+    if (!selectedSubmission) return;
+    setTeacherNote(selectedSubmission.human_note || "");
 
-      alert(selectedSubmission?.analysis_json?.teacher_note);
+    const defaultRubric = {
+      uzunluk: 0,
+      noktalama: 0,
+      dil_bilgisi: 0,
+      soz_dizimi: 0,
+      kelime: 0,
+      icerik: 0,
+    };
 
-      setTeacherNote(selectedSubmission.human_note || "");
-      const rubric = selectedSubmission.analysis_json?.rubric || {
-        uzunluk:0, noktalama:0, dil_bilgisi:0, soz_dizimi:0, kelime:0, icerik:0
-      };
-      setEditableRubric({...rubric});
-      setCalculatedTotal(selectedSubmission.score_total);
-      setIsScoreChanged(false);
-  }
-}, [selectedSubmission]);
+    const rubric = selectedSubmission.analysis_json?.rubric || defaultRubric;
+    setEditableRubric({ ...defaultRubric, ...rubric });
 
+    const total =
+      selectedSubmission.score_total ??
+      Object.values({ ...defaultRubric, ...rubric }).reduce((a, b) => a + (parseInt(b, 10) || 0), 0);
+
+    setCalculatedTotal(total);
+    setIsScoreChanged(false);
+    setActiveError(null);
+  }, [selectedSubmission]);
 
   const classInfo = useMemo(() => {
     if (!selectedSubmission) return null;
