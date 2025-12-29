@@ -8,7 +8,6 @@ import {
 import html2pdf from 'html2pdf.js';
 
 // --- SUPABASE AYARLARI ---
-// Projenizdeki supabase.js dosyasından import edin veya buraya config ekleyin
 import { supabase } from './supabase'; 
 
 // --- TDK KURAL SÖZLÜĞÜ ---
@@ -46,7 +45,7 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GLOBAL CSS (Pop-up animasyonu ve highlight için) ---
+// --- GÜNCELLENMİŞ GLOBAL CSS ---
 const STYLES = `
   .highlight-error {
     background-color: #fff0f0;
@@ -62,10 +61,12 @@ const STYLES = `
     background-color: #e74c3c;
     color: white;
   }
-  /* PDF çıktısında görünmesini istemediğimiz alanlar için */
-  .no-print {
-    display: block;
-  }
+  
+  /* Normalde ekranda görünür */
+  .no-print { display: block; }
+
+  /* PDF üretirken kesin gizle (body'e class eklendiğinde) */
+  .pdf-export-mode .no-print { display: none !important; }
 `;
 
 // --- WEB İÇİN HIGHLIGHT BİLEŞENİ ---
@@ -87,12 +88,10 @@ const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
     if (end > text.length) end = text.length;
     if (start >= end || start < cursor) return;
 
-    // Normal Metin
     if (start > cursor) {
       elements.push(<span key={`txt-${cursor}`}>{text.slice(cursor, start)}</span>);
     }
 
-    // Hatalı Metin (Span)
     elements.push(
       <span
         key={`err-${index}`}
@@ -100,7 +99,6 @@ const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
         onClick={(e) => {
           e.stopPropagation();
           const rect = e.target.getBoundingClientRect();
-          // Sayfa scroll durumunu hesaba kat
           onErrorClick(err, { x: rect.left + window.scrollX, y: rect.bottom + window.scrollY });
         }}
       >
@@ -169,16 +167,14 @@ export default function TeacherPanel() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
-  // Veriler
   const [classrooms, setClassrooms] = useState([]);
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [submissions, setSubmissions] = useState([]);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   
-  // UI State
   const [activeError, setActiveError] = useState(null);
   const [teacherNote, setTeacherNote] = useState("");
-  const [aiInsight, setAiInsight] = useState(""); // YZ Asistan Notu
+  const [aiInsight, setAiInsight] = useState(""); 
   const [rubric, setRubric] = useState({});
   const [totalScore, setTotalScore] = useState(0);
   const [imageZoom, setImageZoom] = useState(1);
@@ -231,10 +227,16 @@ export default function TeacherPanel() {
     }
   };
 
+  const deleteSubmission = async (id) => {
+      if(!window.confirm("Bu ödevi silmek istediğinize emin misiniz?")) return;
+      await supabase.from('submissions').delete().eq('id', id);
+      setSubmissions(submissions.filter(s => s.id !== id));
+      if(selectedSubmission?.id === id) setSelectedSubmission(null);
+  };
+
   const openSubmission = (sub) => {
       setSelectedSubmission(sub);
       setTeacherNote(sub.human_note || "");
-      // Eğer DB'de kayıtlı bir asistan notu yoksa, YZ analizinden üret (Simülasyon)
       setAiInsight("YZ Analizi: Öğrenci A2 seviyesinde. 'Da/De' bağlaçlarında ve geçmiş zaman eklerinde sık hata yapıyor. Kelime dağarcığı tatil konusu için yeterli ancak cümle yapıları basit. Tavsiye: Okuma çalışmaları verilmeli.");
       
       const defaultRubric = { "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 };
@@ -270,17 +272,28 @@ export default function TeacherPanel() {
       }
   };
 
-  const downloadPDF = () => {
-      // PDF için sadece rapor alanını alacağız (YZ İpucu hariç)
+  const downloadPDF = async () => {
       const element = document.getElementById('report-printable-area');
+      if (!element || !selectedSubmission) return;
+
+      // PDF export moduna geç (no-print kesin gizlensin)
+      document.body.classList.add("pdf-export-mode");
+
       const opt = {
           margin: 5,
           filename: `Odev_Raporu_${selectedSubmission.student_name}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2 },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } // Yatay daha iyi sığar
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
       };
-      html2pdf().set(opt).from(element).save();
+
+      try {
+          await html2pdf().set(opt).from(element).save();
+      } catch (err) {
+          console.error("PDF Hatası:", err);
+      } finally {
+          document.body.classList.remove("pdf-export-mode");
+      }
   };
 
   if (!session) return (
@@ -298,7 +311,7 @@ export default function TeacherPanel() {
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
       <style>{STYLES}</style>
 
-      {/* --- SIDEBAR (SOL MENÜ) --- */}
+      {/* --- SIDEBAR --- */}
       <div className="w-72 bg-white border-r flex flex-col shadow-sm z-20">
         <div className="p-6 border-b flex items-center gap-3 bg-blue-600 text-white">
             <LayoutDashboard size={24}/>
@@ -311,7 +324,6 @@ export default function TeacherPanel() {
                 <button onClick={() => setShowCreateClass(true)} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus size={18}/></button>
             </div>
 
-            {/* Sınıf Listesi */}
             <div className="space-y-2">
                 <button 
                     onClick={() => setSelectedClass("ALL")}
@@ -335,7 +347,6 @@ export default function TeacherPanel() {
                 ))}
             </div>
 
-            {/* Sınıf Ekleme Modalı (Basit) */}
             {showCreateClass && (
                 <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-blue-100 shadow-inner">
                     <h4 className="text-sm font-bold text-gray-700 mb-2">Yeni Sınıf Oluştur</h4>
@@ -358,7 +369,7 @@ export default function TeacherPanel() {
       {/* --- ANA ALAN --- */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-100 relative">
         {selectedSubmission ? (
-            // --- DETAY GÖRÜNÜMÜ (PDF STYLE) ---
+            // --- DETAY GÖRÜNÜMÜ (3 SÜTUNLU YAPI) ---
             <div className="flex flex-col h-full">
                 {/* Üst Bar */}
                 <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
@@ -378,10 +389,10 @@ export default function TeacherPanel() {
                     </div>
                     <div className="flex gap-3">
                         <button onClick={saveChanges} className="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 font-bold shadow-sm transition">
-                            <Save size={18}/> Değişiklikleri Kaydet
+                            <Save size={18}/> Kaydet
                         </button>
                         <button onClick={downloadPDF} className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2.5 rounded-lg hover:bg-gray-900 font-bold shadow-sm transition">
-                            <Download size={18}/> PDF İndir
+                            <Download size={18}/> PDF
                         </button>
                     </div>
                 </div>
@@ -389,8 +400,8 @@ export default function TeacherPanel() {
                 {/* İçerik (3 Sütunlu Yapı) */}
                 <div className="flex-1 overflow-hidden flex p-6 gap-6">
                     
-                    {/* SOL PANEL: Resim (Sabit) */}
-                    <div className="w-1/3 bg-white rounded-xl shadow-md border border-gray-200 flex flex-col overflow-hidden">
+                    {/* SOL PANEL: Orijinal Kağıt (%30) */}
+                    <div className="w-[30%] bg-white rounded-xl shadow-md border border-gray-200 flex flex-col overflow-hidden">
                         <div className="p-3 bg-gray-50 border-b flex justify-between items-center">
                             <span className="font-bold text-gray-600 text-sm flex items-center gap-2"><FileText size={16}/> Orijinal Kağıt</span>
                             <div className="flex gap-1">
@@ -403,21 +414,20 @@ export default function TeacherPanel() {
                                 src={selectedSubmission.image_url} 
                                 alt="Student Paper" 
                                 style={{ transform: `scale(${imageZoom})`, transition: 'transform 0.2s' }}
-                                className="max-w-full shadow-lg border"
+                                className="max-w-full shadow-lg border bg-white"
                             />
                         </div>
                     </div>
 
-                    {/* ORTA ve SAĞ PANEL (Scroll Edilebilir, PDF'e Çıkan Alan) */}
-                    <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2">
+                    {/* SAĞ ALAN: PDF’e çıkan kısım + (PDF’e çıkmayan) YZ ipucu */}
+                    <div className="flex-1 flex flex-col overflow-hidden">
                         
-                        {/* Bu ID'li div PDF olarak indirilecek */}
-                        <div id="report-printable-area" className="flex gap-6 h-full flex-col">
+                        {/* PDF’e çıkacak alan (ORTA VE SAĞ SÜTUNLAR) */}
+                        <div id="report-printable-area" className="flex-1 overflow-y-auto pr-2">
                             
-                            {/* Üst Kısım: Analiz ve Puanlama Yan Yana */}
                             <div className="flex gap-6">
-                                {/* ORTA: Metin Analizi */}
-                                <div className="flex-1 bg-white rounded-xl shadow-md border border-gray-200 p-6">
+                                {/* ORTA PANEL: YZ Analizi (%45) */}
+                                <div className="w-[60%] bg-white rounded-xl shadow-md border border-gray-200 p-6">
                                     <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">
                                         📝 Metin Analizi <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 rounded">OCR</span>
                                     </h3>
@@ -430,8 +440,8 @@ export default function TeacherPanel() {
                                     </div>
                                 </div>
 
-                                {/* SAĞ: Puanlama (Rubric) */}
-                                <div className="w-64 bg-white rounded-xl shadow-md border border-gray-200 p-5 flex flex-col">
+                                {/* SAĞ PANEL: CEFR Puanlama (%25) */}
+                                <div className="w-[40%] bg-white rounded-xl shadow-md border border-gray-200 p-5 flex flex-col">
                                     <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">📊 Puanlama</h3>
                                     <div className="flex-1 space-y-3">
                                         {[
@@ -447,7 +457,7 @@ export default function TeacherPanel() {
                                                 <div className="flex items-center gap-1">
                                                     <input 
                                                         type="number" 
-                                                        className="w-10 text-center font-bold text-sm border-b border-blue-400 bg-transparent focus:outline-none"
+                                                        className="w-12 text-center font-bold text-sm border-b border-blue-400 bg-transparent focus:outline-none"
                                                         value={rubric[item.k] || 0}
                                                         onChange={(e) => updateRubric(item.k, e.target.value, item.m)}
                                                         min="0" max={item.m}
@@ -466,25 +476,25 @@ export default function TeacherPanel() {
                                 </div>
                             </div>
 
-                            {/* ALT: Öğretmen Notu (PDF'e Dahil) */}
-                            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+                            {/* ALT KISIM (PDF’e çıkar): Öğretmen Notu */}
+                            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 mt-6">
                                 <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
                                     👨‍🏫 Öğretmen Değerlendirmesi
                                 </h3>
                                 <textarea 
                                     className="w-full border rounded-lg p-4 h-32 focus:ring-2 focus:ring-blue-500 outline-none resize-none text-gray-700 bg-yellow-50/30"
-                                    placeholder="Öğrenciye iletmek istediğiniz not..."
+                                    placeholder="Sevgili Öğrenci, genel olarak iyisin ama kelime çalışman lazım..."
                                     value={teacherNote}
                                     onChange={(e) => setTeacherNote(e.target.value)}
                                 />
                             </div>
                         </div>
 
-                        {/* YZ ASİSTANI (PDF'e ÇIKMAZ - EKRANDA ALTTA GÖRÜNÜR) */}
-                        <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 no-print mt-2 flex gap-4 items-start shadow-sm">
+                        {/* PDF’e çıkmaz: YZ İpucu */}
+                        <div className="no-print bg-blue-50 rounded-xl border border-blue-200 p-4 mt-4 flex gap-4 items-start shadow-sm">
                             <div className="bg-blue-100 p-2 rounded-full text-blue-600 mt-1"><Info size={24}/></div>
                             <div>
-                                <h4 className="font-bold text-blue-800 text-sm mb-1">🤖 YZ Asistanı (Sadece Siz Görüyorsunuz)</h4>
+                                <h4 className="font-bold text-blue-800 text-sm mb-1">🤖 YZ İpucu (Sadece Siz Görüyorsunuz)</h4>
                                 <p className="text-blue-900 text-sm leading-relaxed">{aiInsight}</p>
                             </div>
                         </div>
@@ -493,7 +503,7 @@ export default function TeacherPanel() {
                 </div>
             </div>
         ) : (
-            // --- DASHBOARD (LİSTE GÖRÜNÜMÜ - ESKİ TASARIM) ---
+            // --- DASHBOARD (LİSTE GÖRÜNÜMÜ) ---
             <div className="p-8 h-full overflow-y-auto">
                 <div className="flex justify-between items-end mb-8">
                     <div>
@@ -530,7 +540,6 @@ export default function TeacherPanel() {
                                     <td className="p-5">
                                         <div className="flex items-center gap-2">
                                             <span className="text-xl">
-                                                {/* Bayrak Simülasyonu - Gerçekte veritabanından gelmeli */}
                                                 {sub.country === 'Türkiye' ? '🇹🇷' : sub.country === 'Almanya' ? '🇩🇪' : '🌍'}
                                             </span>
                                             <div className="flex flex-col">
@@ -586,7 +595,7 @@ export default function TeacherPanel() {
         )}
       </div>
 
-      {/* POPOVER BALONCUK (EN ÜST KATMAN) */}
+      {/* POPOVER BALONCUK */}
       <ErrorPopover data={activeError} onClose={() => setActiveError(null)} />
     </div>
   );
