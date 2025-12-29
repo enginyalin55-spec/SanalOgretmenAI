@@ -704,20 +704,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClassCode, submissions]);
 
-  useEffect(() => {
-  if (selectedSubmission) {
+ useEffect(() => {
+  if (!selectedSubmission) return;
 
-      alert(selectedSubmission?.analysis_json?.teacher_note);
+  alert(
+    selectedSubmission.analysis_json?.teacher_note ??
+    "teacher_note yok (analysis_json boş olabilir)"
+  );
 
-      setTeacherNote(selectedSubmission.human_note || "");
-      const rubric = selectedSubmission.analysis_json?.rubric || {
-        uzunluk:0, noktalama:0, dil_bilgisi:0, soz_dizimi:0, kelime:0, icerik:0
-      };
-      setEditableRubric({...rubric});
-      setCalculatedTotal(selectedSubmission.score_total);
-      setIsScoreChanged(false);
-  }
+  // istersen komple json'u da gör:
+  console.log("analysis_json:", selectedSubmission.analysis_json);
 }, [selectedSubmission]);
+
 
 
   const classInfo = useMemo(() => {
