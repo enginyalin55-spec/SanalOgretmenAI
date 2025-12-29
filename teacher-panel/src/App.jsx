@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { 
   LayoutDashboard, Users, FileText, LogOut, ChevronRight, 
-  Search, Download, Save, X, Trash2, Plus, ZoomIn, ZoomOut,
+  Search, Download, Save, Trash2, Plus, ZoomIn, ZoomOut,
   Info, CheckCircle, AlertTriangle
 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
 // --- SUPABASE AYARLARI ---
-import { supabase } from './supabase'; 
+// Buraya kendi proje URL ve Anon Key bilgilerini girmelisin
+const supabaseUrl = 'BURAYA_SUPABASE_URL_GELECEK';
+const supabaseKey = 'BURAYA_SUPABASE_ANON_KEY_GELECEK';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
@@ -45,7 +48,7 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- GÜNCELLENMİŞ GLOBAL CSS ---
+// --- GLOBAL STİLLER ---
 const STYLES = `
   .highlight-error {
     background-color: #fff0f0;
@@ -53,26 +56,24 @@ const STYLES = `
     font-weight: 700;
     border-bottom: 2px solid #e74c3c;
     cursor: pointer;
-    transition: all 0.2s;
     padding: 0 2px;
     border-radius: 3px;
+    transition: all 0.2s;
   }
   .highlight-error:hover {
     background-color: #e74c3c;
     color: white;
   }
-  
-  /* Normalde ekranda görünür */
-  .no-print { display: block; }
-
-  /* PDF üretirken kesin gizle (body'e class eklendiğinde) */
-  .pdf-export-mode .no-print { display: none !important; }
+  /* PDF Modu: YZ İpucunu ve gereksiz butonları gizle */
+  .pdf-mode .no-print { display: none !important; }
+  .pdf-mode { font-size: 12px; }
 `;
 
-// --- WEB İÇİN HIGHLIGHT BİLEŞENİ ---
+// --- HIGHLIGHT BİLEŞENİ (WEB) ---
 const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
   if (!text) return <p className="text-gray-400 italic">Metin bulunamadı.</p>;
 
+  // Hataları güvenli hale getir ve sırala
   const safeErrors = (errors || [])
     .filter(e => e?.span?.start !== undefined)
     .sort((a, b) => a.span.start - b.span.start);
@@ -86,12 +87,15 @@ const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
     const start = Math.max(0, err.span.start);
     let end = err.span.end;
     if (end > text.length) end = text.length;
+    
     if (start >= end || start < cursor) return;
 
+    // Normal Metin
     if (start > cursor) {
       elements.push(<span key={`txt-${cursor}`}>{text.slice(cursor, start)}</span>);
     }
 
+    // Hatalı Kısım
     elements.push(
       <span
         key={`err-${index}`}
@@ -99,6 +103,7 @@ const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
         onClick={(e) => {
           e.stopPropagation();
           const rect = e.target.getBoundingClientRect();
+          // Scroll payını da hesaba katarak koordinat gönder
           onErrorClick(err, { x: rect.left + window.scrollX, y: rect.bottom + window.scrollY });
         }}
       >
@@ -109,15 +114,12 @@ const HighlightedTextWeb = ({ text, errors, onErrorClick }) => {
     cursor = end;
   });
 
+  // Kalan Metin
   if (cursor < text.length) {
     elements.push(<span key="txt-end">{text.slice(cursor)}</span>);
   }
 
-  return (
-    <div className="leading-relaxed text-gray-800 text-lg whitespace-pre-wrap font-medium">
-      {elements}
-    </div>
-  );
+  return <div className="leading-loose text-gray-800 text-lg whitespace-pre-wrap font-medium">{elements}</div>;
 };
 
 // --- HATA KARTI (POPOVER) ---
@@ -127,9 +129,9 @@ const ErrorPopover = ({ data, onClose }) => {
   const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-start" onClick={onClose}>
+    <div className="fixed inset-0 z-50" onClick={onClose}>
       <div 
-        className="absolute bg-white rounded-xl shadow-2xl border border-gray-200 w-80 p-5 transform transition-all duration-200 ease-out"
+        className="absolute bg-white rounded-xl shadow-2xl border border-gray-200 w-80 p-5 z-50 transform transition-all duration-200"
         style={{ left: Math.min(x - 20, window.innerWidth - 340), top: y + 10 }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -137,7 +139,6 @@ const ErrorPopover = ({ data, onClose }) => {
           <h4 className="font-bold text-red-600 flex items-center gap-2">⚠️ Hata Detayı</h4>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
         </div>
-
         <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg mb-4">
           <div className="text-center flex-1">
             <div className="text-xs text-red-500 font-bold mb-1">YANLIŞ</div>
@@ -149,29 +150,30 @@ const ErrorPopover = ({ data, onClose }) => {
             <div className="text-green-700 font-bold">{err.correct}</div>
           </div>
         </div>
-
         <div className="bg-blue-50 p-3 rounded-lg border-l-4 border-blue-500 mb-3">
           <div className="text-xs text-blue-600 font-bold">KURAL</div>
           <div className="text-sm font-bold text-gray-800">{ruleTitle}</div>
         </div>
-
         <p className="text-sm text-gray-600 leading-relaxed">{err.explanation}</p>
       </div>
     </div>
   );
 };
 
-export default function TeacherPanel() {
+// --- ANA UYGULAMA ---
+export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
+  // Veri State'leri
   const [classrooms, setClassrooms] = useState([]);
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [submissions, setSubmissions] = useState([]);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   
+  // Arayüz State'leri
   const [activeError, setActiveError] = useState(null);
   const [teacherNote, setTeacherNote] = useState("");
   const [aiInsight, setAiInsight] = useState(""); 
@@ -182,6 +184,7 @@ export default function TeacherPanel() {
   const [newClassName, setNewClassName] = useState("");
 
   useEffect(() => {
+    // Oturum kontrolü
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if(session) fetchData();
@@ -195,8 +198,10 @@ export default function TeacherPanel() {
 
   const fetchData = async () => {
     setLoading(true);
+    // Sınıfları çek
     const { data: classData } = await supabase.from('classrooms').select('*');
     setClassrooms(classData || []);
+    // Ödevleri çek
     const { data: subData } = await supabase.from('submissions').select('*').order('created_at', { ascending: false });
     setSubmissions(subData || []);
     setLoading(false);
@@ -237,7 +242,8 @@ export default function TeacherPanel() {
   const openSubmission = (sub) => {
       setSelectedSubmission(sub);
       setTeacherNote(sub.human_note || "");
-      setAiInsight("YZ Analizi: Öğrenci A2 seviyesinde. 'Da/De' bağlaçlarında ve geçmiş zaman eklerinde sık hata yapıyor. Kelime dağarcığı tatil konusu için yeterli ancak cümle yapıları basit. Tavsiye: Okuma çalışmaları verilmeli.");
+      // YZ İpucu (Simülasyon - Gerçekte veritabanından gelebilir)
+      setAiInsight("YZ Analizi: Öğrenci A2 seviyesinde. Özellikle 'da/de' bağlaçlarında ve geçmiş zaman eklerinde hatalar mevcut. Cümle yapıları basit ancak anlaşılır. Tavsiye: Bağlaçlar üzerine ek çalışma verilebilir.");
       
       const defaultRubric = { "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 };
       setRubric(sub.analysis_json?.rubric || defaultRubric);
@@ -273,15 +279,15 @@ export default function TeacherPanel() {
   };
 
   const downloadPDF = async () => {
-      const element = document.getElementById('report-printable-area');
+      const element = document.getElementById('report-container');
       if (!element || !selectedSubmission) return;
 
-      // PDF export moduna geç (no-print kesin gizlensin)
-      document.body.classList.add("pdf-export-mode");
+      // PDF modunu aç (Gereksizleri gizle)
+      document.body.classList.add("pdf-mode");
 
       const opt = {
           margin: 5,
-          filename: `Odev_Raporu_${selectedSubmission.student_name}.pdf`,
+          filename: `Rapor_${selectedSubmission.student_name}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
@@ -289,10 +295,8 @@ export default function TeacherPanel() {
 
       try {
           await html2pdf().set(opt).from(element).save();
-      } catch (err) {
-          console.error("PDF Hatası:", err);
       } finally {
-          document.body.classList.remove("pdf-export-mode");
+          document.body.classList.remove("pdf-mode");
       }
   };
 
@@ -311,281 +315,252 @@ export default function TeacherPanel() {
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
       <style>{STYLES}</style>
 
-      {/* --- SIDEBAR --- */}
-      <div className="w-72 bg-white border-r flex flex-col shadow-sm z-20">
-        <div className="p-6 border-b flex items-center gap-3 bg-blue-600 text-white">
-            <LayoutDashboard size={24}/>
-            <h1 className="font-bold text-xl">Öğretmen Paneli</h1>
+      {/* --- SOL MENÜ (SIDEBAR) --- */}
+      <div className="w-64 bg-white border-r flex flex-col shadow-md z-20">
+        <div className="p-6 border-b flex items-center gap-2 bg-blue-600 text-white">
+            <LayoutDashboard size={20}/>
+            <h1 className="font-bold text-lg">Panel</h1>
         </div>
         
         <div className="p-4 flex-1 overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">SINIFLARIM</span>
-                <button onClick={() => setShowCreateClass(true)} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus size={18}/></button>
+            <div className="flex justify-between items-center mb-3">
+                <span className="text-xs font-bold text-gray-400 uppercase">SINIFLAR</span>
+                <button onClick={() => setShowCreateClass(true)} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Plus size={16}/></button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1">
                 <button 
                     onClick={() => setSelectedClass("ALL")}
-                    className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition ${selectedClass === "ALL" ? 'bg-blue-50 text-blue-700 border border-blue-100 shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
+                    className={`w-full text-left p-2 rounded flex items-center gap-2 text-sm ${selectedClass === "ALL" ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <div className={`p-2 rounded-full ${selectedClass === "ALL" ? 'bg-blue-200' : 'bg-gray-200'}`}><Users size={16}/></div>
-                    <span className="font-medium">Tüm Sınıflar</span>
+                    <Users size={16}/> Tüm Öğrenciler
                 </button>
                 {classrooms.map(c => (
                     <button 
                         key={c.id} 
                         onClick={() => setSelectedClass(c.code)}
-                        className={`w-full text-left p-3 rounded-lg flex items-center justify-between transition ${selectedClass === c.code ? 'bg-blue-50 text-blue-700 border border-blue-100 shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
+                        className={`w-full text-left p-2 rounded flex items-center justify-between text-sm ${selectedClass === c.code ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                     >
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-full bg-indigo-100 text-indigo-600 font-bold text-xs">{c.code.substring(0,2)}</div>
-                            <span className="font-medium">{c.name}</span>
-                        </div>
-                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 font-mono">{c.code}</span>
+                        <span>{c.name}</span>
+                        <span className="text-xs bg-gray-200 px-1.5 rounded">{c.code}</span>
                     </button>
                 ))}
             </div>
 
             {showCreateClass && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-blue-100 shadow-inner">
-                    <h4 className="text-sm font-bold text-gray-700 mb-2">Yeni Sınıf Oluştur</h4>
-                    <input className="w-full p-2 border rounded mb-2 text-sm bg-white" placeholder="Örn: 9-A Şubesi" value={newClassName} onChange={e=>setNewClassName(e.target.value)} />
+                <div className="mt-4 p-3 bg-gray-50 rounded border text-sm">
+                    <input className="w-full p-1.5 border rounded mb-2" placeholder="Sınıf Adı" value={newClassName} onChange={e=>setNewClassName(e.target.value)} />
                     <div className="flex gap-2">
-                        <button onClick={handleCreateClass} className="flex-1 bg-blue-600 text-white text-xs p-2 rounded hover:bg-blue-700">Oluştur</button>
-                        <button onClick={() => setShowCreateClass(false)} className="flex-1 bg-gray-200 text-gray-600 text-xs p-2 rounded hover:bg-gray-300">İptal</button>
+                        <button onClick={handleCreateClass} className="flex-1 bg-green-600 text-white p-1 rounded">Ekle</button>
+                        <button onClick={() => setShowCreateClass(false)} className="flex-1 bg-gray-300 text-gray-700 p-1 rounded">İptal</button>
                     </div>
                 </div>
             )}
         </div>
 
-        <div className="p-4 border-t bg-gray-50">
-            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 text-red-600 hover:bg-red-100 p-3 rounded-lg transition font-medium">
-                <LogOut size={18}/> Oturumu Kapat
+        <div className="p-4 border-t">
+            <button onClick={handleLogout} className="w-full flex items-center gap-2 text-red-600 text-sm font-bold hover:bg-red-50 p-2 rounded transition">
+                <LogOut size={16}/> Çıkış Yap
             </button>
         </div>
       </div>
 
-      {/* --- ANA ALAN --- */}
+      {/* --- ANA EKRAN --- */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-100 relative">
         {selectedSubmission ? (
             // --- DETAY GÖRÜNÜMÜ (3 SÜTUNLU YAPI) ---
             <div className="flex flex-col h-full">
                 {/* Üst Bar */}
-                <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
+                <div className="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm z-10">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => setSelectedSubmission(null)} className="flex items-center gap-1 text-gray-500 hover:text-gray-800 font-medium">
-                            <ChevronRight className="rotate-180" size={20}/> Geri Dön
+                        <button onClick={() => setSelectedSubmission(null)} className="flex items-center gap-1 text-gray-500 hover:text-gray-800 font-medium text-sm">
+                            <ChevronRight className="rotate-180" size={16}/> Geri
                         </button>
-                        <div className="h-8 w-px bg-gray-300"></div>
+                        <div className="h-6 w-px bg-gray-300"></div>
                         <div>
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                 {selectedSubmission.student_name} {selectedSubmission.student_surname}
-                                <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border">
+                                <span className="text-xs font-normal text-white bg-blue-500 px-2 py-0.5 rounded">
                                     {selectedSubmission.classroom_code}
                                 </span>
                             </h2>
                         </div>
                     </div>
-                    <div className="flex gap-3">
-                        <button onClick={saveChanges} className="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 font-bold shadow-sm transition">
-                            <Save size={18}/> Kaydet
+                    <div className="flex gap-2">
+                        <button onClick={saveChanges} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-green-700">
+                            <Save size={16}/> Kaydet
                         </button>
-                        <button onClick={downloadPDF} className="flex items-center gap-2 bg-gray-800 text-white px-5 py-2.5 rounded-lg hover:bg-gray-900 font-bold shadow-sm transition">
-                            <Download size={18}/> PDF
+                        <button onClick={downloadPDF} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold hover:bg-gray-900">
+                            <Download size={16}/> PDF
                         </button>
                     </div>
                 </div>
 
-                {/* İçerik (3 Sütunlu Yapı) */}
-                <div className="flex-1 overflow-hidden flex p-6 gap-6">
+                {/* --- 3 SÜTUNLU İÇERİK --- */}
+                <div className="flex-1 overflow-hidden flex p-4 gap-4 bg-gray-100" id="report-container">
                     
-                    {/* SOL PANEL: Orijinal Kağıt (%30) */}
-                    <div className="w-[30%] bg-white rounded-xl shadow-md border border-gray-200 flex flex-col overflow-hidden">
-                        <div className="p-3 bg-gray-50 border-b flex justify-between items-center">
-                            <span className="font-bold text-gray-600 text-sm flex items-center gap-2"><FileText size={16}/> Orijinal Kağıt</span>
+                    {/* 1. SOL: Orijinal Kağıt (%30) - PDF'e ÇIKMAZ (no-print) */}
+                    <div className="w-[30%] bg-white rounded-lg shadow border flex flex-col overflow-hidden no-print">
+                        <div className="p-2 bg-gray-50 border-b flex justify-between items-center">
+                            <span className="font-bold text-gray-600 text-xs flex items-center gap-1"><FileText size={14}/> Kağıt</span>
                             <div className="flex gap-1">
-                                <button onClick={() => setImageZoom(z => Math.min(z + 0.5, 3))} className="p-1.5 hover:bg-white rounded"><ZoomIn size={16}/></button>
-                                <button onClick={() => setImageZoom(z => Math.max(z - 0.5, 1))} className="p-1.5 hover:bg-white rounded"><ZoomOut size={16}/></button>
+                                <button onClick={() => setImageZoom(z => Math.min(z + 0.5, 3))} className="p-1 hover:bg-white rounded"><ZoomIn size={14}/></button>
+                                <button onClick={() => setImageZoom(z => Math.max(z - 0.5, 1))} className="p-1 hover:bg-white rounded"><ZoomOut size={14}/></button>
                             </div>
                         </div>
-                        <div className="flex-1 overflow-auto bg-gray-100 flex items-center justify-center p-4">
+                        <div className="flex-1 overflow-auto bg-gray-200 flex items-center justify-center p-2">
                             <img 
                                 src={selectedSubmission.image_url} 
-                                alt="Student Paper" 
+                                alt="Paper" 
                                 style={{ transform: `scale(${imageZoom})`, transition: 'transform 0.2s' }}
-                                className="max-w-full shadow-lg border bg-white"
+                                className="max-w-full shadow border bg-white"
                             />
                         </div>
                     </div>
 
-                    {/* SAĞ ALAN: PDF’e çıkan kısım + (PDF’e çıkmayan) YZ ipucu */}
-                    <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* 2. ORTA: YZ Analizi (%45) */}
+                    <div className="w-[45%] flex flex-col gap-4">
+                        <div className="flex-1 bg-white rounded-lg shadow border p-6 overflow-y-auto">
+                            <h3 className="text-md font-bold text-gray-800 mb-4 border-b pb-2 flex items-center justify-between">
+                                <span>📝 Analiz Sonucu</span>
+                                <span className="text-xs bg-yellow-100 text-yellow-800 px-2 rounded">OCR</span>
+                            </h3>
+                            <HighlightedTextWeb 
+                                text={selectedSubmission.ocr_text} 
+                                errors={selectedSubmission.analysis_json?.errors} 
+                                onErrorClick={(err, coords) => setActiveError({ err, ...coords })}
+                            />
+                        </div>
                         
-                        {/* PDF’e çıkacak alan (ORTA VE SAĞ SÜTUNLAR) */}
-                        <div id="report-printable-area" className="flex-1 overflow-y-auto pr-2">
-                            
-                            <div className="flex gap-6">
-                                {/* ORTA PANEL: YZ Analizi (%45) */}
-                                <div className="w-[60%] bg-white rounded-xl shadow-md border border-gray-200 p-6">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">
-                                        📝 Metin Analizi <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 rounded">OCR</span>
-                                    </h3>
-                                    <div className="bg-gray-50 p-6 rounded-lg border border-gray-100 min-h-[300px]">
-                                        <HighlightedTextWeb 
-                                            text={selectedSubmission.ocr_text} 
-                                            errors={selectedSubmission.analysis_json?.errors} 
-                                            onErrorClick={(err, coords) => setActiveError({ err, ...coords })}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* SAĞ PANEL: CEFR Puanlama (%25) */}
-                                <div className="w-[40%] bg-white rounded-xl shadow-md border border-gray-200 p-5 flex flex-col">
-                                    <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">📊 Puanlama</h3>
-                                    <div className="flex-1 space-y-3">
-                                        {[
-                                            { k: "uzunluk", l: "Uzunluk", m: 16 },
-                                            { k: "noktalama", l: "Noktalama", m: 14 },
-                                            { k: "dil_bilgisi", l: "Dil Bilgisi", m: 16 },
-                                            { k: "soz_dizimi", l: "Söz Dizimi", m: 20 },
-                                            { k: "kelime", l: "Kelime", m: 14 },
-                                            { k: "icerik", l: "İçerik", m: 20 }
-                                        ].map((item) => (
-                                            <div key={item.k} className="flex items-center justify-between bg-gray-50 p-2 rounded border">
-                                                <span className="text-xs font-bold text-gray-600 uppercase">{item.l}</span>
-                                                <div className="flex items-center gap-1">
-                                                    <input 
-                                                        type="number" 
-                                                        className="w-12 text-center font-bold text-sm border-b border-blue-400 bg-transparent focus:outline-none"
-                                                        value={rubric[item.k] || 0}
-                                                        onChange={(e) => updateRubric(item.k, e.target.value, item.m)}
-                                                        min="0" max={item.m}
-                                                    />
-                                                    <span className="text-gray-400 text-xs">/{item.m}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div className="mt-4 pt-4 border-t text-center">
-                                        <div className="text-xs text-gray-500 font-bold mb-1">TOPLAM PUAN</div>
-                                        <div className={`text-4xl font-black ${totalScore >= 70 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {totalScore}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* ALT KISIM (PDF’e çıkar): Öğretmen Notu */}
-                            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6 mt-6">
-                                <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
-                                    👨‍🏫 Öğretmen Değerlendirmesi
-                                </h3>
-                                <textarea 
-                                    className="w-full border rounded-lg p-4 h-32 focus:ring-2 focus:ring-blue-500 outline-none resize-none text-gray-700 bg-yellow-50/30"
-                                    placeholder="Sevgili Öğrenci, genel olarak iyisin ama kelime çalışman lazım..."
-                                    value={teacherNote}
-                                    onChange={(e) => setTeacherNote(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        {/* PDF’e çıkmaz: YZ İpucu */}
-                        <div className="no-print bg-blue-50 rounded-xl border border-blue-200 p-4 mt-4 flex gap-4 items-start shadow-sm">
-                            <div className="bg-blue-100 p-2 rounded-full text-blue-600 mt-1"><Info size={24}/></div>
+                        {/* YZ İPUCU (Sadece Ekranda Görünür - PDF'de Gizli) */}
+                        <div className="no-print bg-blue-50 border border-blue-200 p-3 rounded-lg flex gap-3 shadow-sm">
+                            <Info className="text-blue-600 mt-1" size={20} />
                             <div>
-                                <h4 className="font-bold text-blue-800 text-sm mb-1">🤖 YZ İpucu (Sadece Siz Görüyorsunuz)</h4>
-                                <p className="text-blue-900 text-sm leading-relaxed">{aiInsight}</p>
+                                <h4 className="font-bold text-blue-800 text-xs mb-1">🤖 YZ İpucu (Öğretmene Özel)</h4>
+                                <p className="text-blue-900 text-sm leading-snug">{aiInsight}</p>
                             </div>
                         </div>
 
+                        {/* ÖĞRETMEN NOTU (PDF'e Çıkar) */}
+                        <div className="bg-white rounded-lg shadow border p-4">
+                            <h3 className="text-sm font-bold text-gray-700 mb-2">👨‍🏫 Öğretmen Değerlendirmesi</h3>
+                            <textarea 
+                                className="w-full border rounded p-2 h-24 text-sm focus:ring-1 focus:ring-blue-500 outline-none resize-none bg-yellow-50/20"
+                                placeholder="Öğrenciye notunuzu buraya yazın..."
+                                value={teacherNote}
+                                onChange={(e) => setTeacherNote(e.target.value)}
+                            />
+                        </div>
                     </div>
+
+                    {/* 3. SAĞ: Puanlama (Rubric) (%25) */}
+                    <div className="w-[25%] bg-white rounded-lg shadow border p-4 flex flex-col overflow-y-auto">
+                        <h3 className="text-md font-bold text-gray-800 mb-4 text-center border-b pb-2">📊 Puanlama</h3>
+                        <div className="flex-1 space-y-2">
+                            {[
+                                { k: "uzunluk", l: "Uzunluk", m: 16 },
+                                { k: "noktalama", l: "Noktalama", m: 14 },
+                                { k: "dil_bilgisi", l: "Dil Bilgisi", m: 16 },
+                                { k: "soz_dizimi", l: "Söz Dizimi", m: 20 },
+                                { k: "kelime", l: "Kelime", m: 14 },
+                                { k: "icerik", l: "İçerik", m: 20 }
+                            ].map((item) => (
+                                <div key={item.k} className="flex items-center justify-between bg-gray-50 p-2 rounded border">
+                                    <span className="text-xs font-bold text-gray-600 uppercase">{item.l}</span>
+                                    <div className="flex items-center">
+                                        <input 
+                                            type="number" 
+                                            className="w-10 text-center font-bold text-sm border-b border-blue-400 bg-transparent focus:outline-none"
+                                            value={rubric[item.k] || 0}
+                                            onChange={(e) => updateRubric(item.k, e.target.value, item.m)}
+                                            min="0" max={item.m}
+                                        />
+                                        <span className="text-gray-400 text-xs">/{item.m}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-4 pt-4 border-t text-center bg-gray-50 rounded p-2">
+                            <div className="text-xs text-gray-500 font-bold">TOPLAM PUAN</div>
+                            <div className={`text-3xl font-black ${totalScore >= 70 ? 'text-green-600' : 'text-red-600'}`}>
+                                {totalScore}
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         ) : (
             // --- DASHBOARD (LİSTE GÖRÜNÜMÜ) ---
             <div className="p-8 h-full overflow-y-auto">
-                <div className="flex justify-between items-end mb-8">
+                <div className="flex justify-between items-end mb-6">
                     <div>
-                        <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight">Sınıf Listesi</h1>
-                        <p className="text-gray-500 mt-1">
-                            {selectedClass === "ALL" ? "Tüm Sınıflardaki Öğrenciler" : `${classrooms.find(c=>c.code===selectedClass)?.name || selectedClass} Sınıfı`}
+                        <h1 className="text-2xl font-bold text-gray-800">Sınıf Listesi</h1>
+                        <p className="text-gray-500 text-sm mt-1">
+                            {selectedClass === "ALL" ? "Tüm Sınıflar" : `${classrooms.find(c=>c.code===selectedClass)?.name || selectedClass} Sınıfı`}
                         </p>
                     </div>
                     <div className="relative">
-                        <Search className="absolute left-3 top-3 text-gray-400" size={20}/>
-                        <input className="pl-10 pr-4 py-2.5 border border-gray-300 rounded-full w-72 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition" placeholder="Öğrenci ara..." />
+                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                        <input className="pl-9 pr-4 py-2 border border-gray-300 rounded-full w-64 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" placeholder="Öğrenci ara..." />
                     </div>
                 </div>
 
-                <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                <div className="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
                     <table className="w-full text-left">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Öğrenci</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Ülke / Dil</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Sınıf Kodu</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Teslim Tarihi</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Seviye</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider">Durum</th>
-                                <th className="p-5 font-bold text-gray-500 text-xs uppercase tracking-wider text-right">İşlem</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Öğrenci</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Ülke / Dil</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Sınıf</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Tarih</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Seviye</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase">Durum</th>
+                                <th className="p-4 font-bold text-gray-500 text-xs uppercase text-right">İşlem</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {submissions.filter(s => selectedClass === "ALL" || s.classroom_code === selectedClass).map(sub => (
-                                <tr key={sub.id} className="hover:bg-blue-50/50 transition cursor-pointer group" onClick={() => openSubmission(sub)}>
-                                    <td className="p-5">
-                                        <div className="font-bold text-gray-800">{sub.student_name} {sub.student_surname}</div>
-                                    </td>
-                                    <td className="p-5">
+                                <tr key={sub.id} className="hover:bg-blue-50/50 transition cursor-pointer" onClick={() => openSubmission(sub)}>
+                                    <td className="p-4 font-bold text-gray-800 text-sm">{sub.student_name} {sub.student_surname}</td>
+                                    <td className="p-4">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xl">
-                                                {sub.country === 'Türkiye' ? '🇹🇷' : sub.country === 'Almanya' ? '🇩🇪' : '🌍'}
+                                            <span className="text-lg">
+                                                {sub.country === 'Türkiye' ? '🇹🇷' : sub.country === 'Almanya' ? '🇩🇪' : sub.country === 'Hindistan' ? '🇮🇳' : '🌍'}
                                             </span>
                                             <div className="flex flex-col">
-                                                <span className="text-sm font-medium text-gray-700">{sub.country || "Bilinmiyor"}</span>
-                                                <span className="text-xs text-gray-400">{sub.native_language || "Dil yok"}</span>
+                                                <span className="text-xs font-bold text-gray-700">{sub.country || "Bilinmiyor"}</span>
+                                                <span className="text-[10px] text-gray-400">{sub.native_language || "Dil yok"}</span>
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="p-5">
-                                        <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold border border-gray-200">{sub.classroom_code}</span>
-                                    </td>
-                                    <td className="p-5 text-gray-600 text-sm">{new Date(sub.created_at).toLocaleDateString('tr-TR')}</td>
-                                    <td className="p-5">
-                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                            (sub.level || 'A1') === 'A1' ? 'bg-green-100 text-green-700 border border-green-200' :
-                                            (sub.level || 'A1') === 'A2' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
-                                            'bg-purple-100 text-purple-700 border border-purple-200'
+                                    <td className="p-4"><span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold border">{sub.classroom_code}</span></td>
+                                    <td className="p-4 text-gray-600 text-sm">{new Date(sub.created_at).toLocaleDateString('tr-TR')}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                            (sub.level || 'A1') === 'A1' ? 'bg-green-100 text-green-700' :
+                                            (sub.level || 'A1') === 'A2' ? 'bg-blue-100 text-blue-700' : 
+                                            'bg-purple-100 text-purple-700'
                                         }`}>
                                             {sub.level || "A1"}
                                         </span>
                                     </td>
-                                    <td className="p-5">
+                                    <td className="p-4">
                                         {sub.score_total ? (
-                                            <div className="flex items-center gap-1 text-green-600 font-bold text-sm">
-                                                <CheckCircle size={16}/> Puanlandı ({sub.score_total})
-                                            </div>
+                                            <span className="flex items-center gap-1 text-green-600 font-bold text-xs"><CheckCircle size={14}/> {sub.score_total} Puan</span>
                                         ) : (
-                                            <div className="flex items-center gap-1 text-orange-500 font-bold text-sm">
-                                                <AlertTriangle size={16}/> Bekliyor
-                                            </div>
+                                            <span className="flex items-center gap-1 text-orange-500 font-bold text-xs"><AlertTriangle size={14}/> Bekliyor</span>
                                         )}
                                     </td>
-                                    <td className="p-5 text-right flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition" onClick={(e) => e.stopPropagation()}>
-                                        <button onClick={() => openSubmission(sub)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700">İncele</button>
-                                        <button onClick={() => deleteSubmission(sub.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg"><Trash2 size={18}/></button>
+                                    <td className="p-4 text-right flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <button onClick={() => openSubmission(sub)} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow hover:bg-blue-700">İncele</button>
+                                        <button onClick={() => deleteSubmission(sub.id)} className="p-1.5 hover:bg-red-100 text-red-500 rounded"><Trash2 size={16}/></button>
                                     </td>
                                 </tr>
                             ))}
                             {submissions.length === 0 && (
                                 <tr>
-                                    <td colSpan="7" className="p-12 text-center">
-                                        <div className="flex flex-col items-center text-gray-400">
-                                            <FileText size={48} className="mb-2 opacity-20"/>
-                                            <p>Henüz bu sınıfa ait ödev yüklenmemiş.</p>
-                                        </div>
-                                    </td>
+                                    <td colSpan="7" className="p-8 text-center text-gray-400 text-sm">Bu sınıfta henüz ödev yok.</td>
                                 </tr>
                             )}
                         </tbody>
@@ -595,7 +570,7 @@ export default function TeacherPanel() {
         )}
       </div>
 
-      {/* POPOVER BALONCUK */}
+      {/* --- POPOVER BALONCUK --- */}
       <ErrorPopover data={activeError} onClose={() => setActiveError(null)} />
     </div>
   );
