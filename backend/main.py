@@ -54,8 +54,11 @@ class UpdateScoreRequest(BaseModel):
 
 # --- CEFR KRİTERLERİ ---
 CEFR_KRITERLERI = {
-    "A1": "Basit cümleler.", "A2": "Bağlaçlar, temel zamanlar.",
-    "B1": "Tutarlı metin.", "B2": "Akıcı ve doğru.", "C1": "Kusursuz."
+    "A1": "Kısa, basit cümleler. Günlük kelimeler.", 
+    "A2": "Temel bağlaçlar (ve, ama, çünkü). Geçmiş ve gelecek zaman kullanımı.",
+    "B1": "Tutarlı paragraflar. Neden-sonuç ilişkileri.", 
+    "B2": "Akıcı ve detaylı anlatım.", 
+    "C1": "Kusursuz, akademik dil."
 }
 
 # =======================================================
@@ -63,7 +66,7 @@ CEFR_KRITERLERI = {
 # =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
-        {"rule_id": "TDK_01_BAGLAC_DE", "title": "Bağlaç Olan 'da/de'nin Yazımı", "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır.", "category": "Bağlaçlar"},
+        {"rule_id": "TDK_01_BAGLAC_DE", "title": "Bağlaç Olan 'da/de'nin Yazımı", "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır. Cümleden çıkarılınca anlam bozulmaz.", "category": "Bağlaçlar"},
         {"rule_id": "TDK_02_BAGLAC_KI", "title": "Bağlaç Olan 'ki'nin Yazımı", "text": "Bağlaç olan 'ki' ayrı yazılır.", "category": "Bağlaçlar"},
         {"rule_id": "TDK_03_SORU_EKI", "title": "Soru Eki 'mı/mi'nin Yazımı", "text": "Soru eki her zaman ayrı yazılır.", "category": "Ekler"},
         {"rule_id": "TDK_04_SEY_SOZ", "title": "'Şey' Sözcüğünün Yazımı", "text": "'Şey' sözcüğü her zaman ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
@@ -232,7 +235,9 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except: pass
 
         extracted_text = ""
-        prompt = "Bu resimdeki metni Türkçe olarak aynen metne dök. Sadece metni ver."
+        # OCR Promptunu biraz daha keskinleştirdik
+        prompt = "Bu resimdeki el yazısı metni Türkçe olarak aynen dijital metne çevir. Sadece metni ver, yorum yapma."
+        
         for model_name in MODELS_TO_TRY:
             try:
                 response = client.models.generate_content(
@@ -252,23 +257,50 @@ async def analyze_submission(data: AnalyzeRequest):
 
     all_rules = load_tdk_rules()
     allowed_ids = {r["rule_id"] for r in all_rules}
-    rules_text = "\n".join([f"- ID: {r['rule_id']} | {r['title']}: {r['text']}" for r in all_rules])
-    cefr_text = CEFR_KRITERLERI.get(data.level, "Genel değerlendirme.")
-
-    prompt = f"""
-    GÖREV: Öğrenci metnini analiz et.
-    HEDEF: TDK yazım kurallarına ve TEMEL DİLBİLGİSİ (gramer) kurallarına göre hataları bul.
-    ÖNEMLİ: Hatalı kelimeyi 'wrong' alanına metindeki haliyle yaz.
     
-    TDK KURALLARI:{rules_text}
-    SEVİYE ({data.level}): {cefr_text}
-    METİN: \"\"\"{data.ocr_text}\"\"\"
+    # Kuralları sadece ID ve Metin olarak verip token tasarrufu yapabilirsin
+    rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in all_rules])
+    
+    cefr_text = CEFR_KRITERLERI.get(data.level, "A2 seviyesi genel değerlendirme.")
 
-    JSON ÇIKTI FORMATI:
+    # --- SIKI ÖĞRETMEN PROMPTU (GÜNCELLENMİŞ) ---
+    prompt = f"""
+    ROL: Sen A2 seviyesinde uzman, çok titiz bir Türkçe öğretmenisin.
+    GÖREV: Aşağıdaki OCR ile taranmış öğrenci metnini analiz et, puanla ve hataları listele.
+
+    ⛔ ÇOK ÖNEMLİ KURALLAR (BUNLARA KESİNLİKLE UY):
+    1. ASLA HALÜSİNASYON GÖRME: Şehir isimleri (Samsun, İstanbul, Ankara vb.) KURUM DEĞİLDİR. "Samsun'da" yazımı DOĞRUDUR. Sakın "Kurum ekleri ayrılmaz" kuralını (TDK_10) şehir isimlerine uygulama!
+    2. OCR HATALARINI AYIKLA: Metin satır sonunda kesilmişse (örneğin: "Ka-radeniz" veya "ot-obüs"), bunu öğrenci hatası sayma. Kelimeyi zihninde birleştirip oku ve hata listesine ekleme.
+    3. BAĞLAÇLARI KARIŞTIRMA: "-de/-da" bulunma hal ekidir, bitişik yazılır (Samsun'da). Bunu bağlaç olan "da" (TDK_01) ile karıştırma.
+    4. ADİL PUANLAMA: Puanları asla 0 verme (boş kağıt değilse). A2 seviyesindeki çabaya göre puanla.
+
+    REFERANS BİLGİLER:
+    - TDK Kuralları: {rules_text}
+    - Seviye Beklentisi ({data.level}): {cefr_text}
+
+    ÖĞRENCİ METNİ:
+    \"\"\"{data.ocr_text}\"\"\"
+
+    ÇIKTI FORMATI (Sadece bu JSON'u döndür):
     {{
-      "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }},
-      "errors": [ {{ "wrong": "HatalıKelime", "correct": "Doğrusu", "type": "Yazım", "rule_id": "TDK_...", "explanation": "..." }} ],
-      "teacher_note": "..."
+      "rubric": {{
+        "uzunluk": (Kelime sayısına göre 0-16 puan),
+        "noktalama": (Doğru kullanıma göre 0-14 puan),
+        "dil_bilgisi": (Zaman ekleri ve uyumuna göre 0-16 puan),
+        "soz_dizimi": (Cümle yapısına göre 0-20 puan),
+        "kelime": (Kelime çeşitliliğine göre 0-14 puan),
+        "icerik": (Konuyu anlatma başarısına göre 0-20 puan)
+      }},
+      "errors": [
+        {{
+          "wrong": "Hatalı kelimenin metindeki hali",
+          "correct": "Doğru hali",
+          "type": "Yazım" veya "Dilbilgisi",
+          "rule_id": "TDK_..." (Listeden en uygun kural ID'si, yoksa boş),
+          "explanation": "Öğrencinin anlayacağı basitlikte açıklama."
+        }}
+      ],
+      "teacher_note": "Öğrenciye hitaben (Sen diliyle), motive edici, A2 seviyesine uygun, hataları değil yapılan iyi şeyleri vurgulayan 2-3 cümlelik kısa öğretmen notu."
     }}
     """
     
@@ -277,31 +309,53 @@ async def analyze_submission(data: AnalyzeRequest):
 
     for model_name in MODELS_TO_TRY:
         try:
-            response = client.models.generate_content(model=model_name, contents=prompt, config=types.GenerateContentConfig(response_mime_type="application/json"))
+            # Gemini Çağrısı
+            response = client.models.generate_content(
+                model=model_name, 
+                contents=prompt, 
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            
             text_resp = (response.text or "").strip().replace("```json", "").replace("```", "")
             raw_result = json.loads(text_resp)
             
-            # BURADA VALIDATE FONKSIYONU DEVREYE GİRİYOR VE KONUMLARI DÜZELTİYOR
+            # Validasyon ve Temizlik
             sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
             
-            sanitized["score_total"] = sum(sanitized.get("rubric", {}).values())
+            # Toplam Puanı Hesapla (Rubric'teki değerleri topla)
+            total_score = sum(sanitized.get("rubric", {}).values())
+            sanitized["score_total"] = total_score
+            
             analysis_result = sanitized
-            print(f"✅ Analiz Başarılı: {model_name}")
+            print(f"✅ Analiz Başarılı: {model_name} | Puan: {total_score}")
             break
         except Exception as e:
+            print(f"❌ Model Hatası ({model_name}): {e}")
             last_error = str(e)
             continue
 
-    if not analysis_result: raise HTTPException(status_code=500, detail=f"Hata: {last_error}")
+    if not analysis_result: 
+        raise HTTPException(status_code=500, detail=f"Analiz başarısız: {last_error}")
 
     try:
+        # Veritabanına Kayıt
         supabase.table("submissions").insert({
-            "student_name": data.student_name, "student_surname": data.student_surname, "classroom_code": data.classroom_code,
-            "image_url": data.image_url, "ocr_text": data.ocr_text, "level": data.level, "country": data.country,
-            "native_language": data.native_language, "analysis_json": analysis_result, "score_total": analysis_result["score_total"]
+            "student_name": data.student_name, 
+            "student_surname": data.student_surname, 
+            "classroom_code": data.classroom_code,
+            "image_url": data.image_url, 
+            "ocr_text": data.ocr_text, 
+            "level": data.level, 
+            "country": data.country,
+            "native_language": data.native_language, 
+            "analysis_json": analysis_result, 
+            "score_total": analysis_result["score_total"]
         }).execute()
+        
         return {"status": "success", "data": analysis_result}
-    except Exception as e: return {"status": "success", "data": analysis_result, "warning": "DB Hatası"}
+    except Exception as e: 
+        print(f"DB Hatası: {e}")
+        return {"status": "success", "data": analysis_result, "warning": "Veritabanına kaydedilemedi ama analiz döndü."}
 
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
