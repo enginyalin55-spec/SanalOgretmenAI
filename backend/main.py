@@ -253,54 +253,55 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
-    print(f"🧠 Analiz: {data.student_name} ({data.level})")
+    print(f"🧠 Analiz Başlıyor: {data.student_name} ({data.level})")
 
     all_rules = load_tdk_rules()
     allowed_ids = {r["rule_id"] for r in all_rules}
     
-    # Kuralları sadece ID ve Metin olarak verip token tasarrufu yapabilirsin
+    # Kuralları YZ'ye hatırlat
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in all_rules])
     
     cefr_text = CEFR_KRITERLERI.get(data.level, "A2 seviyesi genel değerlendirme.")
 
-    # --- SIKI ÖĞRETMEN PROMPTU (GÜNCELLENMİŞ) ---
+    # --- V2: DETAYLI TARAMA PROMPTU ---
     prompt = f"""
-    ROL: Sen A2 seviyesinde uzman, çok titiz bir Türkçe öğretmenisin.
-    GÖREV: Aşağıdaki OCR ile taranmış öğrenci metnini analiz et, puanla ve hataları listele.
+    ROL: Sen çok titiz, detaycı bir Türkçe öğretmenisin. Önünde A2 seviyesinde bir öğrencinin kağıdı var.
+    
+    GÖREVİN: Metni kelime kelime oku. Sadece bir tane değil, METİNDEKİ TÜM HATALARI bulup listelemen gerekiyor.
 
-    ⛔ ÇOK ÖNEMLİ KURALLAR (BUNLARA KESİNLİKLE UY):
-    1. ASLA HALÜSİNASYON GÖRME: Şehir isimleri (Samsun, İstanbul, Ankara vb.) KURUM DEĞİLDİR. "Samsun'da" yazımı DOĞRUDUR. Sakın "Kurum ekleri ayrılmaz" kuralını (TDK_10) şehir isimlerine uygulama!
-    2. OCR HATALARINI AYIKLA: Metin satır sonunda kesilmişse (örneğin: "Ka-radeniz" veya "ot-obüs"), bunu öğrenci hatası sayma. Kelimeyi zihninde birleştirip oku ve hata listesine ekleme.
-    3. BAĞLAÇLARI KARIŞTIRMA: "-de/-da" bulunma hal ekidir, bitişik yazılır (Samsun'da). Bunu bağlaç olan "da" (TDK_01) ile karıştırma.
-    4. ADİL PUANLAMA: Puanları asla 0 verme (boş kağıt değilse). A2 seviyesindeki çabaya göre puanla.
-
-    REFERANS BİLGİLER:
-    - TDK Kuralları: {rules_text}
-    - Seviye Beklentisi ({data.level}): {cefr_text}
+    ADIM ADIM TALİMATLAR:
+    1. **TARAMA:** Metni baştan sona oku. Her cümleyi TDK kurallarına göre kontrol et.
+    2. **AYIKLAMA:** "Samsun, Ahmet" gibi özel isimlere gelen ekleri (-'in, -'da) DOĞRU kabul et. Bunlar kurum değildir!
+    3. **OCR KONTROL:** "Ka-radeniz" gibi satır sonu kesilmelerini birleştir ve hata sayma.
+    4. **PUANLAMA:** Puanları bol keseden verme. Hata sayısı çoksa puanı düşür. Hiç hata yoksa tam puan ver.
 
     ÖĞRENCİ METNİ:
     \"\"\"{data.ocr_text}\"\"\"
 
-    ÇIKTI FORMATI (Sadece bu JSON'u döndür):
+    REFERANS TDK KURALLARI:
+    {rules_text}
+
+    İSTENEN ÇIKTI (Sadece bu JSON'u ver):
     {{
       "rubric": {{
-        "uzunluk": (Kelime sayısına göre 0-16 puan),
-        "noktalama": (Doğru kullanıma göre 0-14 puan),
-        "dil_bilgisi": (Zaman ekleri ve uyumuna göre 0-16 puan),
-        "soz_dizimi": (Cümle yapısına göre 0-20 puan),
-        "kelime": (Kelime çeşitliliğine göre 0-14 puan),
-        "icerik": (Konuyu anlatma başarısına göre 0-20 puan)
+        "uzunluk": (0-16 puan),
+        "noktalama": (0-14 puan),
+        "dil_bilgisi": (0-16 puan),
+        "soz_dizimi": (0-20 puan),
+        "kelime": (0-14 puan),
+        "icerik": (0-20 puan)
       }},
       "errors": [
         {{
-          "wrong": "Hatalı kelimenin metindeki hali",
-          "correct": "Doğru hali",
-          "type": "Yazım" veya "Dilbilgisi",
-          "rule_id": "TDK_..." (Listeden en uygun kural ID'si, yoksa boş),
-          "explanation": "Öğrencinin anlayacağı basitlikte açıklama."
-        }}
+          "wrong": "Hatalı kelime (Metindeki hali)",
+          "correct": "Doğrusu",
+          "type": "Yazım",
+          "rule_id": "TDK_...", 
+          "explanation": "Kısa ve net açıklama."
+        }},
+        {{ "wrong": "...", "correct": "...", "type": "...", "rule_id": "...", "explanation": "..." }}
       ],
-      "teacher_note": "Öğrenciye hitaben (Sen diliyle), motive edici, A2 seviyesine uygun, hataları değil yapılan iyi şeyleri vurgulayan 2-3 cümlelik kısa öğretmen notu."
+      "teacher_note": "Öğrenciye hitaben motive edici, A2 seviyesine uygun, 2-3 cümlelik not."
     }}
     """
     
@@ -322,12 +323,12 @@ async def analyze_submission(data: AnalyzeRequest):
             # Validasyon ve Temizlik
             sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
             
-            # Toplam Puanı Hesapla (Rubric'teki değerleri topla)
+            # Toplam Puanı Hesapla
             total_score = sum(sanitized.get("rubric", {}).values())
             sanitized["score_total"] = total_score
             
             analysis_result = sanitized
-            print(f"✅ Analiz Başarılı: {model_name} | Puan: {total_score}")
+            print(f"✅ Analiz Başarılı: {model_name} | Hata Sayısı: {len(sanitized.get('errors', []))} | Puan: {total_score}")
             break
         except Exception as e:
             print(f"❌ Model Hatası ({model_name}): {e}")
@@ -356,7 +357,6 @@ async def analyze_submission(data: AnalyzeRequest):
     except Exception as e: 
         print(f"DB Hatası: {e}")
         return {"status": "success", "data": analysis_result, "warning": "Veritabanına kaydedilemedi ama analiz döndü."}
-
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
     try:
