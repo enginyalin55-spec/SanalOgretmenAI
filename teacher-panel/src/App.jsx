@@ -1773,7 +1773,7 @@ export default function App() {
 
             {/* YZ İpucu (webde görünsün, PDF’e girmesin) */}
             <div
-              className="force-hide"
+              
               style={{
                 backgroundColor: "#e8f0fe",
                 borderLeft: "5px solid #3498db",
