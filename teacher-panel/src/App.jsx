@@ -1790,7 +1790,7 @@ export default function App() {
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 900, color: "#2980b9", letterSpacing: 0.7, textTransform: "uppercase" }}>
-                  🤖 YZ İpucu 
+                  🤖 YZ İpucu (a)
                 </div>
                 <div style={{ fontSize: 14, color: "#2c3e50", marginTop: 6 }}>
                   {selectedSubmission.analysis_json?.teacher_note ||
