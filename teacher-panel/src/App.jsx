@@ -1769,34 +1769,9 @@ export default function App() {
               </div>
             </div>
 
-            {/* YZ İpucu (webde görünsün, PDF’e girmesin) */}
-            <div
+            
               
-              style={{
-                backgroundColor: "#e8f0fe",
-                borderLeft: "5px solid #3498db",
-                padding: 18,
-                borderRadius: 12,
-                boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
-                display: "flex",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
-              <div style={{ marginTop: 2 }}>
-                <Info size={18} color="#3498db" />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 900, color: "#2980b9", letterSpacing: 0.7, textTransform: "uppercase" }}>
-                  🤖 YZ İpucu 
-                </div>
-                <div style={{ fontSize: 14, color: "#2c3e50", marginTop: 6 }}>
-                  {selectedSubmission.analysis_json?.teacher_note ||
-                    selectedSubmission.analysis_json?.ai_insight ||
-                    "YZ ipucu yok (backend teacher_note üretmiyorsa boş kalır)."}
-                </div>
-              </div>
-            </div>
+            
           </div>
 
           {/* 2) OCR + Analiz + Öğretmen notu */}
