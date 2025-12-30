@@ -145,20 +145,25 @@ const generateClassCode = () =>
   Math.random().toString(36).substring(2, 7).toUpperCase();
 
 // --- PUAN EDITOR (ESKİ GÖRÜNÜM) ---
-// --- PUAN KARTI (GÜNCEL) ---
+// --- PUAN KARTI (DÜZELTİLMİŞ) ---
 const ScoreEditor = ({ rubric, onUpdate }) => {
     if (!rubric) return null;
 
     const handleChange = (key, val, max) => {
-        // Kutu boşaltılırsa izin ver
+        // 1. Eğer kutu boşaltılırsa, "0" yapma, boş bırak.
         if (val === "") {
             onUpdate(key, "");
             return;
         }
+        
         let newVal = parseInt(val);
+        // 2. Sayı girilmezse işlem yapma
         if (isNaN(newVal)) return;
+        
+        // 3. Sınırları aşarsa düzelt
         if (newVal > max) newVal = max;
         if (newVal < 0) newVal = 0;
+        
         onUpdate(key, newVal);
     };
 
@@ -179,6 +184,7 @@ const ScoreEditor = ({ rubric, onUpdate }) => {
                     <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:2}}>
                         <input 
                             type="number" 
+                            // DEĞİŞİKLİK: Değer yoksa 0 değil, boş string göster
                             value={rubric[item.key] === undefined ? "" : rubric[item.key]} 
                             onChange={(e) => handleChange(item.key, e.target.value, item.max)}
                             style={{width:40, textAlign:'center', fontWeight:'bold', fontSize:16, border:'1px solid #3498db', borderRadius:4, color:'#2c3e50', padding:'2px 0'}}
@@ -664,40 +670,42 @@ export default function App() {
   }, [selectedClassCode, submissions]);
 
   // --- VERİ YÜKLEME VE EŞLEŞTİRME (PUANLAR BURADA YÜKLENİR) ---
+  // --- VERİ YÜKLEME VE PUANLARI EŞLEŞTİRME ---
   useEffect(() => {
       if (selectedSubmission) {
           // 1. Öğretmen Notunu Yükle
           setTeacherNote(selectedSubmission.human_note || "");
           
-          // 2. YZ İpucunu Yükle
+          // 2. YZ İpucunu Yükle (Varsa teacher_note, yoksa ai_insight)
           const note = selectedSubmission.analysis_json?.teacher_note || selectedSubmission.analysis_json?.ai_insight || "YZ analizi bulunamadı.";
           setAiInsight(note);
 
-          // 3. PUANLARI AKILLI EŞLEŞTİR (Sorunun Çözümü Burası)
-          const rawRubric = selectedSubmission.analysis_json?.rubric || {};
+          // 3. PUANLARI EŞLEŞTİR (Rubric Mapping)
+          const rawRubric = selectedSubmission.analysis_json?.rubric || 
+                            selectedSubmission.analysis_json?.scores || 
+                            {};
           
-          // Varsayılan boş puan tablosu
           let mappedRubric = { uzunluk: 0, noktalama: 0, dil_bilgisi: 0, soz_dizimi: 0, kelime: 0, icerik: 0 };
 
-          // Gelen verideki anahtarları bizimkilere çevir (Mapping)
-          // Örn: "Grammar" gelirse -> "dil_bilgisi"ne yaz.
           Object.keys(rawRubric).forEach(key => {
               const val = parseInt(rawRubric[key]) || 0;
-              const k = key.toLowerCase().trim();
-
-              if (k.includes("uzun") || k.includes("length")) mappedRubric.uzunluk = val;
-              else if (k.includes("nokta") || k.includes("punc")) mappedRubric.noktalama = val;
-              else if (k.includes("dil") || k.includes("gram")) mappedRubric.dil_bilgisi = val;
-              else if (k.includes("söz") || k.includes("syntax") || k.includes("synt")) mappedRubric.soz_dizimi = val;
-              else if (k.includes("keli") || k.includes("vocab")) mappedRubric.kelime = val;
-              else if (k.includes("içer") || k.includes("cont")) mappedRubric.icerik = val;
+              const k = key.toLowerCase();
+              
+              // İsim benzerliğine göre eşleştir
+              if (k.includes("uzun") || k.includes("len")) mappedRubric.uzunluk = val;
+              else if (k.includes("nokta") || k.includes("pun")) mappedRubric.noktalama = val;
+              else if (k.includes("dil") || k.includes("gra")) mappedRubric.dil_bilgisi = val;
+              else if (k.includes("söz") || k.includes("syn")) mappedRubric.soz_dizimi = val;
+              else if (k.includes("keli") || k.includes("voc")) mappedRubric.kelime = val;
+              else if (k.includes("içer") || k.includes("con")) mappedRubric.icerik = val;
           });
 
           setEditableRubric(mappedRubric);
 
-          // 4. Toplam Puanı Hesapla (Veritabanında varsa onu al, yoksa hesapla)
-          const total = selectedSubmission.score_total 
-                        ? selectedSubmission.score_total 
+          // 4. Toplam Puanı Hesapla
+          // Eğer veritabanında kayıtlı toplam varsa onu al, yoksa kutucukları topla.
+          const total = (selectedSubmission.score_total !== null && selectedSubmission.score_total !== undefined) 
+                        ? Number(selectedSubmission.score_total) 
                         : Object.values(mappedRubric).reduce((a, b) => a + b, 0);
 
           setCalculatedTotal(total);
@@ -812,11 +820,18 @@ export default function App() {
 
   // --- rubric update ---
   const handleRubricUpdate = (key, value) => {
-    const newRubric = { ...editableRubric, [key]: value };
-    setEditableRubric(newRubric);
-    const total = Object.values(newRubric).reduce((a, b) => a + (parseInt(b, 10) || 0), 0);
-    setCalculatedTotal(total);
-    setIsScoreChanged(true);
+      // Değer boşsa boş bırak, sayıysa çevir
+      const valToStore = value === "" ? "" : parseInt(value);
+      
+      const newRubric = { ...editableRubric, [key]: valToStore };
+      setEditableRubric(newRubric);
+
+      // Toplamı hesapla (Boş kutuları 0 say)
+      const total = Object.values(newRubric).reduce((a, b) => a + (Number(b) || 0), 0);
+      setCalculatedTotal(total);
+      
+      // Kaydet butonu görünsün diye işaretle
+      setIsScoreChanged(true);
   };
 
   // --- kaydet: rubric + total (backend varsa /update-score, yoksa supabase fallback) ---
