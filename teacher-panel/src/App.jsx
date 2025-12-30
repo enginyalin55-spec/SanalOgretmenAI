@@ -588,6 +588,7 @@ const ImageViewerModal = ({ src, onClose }) => {
 export default function App() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState("");
+  const [aiInsight, setAiInsight] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
