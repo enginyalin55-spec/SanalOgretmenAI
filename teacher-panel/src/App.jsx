@@ -145,91 +145,50 @@ const generateClassCode = () =>
   Math.random().toString(36).substring(2, 7).toUpperCase();
 
 // --- PUAN EDITOR (ESKİ GÖRÜNÜM) ---
+// --- PUAN KARTI (GÜNCEL) ---
 const ScoreEditor = ({ rubric, onUpdate }) => {
-  if (!rubric) return null;
+    if (!rubric) return null;
 
-  const handleChange = (key, val, max) => {
-    let newVal = parseInt(val, 10);
-    if (Number.isNaN(newVal)) newVal = 0;
-    if (newVal > max) newVal = max;
-    if (newVal < 0) newVal = 0;
-    onUpdate(key, newVal);
-  };
+    const handleChange = (key, val, max) => {
+        // Kutu boşaltılırsa izin ver
+        if (val === "") {
+            onUpdate(key, "");
+            return;
+        }
+        let newVal = parseInt(val);
+        if (isNaN(newVal)) return;
+        if (newVal > max) newVal = max;
+        if (newVal < 0) newVal = 0;
+        onUpdate(key, newVal);
+    };
 
-  const items = [
-    { key: "uzunluk", label: "Uzunluk", max: 16 },
-    { key: "noktalama", label: "Noktalama", max: 14 },
-    { key: "dil_bilgisi", label: "Dil Bilgisi", max: 16 },
-    { key: "soz_dizimi", label: "Söz Dizimi", max: 20 },
-    { key: "kelime", label: "Kelime", max: 14 },
-    { key: "icerik", label: "İçerik", max: 20 },
-  ];
+    const items = [
+        { key: "uzunluk", label: "Uzunluk", max: 16 },
+        { key: "noktalama", label: "Noktalama", max: 14 },
+        { key: "dil_bilgisi", label: "Dil Bilgisi", max: 16 },
+        { key: "soz_dizimi", label: "Söz Dizimi", max: 20 },
+        { key: "kelime", label: "Kelime", max: 14 },
+        { key: "icerik", label: "İçerik", max: 20 },
+    ];
 
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-        gap: 10,
-        marginTop: 15,
-        padding: 15,
-        backgroundColor: "#f8f9fa",
-        borderRadius: 10,
-      }}
-    >
-      {items.map((item) => (
-        <div
-          key={item.key}
-          style={{
-            textAlign: "center",
-            border: "1px solid #eee",
-            padding: 8,
-            borderRadius: 10,
-            backgroundColor: "white",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              color: "#7f8c8d",
-              textTransform: "uppercase",
-              fontWeight: "bold",
-              marginBottom: 6,
-              letterSpacing: 0.7,
-            }}
-          >
-            {item.label}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 3,
-            }}
-          >
-            <input
-              type="number"
-              value={rubric[item.key] || 0}
-              onChange={(e) => handleChange(item.key, e.target.value, item.max)}
-              style={{
-                width: 44,
-                textAlign: "center",
-                fontWeight: "bold",
-                fontSize: 16,
-                border: "1px solid #3498db",
-                borderRadius: 6,
-                color: "#2c3e50",
-                padding: "4px 0",
-                background: "#fff",
-              }}
-            />
-            <span style={{ fontSize: 11, color: "#bdc3c7" }}>/ {item.max}</span>
-          </div>
+    return (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10, marginTop:15, padding:15, backgroundColor:'#f8f9fa', borderRadius:10}}>
+            {items.map((item) => (
+                <div key={item.key} style={{textAlign:'center', border:'1px solid #eee', padding:5, borderRadius:8, backgroundColor:'white'}}>
+                    <div style={{fontSize:10, color:'#7f8c8d', textTransform:'uppercase', fontWeight:'bold', marginBottom:4}}>{item.label}</div>
+                    <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:2}}>
+                        <input 
+                            type="number" 
+                            value={rubric[item.key] === undefined ? "" : rubric[item.key]} 
+                            onChange={(e) => handleChange(item.key, e.target.value, item.max)}
+                            style={{width:40, textAlign:'center', fontWeight:'bold', fontSize:16, border:'1px solid #3498db', borderRadius:4, color:'#2c3e50', padding:'2px 0'}}
+                        />
+                        <span style={{fontSize:11, color:'#bdc3c7'}}>/{item.max}</span>
+                    </div>
+                </div>
+            ))}
         </div>
-      ))}
-    </div>
-  );
+    );
 };
 
 // --- HATA POPOVER (YENİ TDK + span tabanlı) ---
@@ -704,29 +663,47 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClassCode, submissions]);
 
+  // --- VERİ YÜKLEME VE EŞLEŞTİRME (PUANLAR BURADA YÜKLENİR) ---
   useEffect(() => {
-    if (!selectedSubmission) return;
-    setTeacherNote(selectedSubmission.human_note || "");
+      if (selectedSubmission) {
+          // 1. Öğretmen Notunu Yükle
+          setTeacherNote(selectedSubmission.human_note || "");
+          
+          // 2. YZ İpucunu Yükle
+          const note = selectedSubmission.analysis_json?.teacher_note || selectedSubmission.analysis_json?.ai_insight || "YZ analizi bulunamadı.";
+          setAiInsight(note);
 
-    const defaultRubric = {
-      uzunluk: 0,
-      noktalama: 0,
-      dil_bilgisi: 0,
-      soz_dizimi: 0,
-      kelime: 0,
-      icerik: 0,
-    };
+          // 3. PUANLARI AKILLI EŞLEŞTİR (Sorunun Çözümü Burası)
+          const rawRubric = selectedSubmission.analysis_json?.rubric || {};
+          
+          // Varsayılan boş puan tablosu
+          let mappedRubric = { uzunluk: 0, noktalama: 0, dil_bilgisi: 0, soz_dizimi: 0, kelime: 0, icerik: 0 };
 
-    const rubric = selectedSubmission.analysis_json?.rubric || defaultRubric;
-    setEditableRubric({ ...defaultRubric, ...rubric });
+          // Gelen verideki anahtarları bizimkilere çevir (Mapping)
+          // Örn: "Grammar" gelirse -> "dil_bilgisi"ne yaz.
+          Object.keys(rawRubric).forEach(key => {
+              const val = parseInt(rawRubric[key]) || 0;
+              const k = key.toLowerCase().trim();
 
-    const total =
-      selectedSubmission.score_total ??
-      Object.values({ ...defaultRubric, ...rubric }).reduce((a, b) => a + (parseInt(b, 10) || 0), 0);
+              if (k.includes("uzun") || k.includes("length")) mappedRubric.uzunluk = val;
+              else if (k.includes("nokta") || k.includes("punc")) mappedRubric.noktalama = val;
+              else if (k.includes("dil") || k.includes("gram")) mappedRubric.dil_bilgisi = val;
+              else if (k.includes("söz") || k.includes("syntax") || k.includes("synt")) mappedRubric.soz_dizimi = val;
+              else if (k.includes("keli") || k.includes("vocab")) mappedRubric.kelime = val;
+              else if (k.includes("içer") || k.includes("cont")) mappedRubric.icerik = val;
+          });
 
-    setCalculatedTotal(total);
-    setIsScoreChanged(false);
-    setActiveError(null);
+          setEditableRubric(mappedRubric);
+
+          // 4. Toplam Puanı Hesapla (Veritabanında varsa onu al, yoksa hesapla)
+          const total = selectedSubmission.score_total 
+                        ? selectedSubmission.score_total 
+                        : Object.values(mappedRubric).reduce((a, b) => a + b, 0);
+
+          setCalculatedTotal(total);
+          setIsScoreChanged(false);
+          setActiveError(null);
+      }
   }, [selectedSubmission]);
 
   const classInfo = useMemo(() => {
