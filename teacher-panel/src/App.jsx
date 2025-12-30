@@ -1096,17 +1096,15 @@ export default function App() {
       .pdf-mode .force-hide { display: none !important; }
       .pdf-mode button, .pdf-mode [role="button"] { display: none !important; }
       .pdf-mode .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
+      /* PDF’te YZ kutusunu gizle */
+.pdf-mode .ai-box { 
+  display: none !important; 
+}
+
     `;
     wrapper.appendChild(style);
 
-    // 4) “YZ Analizi” kutusunu kesin gizle (ama resim kutusunu göster)
-    // Biz “YZ Analizi” kutusuna force-hide class’ı veriyoruz => ayrıca garanti tarama:
-    clone.querySelectorAll("div").forEach((el) => {
-      const t = (el.textContent || "").toLowerCase();
-      if (t.includes("yapay zeka analizi") && !t.includes("öğretmen değerlendirmesi")) {
-        el.style.display = "none";
-      }
-    });
+  
 
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
@@ -1790,7 +1788,7 @@ export default function App() {
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 900, color: "#2980b9", letterSpacing: 0.7, textTransform: "uppercase" }}>
-                  🤖 YZ İpucu (a)
+                  🤖 YZ İpucu 
                 </div>
                 <div style={{ fontSize: 14, color: "#2c3e50", marginTop: 6 }}>
                   {selectedSubmission.analysis_json?.teacher_note ||
@@ -1838,7 +1836,7 @@ export default function App() {
 
             {/* YZ Analizi kutusu (WEBDE GÖZÜKSÜN ama PDF’e girmesin) */}
             <div
-              className="force-hide"
+              className="ai-box"
               style={{
                 backgroundColor: "white",
                 padding: 18,
