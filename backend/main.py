@@ -17,7 +17,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise RuntimeError("❌ KRİTİK HATA: GEMINI_API_KEY eksik!")
 
-SUPABASE_URL = (os.getenv("SUPABASE_URL", "") or "").rstrip("/")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("❌ KRİTİK HATA: SUPABASE bilgileri eksik!")
@@ -25,7 +25,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="1.5.0")
+app = FastAPI(title="Sanal Ogretmen AI API", version="1.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Model fallback
 MODELS_TO_TRY = [
     "gemini-2.0-flash-exp",
     "gemini-1.5-flash",
@@ -73,8 +72,16 @@ class UpdateScoreRequest(BaseModel):
     new_total: int
 
 # =======================================================
-# 4) TDK RULES
+# 4) CEFR + TDK RULES
 # =======================================================
+CEFR_KRITERLERI = {
+    "A1": "Kısa, basit cümleler. Temel ihtiyaç iletişimi.",
+    "A2": "Bağlaçlar (ve, ama). Geçmiş/Gelecek zaman temelleri. Günlük konular.",
+    "B1": "Tutarlı paragraflar. Deneyim aktarımı. Neden-sonuç ilişkisi.",
+    "B2": "Akıcı, detaylı ve teknik anlatım. Soyut konular.",
+    "C1": "Akademik ve esnek dil kullanımı. İnce anlam farkları."
+}
+
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
         {"rule_id": "TDK_01_BAGLAC_DE", "text": "Bağlaç olan 'da/de' ayrı yazılır."},
@@ -82,10 +89,13 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_03_SORU_EKI", "text": "Soru eki 'mı/mi' ayrı yazılır."},
         {"rule_id": "TDK_04_SEY_SOZ", "text": "'Şey' sözcüğü daima ayrı yazılır."},
         {"rule_id": "TDK_05_BUYUK_CUMLE", "text": "Cümleler büyük harfle başlar."},
-        {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler büyük harfle başlar."},
+        {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler (Şehir, Kişi) büyük harfle başlar."},
+        {"rule_id": "TDK_07_BUYUK_KURUM", "text": "Kurum adları büyük harfle başlar."},
         {"rule_id": "TDK_08_BUYUK_GEREKSIZ", "text": "Özel isim olmayan sözcükler cümle içinde büyük harfle yazılamaz."},
         {"rule_id": "TDK_09_KESME_OZEL", "text": "Özel isimlere gelen ekler kesme ile ayrılır (Samsun'a)."},
+        {"rule_id": "TDK_10_KESME_KURUM", "text": "Kurum adlarına gelen ekler AYRILMAZ (Bakanlığına). NOT: Şehirler kurum değildir!"},
         {"rule_id": "TDK_13_KESME_GENEL", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz (stadyuma, okula)."},
+        {"rule_id": "TDK_11_YARDIMCI_FIIL", "text": "Ses olayı varsa bitişik, yoksa ayrı."},
         {"rule_id": "TDK_12_SAYILAR", "text": "Sayılar ayrı yazılır (on beş)."},
         {"rule_id": "TDK_20_NOKTA", "text": "Cümle sonuna nokta konur."},
         {"rule_id": "TDK_21_VIRGUL", "text": "Sıralı kelimelere virgül konur."},
@@ -100,39 +110,15 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
 # =======================================================
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
-# ✅ Türkçe lower fix
-TR_LOWER_MAP = str.maketrans({"İ": "i", "I": "ı"})
-def tr_lower(s: str) -> str:
-    if not s:
-        return ""
-    return s.translate(TR_LOWER_MAP).lower()
-
-def tr_lower_first(word: str) -> str:
-    if not word:
-        return ""
-    return tr_lower(word[0]) + word[1:]
-
 def normalize_text(text: str) -> str:
-    """
-    ✅ NEWLINE KORUR.
-    OCR satırları cümle başı tespiti için kritik.
-    """
     if not text:
         return ""
     text = text.replace("’", "'").replace("`", "'")
     text = _ZERO_WIDTH.sub("", text)
-
-    # Windows newline -> \n
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # satır içi boşlukları toparla, newline kalsın
-    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.split("\n")]
-    # boş satırları at
-    lines = [ln for ln in lines if ln != ""]
-    return "\n".join(lines).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
 def normalize_match(text: str) -> str:
-    return tr_lower(normalize_text(text))
+    return normalize_text(text).casefold()
 
 def to_int(x, default=0):
     try:
@@ -162,58 +148,16 @@ async def read_limited(upload: UploadFile, limit: int) -> bytes:
         chunks.append(chunk)
     return b"".join(chunks)
 
-# Cümle/segment başlangıcı: nokta + newline + : ; — – --
-SENT_BOUNDARY = re.compile(r"([.!?]+|[\n\r]+|[:;]+|—|–|-{2,})")
-
-def sentence_starts(text: str) -> set:
-    starts = {0}
-    for m in SENT_BOUNDARY.finditer(text):
-        idx = m.end()
-        while idx < len(text) and text[idx].isspace():
-            idx += 1
-        if idx < len(text):
-            starts.add(idx)
-    return starts
-
-# basit özel isim ipuçları (gerekirse genişlet)
-PROPER_ROOTS = {"samsun", "karadeniz", "türkiye"}
-
-def norm_token(token: str) -> str:
-    if not token:
-        return ""
-    t = token.strip().replace("’", "'")
-    t = re.sub(r"[.,;:!?()\[\]{}]", "", t)
-    return t
-
-def token_root(token: str) -> str:
-    t = norm_token(token)
-    if "'" in t:
-        t = t.split("'")[0]
-    return tr_lower(t)
-
-def is_probably_proper(word: str) -> bool:
-    r = token_root(word)
-    if r in PROPER_ROOTS:
-        return True
-    if "'" in norm_token(word) and word[:1].isupper():
-        return True
-    return False
-
 def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
-    """
-    normalize_match newline korur; ama find için line-break farkı sorun olabilir.
-    Bu yüzden aramayı 'display' üzerinden yapıyoruz: newline -> space
-    """
-    wrong_n = normalize_match(wrong).replace("\n", " ")
-    full_n = normalize_match(full_text).replace("\n", " ")
-
-    if not wrong_n:
+    w = normalize_match(wrong)
+    t = normalize_match(full_text)
+    if not w:
         return None
 
     matches = []
     start_idx = 0
     while True:
-        idx = full_n.find(wrong_n, start_idx)
+        idx = t.find(w, start_idx)
         if idx == -1:
             break
         matches.append(idx)
@@ -223,42 +167,12 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
         return None
 
     best = min(matches, key=lambda x: abs(x - hint_start)) if hint_start is not None else matches[0]
-
-    # ⚠️ burada idx, newline->space dönüştürülmüş metne göre
-    # Basit yaklaşım: gerçek metinde de aynı indeks çoğunlukla tutar (satır sonu azsa).
-    # Daha sağlam istersen mapping yapılır ama şimdilik pratikte yeterli.
-    return (best, best + len(wrong_n))
-
-# =======================================================
-# 5A) LLM düzeltmelerini güvenli hale getir (paraphrase engeli)
-# =======================================================
-def is_safe_correction(wrong: str, correct: str) -> bool:
-    w = normalize_text(wrong)
-    c = normalize_text(correct)
-    if not w or not c:
-        return False
-
-    # 1) Cümle/paragraf gibi uzun parça düzeltmesi istemiyoruz
-    if len(w) > 25 or "\n" in w:
-        return False
-
-    # 2) Aşırı kısaltma (kelime düşürme)
-    if len(c) < max(2, int(len(w) * 0.75)):
-        return False
-
-    # 3) Çok büyük değişimi engelle (basit karakter set örtüşmesi)
-    w0 = normalize_match(w)
-    c0 = normalize_match(c)
-    common = set(w0) & set(c0)
-    if len(common) / max(1, len(set(w0))) < 0.5:
-        return False
-
-    return True
+    return (best, best + len(w))
 
 def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
+    """LLM'nin döndürdüğü hataları span ile güvenli hale getirir."""
     if not isinstance(result, dict):
         return {"errors": []}
-
     raw_errors = result.get("errors", [])
     if not isinstance(raw_errors, list):
         raw_errors = []
@@ -272,15 +186,11 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
         if not rid or rid not in allowed_ids:
             continue
 
-        wrong = err.get("wrong", "") or ""
-        correct = err.get("correct", "") or ""
+        wrong = err.get("wrong", "")
+        correct = err.get("correct", "")
         if not wrong or not correct:
             continue
         if normalize_match(wrong) == normalize_match(correct):
-            continue
-
-        # ✅ paraphrase/cümle bozma filtresi
-        if not is_safe_correction(wrong, correct):
             continue
 
         hint = None
@@ -290,10 +200,8 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
         fixed = _find_best_span(full_text, wrong, hint)
         if fixed:
             start, end = fixed
-            # gerçek metinden slice almak newline index farkında sorun çıkarabilir.
-            # UI için wrong olarak LLM wrong'ı tutmak daha güvenli:
             clean_errors.append({
-                "wrong": wrong,
+                "wrong": full_text[start:end],
                 "correct": correct,
                 "type": "Yazım",
                 "rule_id": rid,
@@ -325,11 +233,25 @@ def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return merged
 
 # =======================================================
+# 5A) TÜRKÇE LOWER (İ/I fix)
+# =======================================================
+TR_LOWER_MAP = str.maketrans({"İ": "i", "I": "ı"})
+def tr_lower(s: str) -> str:
+    if not s:
+        return ""
+    return s.translate(TR_LOWER_MAP).lower()
+
+def tr_lower_first(word: str) -> str:
+    if not word:
+        return ""
+    return tr_lower(word[0]) + word[1:]
+
+# =======================================================
 # 5B) OCR ŞÜPHELİ TESPİT
 # =======================================================
 OCR_NOISE_PATTERNS = [
-    re.compile(r".*\b[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-Z]\b"),
-    re.compile(r"^[a-zA-Z]\b"),
+    re.compile(r".*\b[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-Z]\b"),  # stadyum'a f gibi
+    re.compile(r"^[a-zA-Z]\b"),  # tek harf
 ]
 
 def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
@@ -340,10 +262,64 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
         if p.search(w):
             if " " in w and len(w.split()) == 2 and len(w.split()[1]) == 1:
                 return True
+    try:
+        s = span.get("start", -1); e = span.get("end", -1)
+        if 0 <= s < e <= len(full_text):
+            left = full_text[s-1] if s-1 >= 0 else ""
+            right = full_text[e] if e < len(full_text) else ""
+            if left.isalpha() and right.isalpha():
+                return True
+    except:
+        pass
     return False
 
 # =======================================================
-# 5C) Büyük harf (false-positive azaltılmış)
+# 5C) DAHA İYİ CÜMLE BAŞI TESPİTİ (ASİL FIX)
+#    Problem: "nasılsın? - Ben ..." => start '-' değil 'Ben' olmalı
+# =======================================================
+SENT_BOUNDARY = re.compile(r"([.!?]+|[\n\r]+|[:;]+|—|–|-{1,3})")
+
+LEADING_JUNK = set([' ', '\t', '\n', '\r', '-', '—', '–', '•', '*', '·', '"', "'", "“", "”", "‘", "’", "(", "[", "{"])
+
+def sentence_starts(text: str) -> set:
+    starts = {0}
+    for m in SENT_BOUNDARY.finditer(text):
+        idx = m.end()
+        # boşluk + dash/quote/bullet gibi önden gelen karakterleri atla
+        while idx < len(text) and text[idx] in LEADING_JUNK:
+            idx += 1
+        if idx < len(text):
+            starts.add(idx)
+    return starts
+
+# =======================================================
+# 5D) ÖZEL İSİM (çok basit ama güvenli)
+# =======================================================
+PROPER_ROOTS = {"samsun", "karadeniz", "türkiye", "ankara", "istanbul", "izmir"}
+
+def norm_token(token: str) -> str:
+    if not token:
+        return ""
+    t = token.strip().replace("’", "'")
+    t = re.sub(r"[.,;:!?()\[\]{}]", "", t)
+    return t
+
+def token_root(token: str) -> str:
+    t = norm_token(token)
+    if "'" in t:
+        t = t.split("'")[0]
+    return t.casefold()
+
+def is_probably_proper(word: str) -> bool:
+    r = token_root(word)
+    if r in PROPER_ROOTS:
+        return True
+    if "'" in norm_token(word) and word[:1].isupper():
+        return True
+    return False
+
+# =======================================================
+# 5E) GEREKSİZ BÜYÜK HARF (daha güvenli)
 # =======================================================
 def find_unnecessary_capitals(full_text: str) -> list:
     starts = sentence_starts(full_text)
@@ -359,18 +335,15 @@ def find_unnecessary_capitals(full_text: str) -> list:
         if is_probably_proper(word):
             continue
 
-        # "Sok" kelimesi çoğu zaman OCR->çok; büyük harf önerisi üretme
-        if tr_lower(word) in {"sok"}:
-            continue
-
-        upp = sum(1 for ch in word if ch.isupper())
-        low = sum(1 for ch in word if ch.islower())
-        is_weird_case = (upp >= 2 and low >= 1)
+        # iStadyum gibi "weird case" => OCR şüpheli
+        upper_ct = sum(1 for ch in word if ch.isupper())
+        lower_ct = sum(1 for ch in word if ch.islower())
+        is_weird_case = (upper_ct >= 2 and lower_ct >= 1) or (word[:1].islower() and upper_ct >= 1)
 
         if is_weird_case:
             errors.append({
                 "wrong": word,
-                "correct": word,
+                "correct": word,  # zorla düzeltme dayatma
                 "type": "OCR_ŞÜPHELİ",
                 "rule_id": "TDK_08_BUYUK_GEREKSIZ",
                 "explanation": "Büyük/küçük harf karışıklığı OCR kaynaklı olabilir.",
@@ -393,56 +366,27 @@ def find_unnecessary_capitals(full_text: str) -> list:
     return errors
 
 # =======================================================
-# 5D) A2 heuristics
+# 5F) A2 sık hatalar
 # =======================================================
-POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
-
-def find_conjunction_dade_joined(full_text: str) -> list:
-    errs = []
-    for m in re.finditer(r"\b([^\W\d_]+)(da|de)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
-        base = m.group(1)
-        suf = m.group(2)
-        whole = full_text[m.start():m.end()]
-
-        # mektubun-da, evim-de gibi -> bölme
-        if POSSESSIVE_HINT.search(base):
-            continue
-
-        # özel isim/büyük harf varsa dokunma
-        if any(ch.isupper() for ch in whole) or is_probably_proper(whole):
-            continue
-
-        errs.append({
-            "wrong": whole,
-            "correct": f"{base} {suf}",
-            "type": "Yazım",
-            "rule_id": "TDK_01_BAGLAC_DE",
-            "explanation": "Bağlaç olan da/de ayrı yazılır. (Düşük güven: ek de olabilir.)",
-            "span": {"start": m.start(), "end": m.end()},
-            "ocr_suspect": True
-        })
-    return errs
-
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
 
-    # cok/çok OCR varyantları
+    # cok/çok benzeri -> çok
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
-        wrong = m.group(0)
         errs.append({
-            "wrong": wrong,
+            "wrong": m.group(0),
             "correct": "çok",
             "type": "Yazım",
             "rule_id": "TDK_28_YABANCI",
             "explanation": "‘çok’ kelimesinin yazımı.",
             "span": {"start": m.start(), "end": m.end()},
-            "ocr_suspect": True
+            "ocr_suspect": True if m.group(0).lower() == "sok" else False
         })
 
     # soru eki bitişik: geldinmi -> geldin mi
     for m in re.finditer(r"\b([^\W\d_]{2,})(mi|mı|mu|mü)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         word = m.group(0)
-        wl = tr_lower(word)
+        wl = word.casefold()
         if wl in {"kimi", "bimi"}:
             continue
         errs.append({
@@ -458,55 +402,50 @@ def find_common_a2_errors(full_text: str) -> list:
     return errs
 
 # =======================================================
-# 5E) Tek span tek öneri
+# 5G) DA/DE HEURİSTİĞİ (YUMUŞATILDI) - mektubunda bug fix
+#   -> bulsa bile OCR_ŞÜPHELİ olarak işaretler (UI kırmızı yapmasın)
 # =======================================================
-RULE_PRIORITY = {
-    "TDK_28_YABANCI": 100,
-    "TDK_03_SORU_EKI": 90,
-    "TDK_09_KESME_OZEL": 80,
-    "TDK_13_KESME_GENEL": 80,
-    "TDK_25_SERTLESME": 70,
-    "TDK_01_BAGLAC_DE": 60,
-    "TDK_08_BUYUK_GEREKSIZ": 30,
-    "TDK_05_BUYUK_CUMLE": 20,
-    "TDK_20_NOKTA": 20,
-    "TDK_21_VIRGUL": 20,
-    "TDK_23_YANLIS_YALNIZ": 10,
-}
+POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
 
-def pick_best_per_span(errors: list) -> list:
-    buckets: Dict[tuple, List[dict]] = {}
-    for e in errors:
-        sp = e.get("span") or {}
-        key = (sp.get("start"), sp.get("end"))
-        if None in key:
+def find_conjunction_dade_joined(full_text: str) -> list:
+    errs = []
+    for m in re.finditer(r"\b([^\W\d_]+)(da|de)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
+        base = m.group(1)
+        suf = m.group(2)
+        whole = full_text[m.start():m.end()]
+
+        # Özel isim / kesmeli yapılara dokunma
+        if "'" in whole or is_probably_proper(whole):
             continue
-        buckets.setdefault(key, []).append(e)
 
-    chosen = []
-    for _, items in buckets.items():
-        def score(e):
-            pri = RULE_PRIORITY.get(e.get("rule_id"), 0)
-            ocr_penalty = 20 if e.get("ocr_suspect") else 0
-            same_penalty = 50 if normalize_match(e.get("wrong","")) == normalize_match(e.get("correct","")) else 0
-            return pri - ocr_penalty - same_penalty
-        chosen.append(max(items, key=score))
+        # "mektubun-da" gibi çok muhtemel ekleşmiş yapı => dokunma
+        if POSSESSIVE_HINT.search(base):
+            continue
 
-    chosen.sort(key=lambda x: x["span"]["start"])
-    return chosen
+        # Çok kısa bazılarında yanlış olma ihtimali yüksek ama yine de "şüpheli" sun
+        errs.append({
+            "wrong": whole,
+            "correct": f"{base} {suf}",
+            "type": "Yazım",
+            "rule_id": "TDK_01_BAGLAC_DE",
+            "explanation": "Bağlaç olan da/de ayrı yazılır. (Düşük güven: ek de olabilir.)",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": True
+        })
+    return errs
 
 # =======================================================
-# 5F) CEFR fallback (0 puanları bitirmek için)
+# 5H) CEFR fallback (0 puanları bitirmek için)
 # =======================================================
 def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
-    t = normalize_text(text).replace("\n", " ")
+    t = normalize_text(text)
     if not t:
         return {"uzunluk": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0}
 
     words = re.findall(r"\b[^\W\d_]+\b", t, flags=re.UNICODE)
     sentences = [s for s in re.split(r"[.!?]+", t) if s.strip()]
-    has_connectors = bool(re.search(r"\b(ve|ama|çünkü|bu yüzden|sonra|fakat)\b", tr_lower(t)))
-    uniq = len(set([tr_lower(w) for w in words])) if words else 0
+    has_connectors = bool(re.search(r"\b(ve|ama|çünkü|bu yüzden|sonra|fakat)\b", t.casefold()))
+    uniq = len(set([w.casefold() for w in words])) if words else 0
 
     uzunluk = min(16, max(4, int(len(words) / 10) + 6))
     kelime = min(14, max(5, int(uniq / 8) + 6))
@@ -525,7 +464,12 @@ def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
         icerik += 4
     icerik = min(20, max(6, icerik))
 
-    return {"uzunluk": int(uzunluk), "soz_dizimi": int(soz_dizimi), "kelime": int(kelime), "icerik": int(icerik)}
+    return {
+        "uzunluk": int(uzunluk),
+        "soz_dizimi": int(soz_dizimi),
+        "kelime": int(kelime),
+        "icerik": int(icerik),
+    }
 
 # =======================================================
 # 6) ENDPOINTS
@@ -602,31 +546,25 @@ async def analyze_submission(data: AnalyzeRequest):
     if not data.ocr_text or not data.ocr_text.strip():
         raise HTTPException(status_code=400, detail="Metin boş, analiz yapılamaz.")
 
-    full_text = normalize_text(data.ocr_text)  # ✅ newline korunuyor
-    display_text = full_text.replace("\n", " ")  # LLM için
-
+    full_text = normalize_text(data.ocr_text)
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
     tdk_rules = load_tdk_rules()
     allowed_ids = {r["rule_id"] for r in tdk_rules}
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
 
-    # =======================================================
-    # 1) TDK AGENT (paraphrase yasak)
-    # =======================================================
     prompt_tdk = f"""
 ROL: Sen nesnel ve kuralcı bir TDK denetçisisin.
-GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / ek yazımı hatalarını bul.
+GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / ek yazımı hatalarını mümkün olduğunca TAM bul.
 
 ÖNEMLİ:
-- YENİDEN YAZIM YAPMA: Cümleleri daha doğal hale getirip yeniden yazma.
-- SADECE LOKAL DÜZELT: 1-2 kelimelik küçük parçalar düzelt.
-- wrong alanı en fazla 25 karakterlik küçük bir parça olsun. (Cümle komple olmaz.)
 - "wrong" alanına metindeki parçayı BİREBİR yaz.
-- OCR kaynaklı olabilecek parçalanmaları "ocr_suspect": true olarak işaretle.
+- En az 15 hata bulmaya çalış (yoksa bulabildiğin kadar).
 - Cins isimlerde kesme kullanılmaz (stadyuma). Özel isimlerde kesme olabilir (Samsun'a).
+- Cümle içinde özel isim olmayan kelimeler büyük harfle yazılamaz.
+- OCR kaynaklı olabilecek parçalanmaları "ocr_suspect": true olarak İŞARETLE.
 
-METİN: \"\"\"{display_text}\"\"\"
+METİN: \"\"\"{full_text}\"\"\"
 
 REFERANS KURALLAR:
 {rules_text}
@@ -647,20 +585,17 @@ REFERANS KURALLAR:
 }}
 """
 
-    # =======================================================
-    # 2) CEFR AGENT
-    # =======================================================
     prompt_cefr = f"""
 ROL: Sen destekleyici bir öğretmensin.
-GÖREV: {data.level} seviyesindeki öğrencinin iletişim becerisini değerlendir.
+GÖREV: {data.level} seviyesindeki öğrencinin İLETİŞİM BECERİSİNİ değerlendir.
 
 KURALLAR:
-1) Yazım/noktalama hatalarını puanlamada ikinci plana at (iletişim öncelikli).
+1) Yazım/noktalama hatalarını PUANLAMADA ikinci plana at (iletişim öncelikli).
 2) PUANLAMA: Tam sayı.
 3) teacher_note başına "[SEVİYE: ...]" ekle.
-4) rubric_part içindeki 4 alan ZORUNLU ve Int olmalı.
+4) rubric_part içindeki 4 alan ZORUNLU ve her biri Int olmalı. Boş bırakma.
 
-METİN: \"\"\"{display_text}\"\"\"
+METİN: \"\"\"{full_text}\"\"\"
 
 ÇIKTI (SADECE JSON):
 {{
@@ -707,9 +642,7 @@ METİN: \"\"\"{display_text}\"\"\"
                 raise ValueError("Boş CEFR Yanıtı")
             json_cefr = json.loads(raw_cefr.replace("```json", "").replace("```", ""))
 
-            # =======================================================
-            # PUAN BİRLEŞTİRME + FALLBACK
-            # =======================================================
+            # --- PUAN birleştirme + CEFR fallback
             tdk_p = json_tdk.get("rubric_part", {}) if isinstance(json_tdk, dict) else {}
             cefr_p = json_cefr.get("rubric_part", {}) if isinstance(json_cefr, dict) else {}
 
@@ -726,9 +659,7 @@ METİN: \"\"\"{display_text}\"\"\"
             }
             total_score = sum(combined_rubric.values())
 
-            # =======================================================
-            # HATA TOPLAMA
-            # =======================================================
+            # --- HATALAR: LLM + RULE ENGINE birleşimi
             cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
@@ -741,12 +672,7 @@ METİN: \"\"\"{display_text}\"\"\"
                 rule_dade
             )
 
-            # ✅ aynı span çatışmasını tek öneriye indir
-            all_errors = pick_best_per_span(all_errors)
-
-            # =======================================================
-            # OCR / ÖĞRENCİ AYIR
-            # =======================================================
+            # OCR şüphelileri ayır
             errors_student = []
             errors_ocr = []
 
@@ -776,9 +702,10 @@ METİN: \"\"\"{display_text}\"\"\"
             final_result = {
                 "rubric": combined_rubric,
 
-                # eski UI uyumluluğu: errors = öğrenci hataları
+                # eski UI uyumu
                 "errors": errors_student,
 
+                # yeni alanlar
                 "errors_student": errors_student,
                 "errors_ocr": errors_ocr,
 
@@ -786,7 +713,7 @@ METİN: \"\"\"{display_text}\"\"\"
                 "score_total": total_score
             }
 
-            print(f"✅ Başarılı: {model_name} | Puan: {total_score} | Öğrenci: {len(errors_student)} | OCR: {len(errors_ocr)}")
+            print(f"✅ Başarılı: {model_name} | Puan: {total_score} | Öğrenci hata: {len(errors_student)} | OCR: {len(errors_ocr)}")
             break
 
         except Exception as e:
@@ -804,7 +731,7 @@ METİN: \"\"\"{display_text}\"\"\"
             "student_surname": data.student_surname.strip(),
             "classroom_code": data.classroom_code.strip(),
             "image_url": data.image_url,
-            "ocr_text": full_text,  # ✅ newline ile saklanır
+            "ocr_text": full_text,
             "level": data.level,
             "country": data.country,
             "native_language": data.native_language,
