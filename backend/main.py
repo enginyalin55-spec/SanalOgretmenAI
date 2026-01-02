@@ -25,7 +25,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="1.1.0")
+app = FastAPI(title="Sanal Ogretmen AI API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,16 +86,10 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_05_BUYUK_CUMLE", "text": "Cümleler büyük harfle başlar."},
         {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler (Şehir, Kişi) büyük harfle başlar."},
         {"rule_id": "TDK_07_BUYUK_KURUM", "text": "Kurum adları büyük harfle başlar."},
-
-        # ✅ Gereksiz büyük harf
         {"rule_id": "TDK_08_BUYUK_GEREKSIZ", "text": "Özel isim olmayan sözcükler cümle içinde büyük harfle yazılamaz."},
-
         {"rule_id": "TDK_09_KESME_OZEL", "text": "Özel isimlere gelen ekler kesme ile ayrılır (Samsun'a)."},
         {"rule_id": "TDK_10_KESME_KURUM", "text": "Kurum adlarına gelen ekler AYRILMAZ (Bakanlığına). NOT: Şehirler kurum değildir!"},
-
-        # ✅ Genel isimlerde kesme kullanılmaz
         {"rule_id": "TDK_13_KESME_GENEL", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz (stadyuma, okula)."},
-
         {"rule_id": "TDK_11_YARDIMCI_FIIL", "text": "Ses olayı varsa bitişik, yoksa ayrı."},
         {"rule_id": "TDK_12_SAYILAR", "text": "Sayılar ayrı yazılır (on beş)."},
         {"rule_id": "TDK_20_NOKTA", "text": "Cümle sonuna nokta konur."},
@@ -208,7 +202,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
                 "rule_id": rid,
                 "explanation": err.get("explanation", ""),
                 "span": {"start": start, "end": end},
-                # ✅ LLM'den gelirse koru
                 "ocr_suspect": bool(err.get("ocr_suspect", False))
             })
 
@@ -236,7 +229,7 @@ def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return merged
 
 # =======================================================
-# 5A) 4.1 ✅ OCR ŞÜPHELİ PARÇALARI YAKALAYAN FİLTRE
+# 5A) ✅ 4.1 OCR ŞÜPHELİ PARÇALARI YAKALAYAN FİLTRE
 # =======================================================
 OCR_NOISE_PATTERNS = [
     re.compile(r"^[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-ZğüşöçıİĞÜŞÖÇ]\b"),  # stadyum'a f gibi
@@ -265,22 +258,28 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
     return False
 
 # =======================================================
-# 5B) 4.2 ✅ “Gereksiz büyük harf” kural motoru
+# 5B) ✅ 4.2 “Gereksiz büyük harf” kural motoru (DÜZELTİLDİ)
+#   - ? - Ben gibi durumlarda '-' / tırnak vs atlanır
+#   - karışık büyük/küçük (iStadyum) OCR şüpheli işaretlenir
 # =======================================================
 TR_LOWER_EXCEPTIONS = {"I"}  # istersen boş bırak
 PROPER_NOUNS_HINT = {"Samsun", "Karadeniz", "Türkiye"}  # istersen genişlet
 
 SENT_SPLIT = re.compile(r"([.!?])")
+_LEADING_JUNK = set(' \n\t\r"“”\'’()[]{}-–—:;')
 
 def sentence_starts(text: str) -> set:
     starts = {0}
     for m in SENT_SPLIT.finditer(text):
         idx = m.end()
-        while idx < len(text) and text[idx].isspace():
+        while idx < len(text) and text[idx] in _LEADING_JUNK:
             idx += 1
         if idx < len(text):
             starts.add(idx)
     return starts
+
+def _mixed_case(word: str) -> bool:
+    return any(c.islower() for c in word) and any(c.isupper() for c in word)
 
 def find_unnecessary_capitals(full_text: str) -> list:
     starts = sentence_starts(full_text)
@@ -291,8 +290,21 @@ def find_unnecessary_capitals(full_text: str) -> list:
         s, e = m.start(), m.end()
 
         if s in starts:
-            continue  # cümle başı ok
+            continue  # cümle başı OK
         if word in PROPER_NOUNS_HINT:
+            continue
+
+        # ✅ OCR şüpheli: iStadyum / SoK / kısa token vs.
+        if len(word) <= 2 or _mixed_case(word):
+            errors.append({
+                "wrong": word,
+                "correct": word,
+                "type": "OCR_ŞÜPHELİ",
+                "rule_id": "OCR_SUSPECT",
+                "explanation": "Büyük/küçük harf bozulması OCR kaynaklı olabilir.",
+                "span": {"start": s, "end": e},
+                "ocr_suspect": True
+            })
             continue
 
         if word and word[0].isupper():
@@ -308,12 +320,13 @@ def find_unnecessary_capitals(full_text: str) -> list:
     return errors
 
 # =======================================================
-# 5C) 4.3 ✅ “çok/cok”, “mi/mı”, “de/da” hızlı yakalayıcılar
+# 5C) ✅ 4.3 “çok/cok”, “mi/mı”, “de/da” hızlı yakalayıcılar (GELİŞTİRİLDİ)
+#   - sok/Sok -> çok (OCR çok sık)
 # =======================================================
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
 
-    # cok/çok -> çok
+    # cok/çog/cök -> çok
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk)\b", full_text, flags=re.IGNORECASE):
         errs.append({
             "wrong": m.group(0),
@@ -323,6 +336,18 @@ def find_common_a2_errors(full_text: str) -> list:
             "explanation": "‘çok’ kelimesinin yazımı.",
             "span": {"start": m.start(), "end": m.end()},
             "ocr_suspect": False
+        })
+
+    # ✅ sok/Sok/SOK -> çok (OCR)
+    for m in re.finditer(r"\b(sok|Sok|SOK)\b", full_text):
+        errs.append({
+            "wrong": m.group(0),
+            "correct": "çok",
+            "type": "Yazım",
+            "rule_id": "TDK_28_YABANCI",
+            "explanation": "OCR 'çok' kelimesini 'sok' olarak bozumuş olabilir.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": True
         })
 
     # soru eki bitişik: nasılsınmi / geldinmi / varmi
@@ -476,7 +501,7 @@ REFERANS KURALLAR:
 """
 
     # =======================================================
-    # ✅ 2) CEFR AJANI (puanlama aynı)
+    # ✅ 2) CEFR AJANI
     # =======================================================
     prompt_cefr = f"""
 ROL: Sen destekleyici bir öğretmensin.
@@ -548,17 +573,20 @@ METİN: \"\"\"{full_text}\"\"\"
             total_score = sum(combined_rubric.values())
 
             # =======================================================
-            # 4.4 ✅ HATALARI ARTIRAN BİRLEŞİM (asıl nokta)
+            # ✅ 4.4 HATALARI ARTIRAN BİRLEŞİM
             # =======================================================
             cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
 
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
 
-            all_errors = (cleaned_tdk.get("errors", []) + rule_caps + rule_common)
-            all_errors = merge_and_dedupe_errors(all_errors)
+            all_errors = merge_and_dedupe_errors(
+                cleaned_tdk.get("errors", []),
+                rule_caps,
+                rule_common
+            )
 
-            # ✅ OCR şüpheli filtrele / işaretle
+            # ✅ OCR şüpheli işaretleme
             filtered = []
             seen = set()
 
@@ -572,11 +600,8 @@ METİN: \"\"\"{full_text}\"\"\"
                 if "start" not in span or "end" not in span:
                     continue
 
-                # LLM zaten ocr_suspect true işaretlediyse veya heuristik yakaladıysa
                 ocr_flag = bool(e.get("ocr_suspect", False)) or looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
                 if ocr_flag:
-                    # tamamen atmak istersen:
-                    # continue
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["explanation"] = (e.get("explanation", "") + " (OCR parçalanması olabilir.)").strip()
                     e["ocr_suspect"] = True
