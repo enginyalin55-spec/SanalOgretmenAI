@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Union, List, Dict, Any, Optional
 
 # =======================================================
-# 1. AYARLAR
+# 1) AYARLAR
 # =======================================================
 load_dotenv()
 
@@ -17,7 +17,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise RuntimeError("❌ KRİTİK HATA: GEMINI_API_KEY eksik!")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_URL = (os.getenv("SUPABASE_URL", "") or "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("❌ KRİTİK HATA: SUPABASE bilgileri eksik!")
@@ -41,15 +41,16 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MIME_BY_EXT = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
 # =======================================================
-# 2. HEALTH
+# 2) HEALTH
 # =======================================================
 @app.get("/")
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "Sanal Ogretmen AI Backend"}
 
+
 # =======================================================
-# 3. MODELLER
+# 3) REQUEST MODELLERİ
 # =======================================================
 class AnalyzeRequest(BaseModel):
     ocr_text: str
@@ -66,8 +67,9 @@ class UpdateScoreRequest(BaseModel):
     new_rubric: dict
     new_total: int
 
+
 # =======================================================
-# 4. CEFR + TDK RULES
+# 4) CEFR + TDK RULES
 # =======================================================
 CEFR_KRITERLERI = {
     "A1": "Kısa, basit cümleler. Temel ihtiyaç iletişimi.",
@@ -86,10 +88,16 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_05_BUYUK_CUMLE", "text": "Cümleler büyük harfle başlar."},
         {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler (Şehir, Kişi) büyük harfle başlar."},
         {"rule_id": "TDK_07_BUYUK_KURUM", "text": "Kurum adları büyük harfle başlar."},
+
+        # ✅ Gereksiz büyük harf
         {"rule_id": "TDK_08_BUYUK_GEREKSIZ", "text": "Özel isim olmayan sözcükler cümle içinde büyük harfle yazılamaz."},
+
         {"rule_id": "TDK_09_KESME_OZEL", "text": "Özel isimlere gelen ekler kesme ile ayrılır (Samsun'a)."},
         {"rule_id": "TDK_10_KESME_KURUM", "text": "Kurum adlarına gelen ekler AYRILMAZ (Bakanlığına). NOT: Şehirler kurum değildir!"},
+
+        # ✅ Genel isimlerde kesme kullanılmaz
         {"rule_id": "TDK_13_KESME_GENEL", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz (stadyuma, okula)."},
+
         {"rule_id": "TDK_11_YARDIMCI_FIIL", "text": "Ses olayı varsa bitişik, yoksa ayrı."},
         {"rule_id": "TDK_12_SAYILAR", "text": "Sayılar ayrı yazılır (on beş)."},
         {"rule_id": "TDK_20_NOKTA", "text": "Cümle sonuna nokta konur."},
@@ -100,8 +108,9 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_28_YABANCI", "text": "Yabancı kelimeler (Şoför, egzoz, makine)."}
     ]
 
+
 # =======================================================
-# 5. YARDIMCILAR
+# 5) GENEL YARDIMCILAR (normalize + span güvenliği)
 # =======================================================
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
@@ -144,6 +153,9 @@ async def read_limited(upload: UploadFile, limit: int) -> bytes:
     return b"".join(chunks)
 
 def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
+    """
+    LLM wrong'ı normalize ederek metin içinde bulur ve span döndürür.
+    """
     w = normalize_match(wrong)
     t = normalize_match(full_text)
     if not w:
@@ -165,9 +177,16 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
     return (best, best + len(w))
 
 def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
-    """LLM'nin döndürdüğü hataları metin üzerinde span ile güvenli hale getirir."""
+    """
+    LLM'nin döndürdüğü hataları:
+    - rule_id whitelist
+    - wrong/correct aynıysa at
+    - wrong'ı metin içinde bulup gerçek span çıkar
+    - ocr_suspect varsa koru
+    """
     if not isinstance(result, dict):
         return {"errors": []}
+
     raw_errors = result.get("errors", [])
     if not isinstance(raw_errors, list):
         raw_errors = []
@@ -202,14 +221,16 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
                 "rule_id": rid,
                 "explanation": err.get("explanation", ""),
                 "span": {"start": start, "end": end},
-                "ocr_suspect": bool(err.get("ocr_suspect", False))
+                "ocr_suspect": bool(err.get("ocr_suspect", False)),
             })
 
     clean_errors.sort(key=lambda x: x["span"]["start"])
     return {"errors": clean_errors}
 
 def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Aynı span/aynı wrong/correct tekrarlarını temizler."""
+    """
+    Aynı span + same wrong/correct + same rule_id tekrarlarını temizler.
+    """
     seen = set()
     merged = []
     for lst in lists:
@@ -219,17 +240,19 @@ def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 sp.get("start"), sp.get("end"),
                 normalize_match(e.get("wrong", "")),
                 normalize_match(e.get("correct", "")),
-                e.get("rule_id")
+                e.get("rule_id"),
             )
             if key in seen:
                 continue
             seen.add(key)
             merged.append(e)
+
     merged.sort(key=lambda x: x.get("span", {}).get("start", 10**9))
     return merged
 
+
 # =======================================================
-# 5A) ✅ 4.1 OCR ŞÜPHELİ PARÇALARI YAKALAYAN FİLTRE
+# 5A) 4.1 ✅ OCR ŞÜPHELİ PARÇALARI YAKALAYAN FİLTRE
 # =======================================================
 OCR_NOISE_PATTERNS = [
     re.compile(r"^[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-ZğüşöçıİĞÜŞÖÇ]\b"),  # stadyum'a f gibi
@@ -240,48 +263,45 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
     w = (wrong or "").strip()
     if len(w) <= 1:
         return True
+
     for p in OCR_NOISE_PATTERNS:
         if p.search(w):
             # örn: "stadyum'a f" ise çok şüpheli
             if " " in w and len(w.split()) == 2 and len(w.split()[1]) == 1:
                 return True
-    # span çok kısa ve çevresi harfse -> kelime kırpılmış olabilir
+
+    # span çevresi harfse -> kelime kırpılmış olabilir
     try:
-        s = span.get("start", -1); e = span.get("end", -1)
+        s = span.get("start", -1)
+        e = span.get("end", -1)
         if 0 <= s < e <= len(full_text):
-            left = full_text[s-1] if s-1 >= 0 else ""
+            left = full_text[s - 1] if s - 1 >= 0 else ""
             right = full_text[e] if e < len(full_text) else ""
             if left.isalpha() and right.isalpha():
                 return True
     except:
         pass
+
     return False
 
-# =======================================================
-# 5B) ✅ 4.2 “Gereksiz büyük harf” kural motoru (DÜZELTİLDİ)
-#   - ? - Ben gibi durumlarda '-' / tırnak vs atlanır
-#   - karışık büyük/küçük (iStadyum) OCR şüpheli işaretlenir
-# =======================================================
-TR_LOWER_EXCEPTIONS = {"I"}  # istersen boş bırak
-PROPER_NOUNS_HINT = {"Samsun", "Karadeniz", "Türkiye"}  # istersen genişlet
 
+# =======================================================
+# 5B) 4.2 ✅ Gereksiz büyük harf motoru
+# =======================================================
+PROPER_NOUNS_HINT = {"Samsun", "Karadeniz", "Türkiye"}  # istersen genişlet
 SENT_SPLIT = re.compile(r"([.!?])")
-_LEADING_JUNK = set(' \n\t\r"“”\'’()[]{}-–—:;')
 
 def sentence_starts(text: str) -> set:
     starts = {0}
     for m in SENT_SPLIT.finditer(text):
         idx = m.end()
-        while idx < len(text) and text[idx] in _LEADING_JUNK:
+        while idx < len(text) and text[idx].isspace():
             idx += 1
         if idx < len(text):
             starts.add(idx)
     return starts
 
-def _mixed_case(word: str) -> bool:
-    return any(c.islower() for c in word) and any(c.isupper() for c in word)
-
-def find_unnecessary_capitals(full_text: str) -> list:
+def find_unnecessary_capitals(full_text: str) -> List[Dict[str, Any]]:
     starts = sentence_starts(full_text)
     errors = []
 
@@ -294,19 +314,6 @@ def find_unnecessary_capitals(full_text: str) -> list:
         if word in PROPER_NOUNS_HINT:
             continue
 
-        # ✅ OCR şüpheli: iStadyum / SoK / kısa token vs.
-        if len(word) <= 2 or _mixed_case(word):
-            errors.append({
-                "wrong": word,
-                "correct": word,
-                "type": "OCR_ŞÜPHELİ",
-                "rule_id": "OCR_SUSPECT",
-                "explanation": "Büyük/küçük harf bozulması OCR kaynaklı olabilir.",
-                "span": {"start": s, "end": e},
-                "ocr_suspect": True
-            })
-            continue
-
         if word and word[0].isupper():
             errors.append({
                 "wrong": word,
@@ -317,16 +324,17 @@ def find_unnecessary_capitals(full_text: str) -> list:
                 "span": {"start": s, "end": e},
                 "ocr_suspect": False
             })
+
     return errors
 
+
 # =======================================================
-# 5C) ✅ 4.3 “çok/cok”, “mi/mı”, “de/da” hızlı yakalayıcılar (GELİŞTİRİLDİ)
-#   - sok/Sok -> çok (OCR çok sık)
+# 5C) 4.3 ✅ A2 hızlı yakalayıcılar (çok / mi / de)
 # =======================================================
-def find_common_a2_errors(full_text: str) -> list:
+def find_common_a2_errors(full_text: str) -> List[Dict[str, Any]]:
     errs = []
 
-    # cok/çog/cök -> çok
+    # cok/çok -> çok
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk)\b", full_text, flags=re.IGNORECASE):
         errs.append({
             "wrong": m.group(0),
@@ -338,21 +346,10 @@ def find_common_a2_errors(full_text: str) -> list:
             "ocr_suspect": False
         })
 
-    # ✅ sok/Sok/SOK -> çok (OCR)
-    for m in re.finditer(r"\b(sok|Sok|SOK)\b", full_text):
-        errs.append({
-            "wrong": m.group(0),
-            "correct": "çok",
-            "type": "Yazım",
-            "rule_id": "TDK_28_YABANCI",
-            "explanation": "OCR 'çok' kelimesini 'sok' olarak bozumuş olabilir.",
-            "span": {"start": m.start(), "end": m.end()},
-            "ocr_suspect": True
-        })
-
     # soru eki bitişik: nasılsınmi / geldinmi / varmi
     for m in re.finditer(r"\b([^\W\d_]+)(mi|mı|mu|mü)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         word = m.group(0)
+        # kaba koruma
         if word.lower() in {"kimi", "bimi"}:
             continue
         errs.append({
@@ -383,8 +380,9 @@ def find_common_a2_errors(full_text: str) -> list:
 
     return errs
 
+
 # =======================================================
-# 6. ENDPOINTS
+# 6) ENDPOINTS
 # =======================================================
 @app.get("/check-class/{code}")
 async def check_class_code(code: str):
@@ -395,6 +393,7 @@ async def check_class_code(code: str):
         return {"valid": False}
     except:
         return {"valid": False}
+
 
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
@@ -416,6 +415,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
 
+        # Upload (best-effort)
         try:
             supabase.storage.from_("odevler").upload(
                 unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"}
@@ -453,6 +453,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
     if not data.ocr_text or not data.ocr_text.strip():
@@ -466,7 +467,7 @@ async def analyze_submission(data: AnalyzeRequest):
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
 
     # =======================================================
-    # ✅ 1) TDK AJANI (OCR ignore yok → OCR şüpheli işaretle var)
+    # ✅ 1) TDK AJANI: OCR ignore yok → OCR şüpheli işaretleme var
     # =======================================================
     prompt_tdk = f"""
 ROL: Sen nesnel ve kuralcı bir TDK denetçisisin.
@@ -530,6 +531,7 @@ METİN: \"\"\"{full_text}\"\"\"
         try:
             print(f"🔄 Model: {model_name}")
 
+            # --- TDK ---
             resp_tdk = client.models.generate_content(
                 model=model_name,
                 contents=prompt_tdk,
@@ -543,6 +545,7 @@ METİN: \"\"\"{full_text}\"\"\"
                 raise ValueError("Boş TDK Yanıtı")
             json_tdk = json.loads(raw_tdk.replace("```json", "").replace("```", ""))
 
+            # --- CEFR ---
             resp_cefr = client.models.generate_content(
                 model=model_name,
                 contents=prompt_cefr,
@@ -559,8 +562,8 @@ METİN: \"\"\"{full_text}\"\"\"
             # =======================================================
             # ✅ PUAN birleştirme
             # =======================================================
-            tdk_p = json_tdk.get("rubric_part", {})
-            cefr_p = json_cefr.get("rubric_part", {})
+            tdk_p = json_tdk.get("rubric_part", {}) or {}
+            cefr_p = json_cefr.get("rubric_part", {}) or {}
 
             combined_rubric = {
                 "noktalama": min(14, max(0, to_int(tdk_p.get("noktalama")))),
@@ -573,33 +576,32 @@ METİN: \"\"\"{full_text}\"\"\"
             total_score = sum(combined_rubric.values())
 
             # =======================================================
-            # ✅ 4.4 HATALARI ARTIRAN BİRLEŞİM
+            # 4.4 ✅ HATALARI ARTIRAN BİRLEŞİM
             # =======================================================
-            cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
+            cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids).get("errors", [])
 
+            # Kural motoru ekleri
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
 
-            all_errors = merge_and_dedupe_errors(
-                cleaned_tdk.get("errors", []),
-                rule_caps,
-                rule_common
-            )
+            # Hepsini birleştir + dedupe
+            all_errors = merge_and_dedupe_errors(cleaned_tdk, rule_caps, rule_common)
 
-            # ✅ OCR şüpheli işaretleme
+            # ✅ OCR şüpheli filtrele / işaretle
             filtered = []
             seen = set()
 
             for e in all_errors:
                 span = e.get("span") or {}
+                if "start" not in span or "end" not in span:
+                    continue
+
                 key = (span.get("start"), span.get("end"), e.get("rule_id"), e.get("wrong"), e.get("correct"))
                 if key in seen:
                     continue
                 seen.add(key)
 
-                if "start" not in span or "end" not in span:
-                    continue
-
+                # LLM işaretlediyse veya heuristik yakaladıysa
                 ocr_flag = bool(e.get("ocr_suspect", False)) or looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
@@ -610,6 +612,7 @@ METİN: \"\"\"{full_text}\"\"\"
 
             filtered.sort(key=lambda x: x["span"]["start"])
 
+            # teacher_note garanti
             raw_note = (json_cefr.get("teacher_note") or "").strip()
             if not raw_note:
                 raw_note = f"[SEVİYE: {data.level}] Değerlendirme notu oluşturulamadı."
@@ -655,8 +658,13 @@ METİN: \"\"\"{full_text}\"\"\"
         print(f"DB Kayıt Hatası: {e}")
         return {"status": "success", "data": final_result, "warning": "Veritabanı hatası"}
 
+
 @app.post("/student-history")
-async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
+async def get_student_history(
+    student_name: str = Form(...),
+    student_surname: str = Form(...),
+    classroom_code: str = Form(...)
+):
     try:
         response = supabase.table("submissions").select("*")\
             .ilike("student_name", student_name.strip())\
@@ -666,6 +674,7 @@ async def get_student_history(student_name: str = Form(...), student_surname: st
         return {"status": "success", "data": response.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/update-score")
 async def update_score(data: UpdateScoreRequest):
