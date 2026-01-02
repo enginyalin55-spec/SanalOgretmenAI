@@ -11,7 +11,9 @@ import re
 from pydantic import BaseModel
 from typing import Union, List, Dict, Any
 
-# --- AYARLAR ---
+# =======================================================
+# ⚙️ AYARLAR VE KURULUMLAR
+# =======================================================
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -20,7 +22,7 @@ if SUPABASE_URL and not SUPABASE_URL.endswith("/"):
     SUPABASE_URL += "/"
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# --- İSTEMCİLER ---
+# İstemciler
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -36,7 +38,9 @@ app.add_middleware(
 
 MODELS_TO_TRY = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"]
 
-# --- MODELLER (PYDANTIC) ---
+# =======================================================
+# 📝 VERİ MODELLERİ
+# =======================================================
 class AnalyzeRequest(BaseModel):
     ocr_text: str
     image_url: str
@@ -52,76 +56,55 @@ class UpdateScoreRequest(BaseModel):
     new_rubric: dict
     new_total: int
 
-# --- CEFR KRİTERLERİ ---
+# =======================================================
+# 📚 BİLGİ BANKASI (CEFR & TDK)
+# =======================================================
 CEFR_KRITERLERI = {
-    "A1": "Kısa, basit cümleler. Günlük kelimeler.", 
-    "A2": "Temel bağlaçlar (ve, ama, çünkü). Geçmiş ve gelecek zaman kullanımı.",
-    "B1": "Tutarlı paragraflar. Neden-sonuç ilişkileri.", 
-    "B2": "Akıcı ve detaylı anlatım.", 
-    "C1": "Kusursuz, akademik dil."
+    "A1": "Basit, kısa cümleler ve temel kelimeler. İletişim kurmaya odaklı.",
+    "A2": "Bağlaçlar (ve, ama, çünkü) kullanımı. Geçmiş ve gelecek zamanın temel kullanımı.",
+    "B1": "Tutarlı paragraflar, deneyim aktarımı, neden-sonuç ilişkileri.",
+    "B2": "Akıcı, detaylı ve teknik konularda net anlatım.",
+    "C1": "Akademik, esnek ve kusursuz dil kullanımı."
 }
 
-# =======================================================
-# 🛡️ TDK KURALLARI (ZAMAN UYUMU DAHİL)
-# =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
     return [
-        {"rule_id": "TDK_01_BAGLAC_DE", "title": "Bağlaç Olan 'da/de'nin Yazımı", "text": "Bağlaç olan 'da / de' her zaman ayrı yazılır. Cümleden çıkarılınca anlam bozulmaz.", "category": "Bağlaçlar"},
-        {"rule_id": "TDK_02_BAGLAC_KI", "title": "Bağlaç Olan 'ki'nin Yazımı", "text": "Bağlaç olan 'ki' ayrı yazılır.", "category": "Bağlaçlar"},
-        {"rule_id": "TDK_03_SORU_EKI", "title": "Soru Eki 'mı/mi'nin Yazımı", "text": "Soru eki her zaman ayrı yazılır.", "category": "Ekler"},
-        {"rule_id": "TDK_04_SEY_SOZ", "title": "'Şey' Sözcüğünün Yazımı", "text": "'Şey' sözcüğü her zaman ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_05_BUYUK_CUMLE", "title": "Cümle Başı Büyük Harf", "text": "Cümleler büyük harfle başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_06_BUYUK_OZEL", "title": "Özel İsimlerin Yazımı", "text": "Özel isimler büyük harfle başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_07_BUYUK_KURUM", "title": "Kurum Adları", "text": "Kurum adları büyük harfle başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_08_TARIH_GUN_AY", "title": "Tarihlerin Yazımı", "text": "Ay/gün adları büyük başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_09_KESME_OZEL", "title": "Özel İsimlere Gelen Ekler", "text": "Özel isimlere gelen ekler kesme ile ayrılır.", "category": "Noktalama"},
-        {"rule_id": "TDK_10_KESME_KURUM", "title": "Kurum Ekleri", "text": "Kurum ekleri ayrılmaz.", "category": "Noktalama"},
-        {"rule_id": "TDK_11_YARDIMCI_FIIL_SES", "title": "Yardımcı Fiiller", "text": "Ses olayı varsa bitişik, yoksa ayrı.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_12_SAYI_AYRI", "title": "Sayıların Yazımı", "text": "Sayılar ayrı yazılır.", "category": "Sayılar"},
-        {"rule_id": "TDK_13_ULESTIRME", "title": "Üleştirme Sayıları", "text": "Üleştirme yazıyla yazılır.", "category": "Sayılar"},
-        {"rule_id": "TDK_14_KISALTMA_BUYUK", "title": "Kısaltmalar", "text": "Ekler okunuşa göre gelir.", "category": "Kısaltmalar"},
-        {"rule_id": "TDK_15_IKILEMELER", "title": "İkilemeler", "text": "İkilemeler ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_16_PEKISTIRME", "title": "Pekiştirmeler", "text": "Pekiştirmeler bitişik yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_17_YUMUSAK_G", "title": "Yumuşak G", "text": "Kelime ğ ile başlamaz.", "category": "Yazım"},
-        {"rule_id": "TDK_18_HER_BIR", "title": "'Her' Kelimesi", "text": "Her bir ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_19_BELIRSIZLIK_SIFATLARI", "title": "Bitişik Kelimeler", "text": "Biraz, birçok bitişik yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_20_NOKTA", "title": "Nokta", "text": "Cümle sonuna nokta konur.", "category": "Noktalama"},
-        {"rule_id": "TDK_21_VIRGUL", "title": "Virgül", "text": "Sıralı kelimelere virgül konur.", "category": "Noktalama"},
-        {"rule_id": "TDK_22_DARALMA_KURALI", "title": "Ünlü Daralması", "text": "Gereksiz daralma yapılmaz (Gelcem -> Geleceğim).", "category": "Yazım"},
-        {"rule_id": "TDK_23_YANLIS_YALNIZ", "title": "Yanlış/Yalnız", "text": "Yanlış, Yalnız.", "category": "Yazım"},
-        {"rule_id": "TDK_24_HERKES", "title": "Herkes", "text": "Herkes 's' ile biter.", "category": "Yazım"},
-        {"rule_id": "TDK_25_SERTLESME", "title": "Sertleşme", "text": "Sert ünsüzden sonra sert gelir (kitapta).", "category": "Yazım"},
-        {"rule_id": "TDK_26_HANE", "title": "Hane", "text": "Hastane, postane.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_27_ART_ARDA", "title": "Art Arda", "text": "Art arda ayrı yazılır.", "category": "Ayrı/Bitişik Yazım"},
-        {"rule_id": "TDK_28_YABANCI_KELIMELER", "title": "Yabancı Kelimeler", "text": "Şoför, egzoz, metot.", "category": "Yazım"},
-        {"rule_id": "TDK_29_UNVANLAR", "title": "Unvanlar", "text": "Unvanlar büyük başlar.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_30_YONLER", "title": "Yönler", "text": "Özel isimden önceyse büyük.", "category": "Büyük Harfler"},
-        {"rule_id": "TDK_31_ZAMAN_UYUMU", "title": "Zaman ve Kip Uyumu", "text": "Zaman zarfları (yarın, dün) ile yüklem uyumlu olmalıdır (Yarın gitti -> Yarın gidecek).", "category": "Dilbilgisi"}
+        {"rule_id": "TDK_01_BAGLAC_DE", "text": "Bağlaç olan 'da/de' ayrı yazılır. (Örn: Evde (bulunma) bitişik, Sen de (bağlaç) ayrı)."},
+        {"rule_id": "TDK_02_BAGLAC_KI", "text": "Bağlaç olan 'ki' ayrı yazılır. (Örn: Duydum ki unutmuşsun)."},
+        {"rule_id": "TDK_03_SORU_EKI", "text": "Soru eki 'mı/mi' her zaman ayrı yazılır."},
+        {"rule_id": "TDK_04_SEY_SOZ", "text": "'Şey' sözcüğü daima ayrı yazılır (Her şey, bir şey)."},
+        {"rule_id": "TDK_05_BUYUK_CUMLE", "text": "Cümleler büyük harfle başlar."},
+        {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler (Şehir, Kişi, Ülke) büyük harfle başlar."},
+        {"rule_id": "TDK_07_BUYUK_KURUM", "text": "Kurum adları büyük harfle başlar."},
+        {"rule_id": "TDK_09_KESME_OZEL", "text": "Özel isimlere gelen ekler kesme işaretiyle ayrılır (Ahmet'in, Samsun'a)."},
+        {"rule_id": "TDK_10_KESME_KURUM", "text": "Kurum adlarına gelen ekler kesmeyle AYRILMAZ (Bakanlığına). NOT: Şehir adları kurum değildir, ayrılır!"},
+        {"rule_id": "TDK_11_YARDIMCI_FIIL", "text": "Ses düşmesi/türemesi varsa bitişik (kaybolmak), yoksa ayrı (terk etmek)."},
+        {"rule_id": "TDK_12_SAYILAR", "text": "Birden fazla kelimeli sayılar ayrı yazılır (on beş)."},
+        {"rule_id": "TDK_20_NOKTA", "text": "Tamamlanmış cümlenin sonuna nokta konur."},
+        {"rule_id": "TDK_21_VIRGUL", "text": "Eş görevli kelimeler arasına virgül konur."},
+        {"rule_id": "TDK_23_YANLIS_YALNIZ", "text": "Doğrusu: Yanlış (yanılmaktan), Yalnız (yalından)."},
+        {"rule_id": "TDK_24_HERKES", "text": "Herkes 's' ile biter, 'z' ile değil."},
+        {"rule_id": "TDK_25_SERTLESME", "text": "Sert ünsüzden sonra sert gelir (Dolap-da değil Dolap-ta)."},
+        {"rule_id": "TDK_28_YABANCI", "text": "Sık yapılan yanlışlar: Şoför, egzoz, makine, meyve, herhâlde."}
     ]
 
-# --- YENİ NESİL METİN VE SPAN İŞLEMLERİ (AUTO-FIX) ---
+# =======================================================
+# 🛠️ YARDIMCI FONKSİYONLAR (SPAN FIXER)
+# =======================================================
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
 def normalize_text(text: str) -> str:
-    """Orijinal metni bozmadan temizler."""
     if not text: return ""
     text = text.replace("’", "'").replace("`", "'")
     text = _ZERO_WIDTH.sub("", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 def normalize_match(text: str) -> str:
-    """Eşleştirme için (Küçük harf duyarsız + temiz)."""
     return normalize_text(text).casefold()
 
 def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
-    """
-    wrong ifadesini full_text içinde arar.
-    Birden fazla varsa, AI'ın verdiği ipucu konumuna (hint_start) en yakın olanı seçer.
-    """
     w = normalize_match(wrong)
     t = normalize_match(full_text)
-
     if not w: return None
 
     matches = []
@@ -133,18 +116,18 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
         start_idx = idx + 1
 
     if not matches: return None
-
-    # En yakın eşleşmeyi seç
+    
     if hint_start is None:
         best = matches[0]
     else:
         best = min(matches, key=lambda x: abs(x - hint_start))
-
+        
     return (best, best + len(w))
 
-def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: set) -> Dict[str, Any]:
+def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
+    # Frontend uyumluluğu için boş yapı
     if not isinstance(result, dict):
-        return {"rubric": {}, "errors": [], "teacher_note": "Analiz formatı hatalı."}
+        return {"rubric": {}, "errors": [], "teacher_note": "Analiz alınamadı."}
 
     raw_errors = result.get("errors", [])
     if not isinstance(raw_errors, list): raw_errors = []
@@ -154,65 +137,42 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_rule_ids: 
 
     for err in raw_errors:
         if not isinstance(err, dict): continue
-
+        
+        # Sadece izin verilen TDK kuralları
         rid = err.get("rule_id")
-        if not rid or rid not in allowed_rule_ids: continue
+        if not rid or rid not in allowed_ids: continue
 
-        wrong = err.get("wrong", "") or ""
-        correct = err.get("correct", "") or ""
+        wrong = err.get("wrong", "")
+        correct = err.get("correct", "")
 
-        # 1. Correct boşsa veya Wrong ile aynıysa reddet (AI Halüsinasyonu)
-        if normalize_text(correct) == "": continue
-        if normalize_match(wrong) == normalize_match(correct):
-            print(f"🗑️ Gereksiz düzeltme atıldı: {wrong} -> {correct}")
-            continue
+        # Halüsinasyon Kontrolü
+        if normalize_match(wrong) == normalize_match(correct): continue
+        if not wrong or not correct: continue
 
-        # 2. Span Kontrolü ve ONARIMI
-        span = err.get("span")
-        hint_start = None
-        
-        # AI'ın verdiği span'i ipucu olarak al
-        if isinstance(span, dict) and "start" in span:
-            try: hint_start = int(span["start"])
-            except: pass
+        # Span Hesaplama
+        hint = err.get("span", {}).get("start") if isinstance(err.get("span"), dict) else None
+        fixed = _find_best_span(full_text, wrong, hint)
 
-        # Önce Python ile metinde kelimeyi ARA ve en iyi konumu bul
-        fixed = _find_best_span(full_text, wrong, hint_start)
-        
         if fixed:
             start, end = fixed
-            print(f"✅ Span Onarıldı: '{wrong}' -> {start}-{end}")
-        else:
-            print(f"⚠️ Metinde bulunamadı: '{wrong}'")
-            continue
+            clean_errors.append({
+                "wrong": full_text[start:end],
+                "correct": correct,
+                "type": "Yazım",
+                "rule_id": rid,
+                "explanation": err.get("explanation", ""),
+                "span": {"start": start, "end": end}
+            })
 
-        # Güvenlik kontrolü
-        if start < 0 or end > n: continue
-
-        clean_errors.append({
-            "wrong": full_text[start:end], # Metindeki orijinal halini al
-            "correct": correct,
-            "type": err.get("type", "Yazım"),
-            "rule_id": rid,
-            "explanation": err.get("explanation", ""),
-            "span": {"start": start, "end": end}
-        })
-
-    # Çakışma temizliği
-    clean_errors.sort(key=lambda x: (x["span"]["start"], -(x["span"]["end"] - x["span"]["start"])))
-    final_errors = []
-    last_end = -1
-
-    for e in clean_errors:
-        if e["span"]["start"] < last_end:
-            continue
-        final_errors.append(e)
-        last_end = e["span"]["end"]
-
-    result["errors"] = final_errors
+    # Sıralama ve Temizleme
+    clean_errors.sort(key=lambda x: x["span"]["start"])
+    result["errors"] = clean_errors
     return result
 
-# --- ENDPOINTS ---
+# =======================================================
+# 🚀 ENDPOINTS
+# =======================================================
+
 @app.get("/check-class/{code}")
 async def check_class_code(code: str):
     try:
@@ -228,6 +188,8 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         file_ext = file.filename.split(".")[-1]
         unique_filename = f"{classroom_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
+        
+        # Supabase Upload
         try:
             supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": file.content_type})
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
@@ -235,13 +197,13 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except: pass
 
         extracted_text = ""
-        # OCR Promptunu biraz daha keskinleştirdik
         prompt = "Bu resimdeki el yazısı metni Türkçe olarak aynen dijital metne çevir. Sadece metni ver, yorum yapma."
         
         for model_name in MODELS_TO_TRY:
             try:
                 response = client.models.generate_content(
-                    model=model_name, contents=[prompt, types.Part.from_bytes(data=file_content, mime_type=file.content_type)]
+                    model=model_name, 
+                    contents=[prompt, types.Part.from_bytes(data=file_content, mime_type=file.content_type)]
                 )
                 extracted_text = (response.text or "").strip()
                 if extracted_text: break
@@ -253,93 +215,127 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
-    print(f"🧠 Analiz Başlıyor: {data.student_name} ({data.level})")
+    print(f"🧠 Analiz: {data.student_name} ({data.level}) - Split Modu")
 
-    all_rules = load_tdk_rules()
-    allowed_ids = {r["rule_id"] for r in all_rules}
+    # Hazırlık
+    tdk_rules = load_tdk_rules()
+    allowed_ids = {r["rule_id"] for r in tdk_rules}
+    rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
+    cefr_desc = CEFR_KRITERLERI.get(data.level, "Genel")
+
+    # ----------------------------------------
+    # 1. ADIM: TDK ANALİZİ (Teknik & Hata)
+    # ----------------------------------------
+    prompt_tdk = f"""
+    ROL: Sen acımasız ve titiz bir TDK denetçisisin.
+    GÖREV: Metindeki yazım, noktalama ve gramer hatalarını bul.
     
-    # Kuralları YZ'ye hatırlat
-    rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in all_rules])
+    ⛔ YASAKLAR:
+    - İçeriğe, anlama veya öğrenci seviyesine YORUM YAPMA.
+    - Şehir isimlerini (Samsun, İstanbul) kurum sanma. "Samsun'da" doğrudur.
+    - Satır sonu kesilmelerini (Ka-radeniz) hata sayma. Birleştir oku.
     
-    cefr_text = CEFR_KRITERLERI.get(data.level, "A2 seviyesi genel değerlendirme.")
-
-    # --- V2: DETAYLI TARAMA PROMPTU ---
-    prompt = f"""
-    ROL: Sen çok titiz, detaycı bir Türkçe öğretmenisin. Önünde A2 seviyesinde bir öğrencinin kağıdı var.
+    METİN: \"\"\"{data.ocr_text}\"\"\"
     
-    GÖREVİN: Metni kelime kelime oku. Sadece bir tane değil, METİNDEKİ TÜM HATALARI bulup listelemen gerekiyor.
-
-    ADIM ADIM TALİMATLAR:
-    1. **TARAMA:** Metni baştan sona oku. Her cümleyi TDK kurallarına göre kontrol et.
-    2. **AYIKLAMA:** "Samsun, Ahmet" gibi özel isimlere gelen ekleri (-'in, -'da) DOĞRU kabul et. Bunlar kurum değildir!
-    3. **OCR KONTROL:** "Ka-radeniz" gibi satır sonu kesilmelerini birleştir ve hata sayma.
-    4. **PUANLAMA:** Puanları bol keseden verme. Hata sayısı çoksa puanı düşür. Hiç hata yoksa tam puan ver.
-
-    ÖĞRENCİ METNİ:
-    \"\"\"{data.ocr_text}\"\"\"
-
-    REFERANS TDK KURALLARI:
-    {rules_text}
-
-    İSTENEN ÇIKTI (Sadece bu JSON'u ver):
+    KURALLAR: {rules_text}
+    
+    ÇIKTI (JSON):
     {{
       "rubric": {{
         "uzunluk": (0-16 puan),
         "noktalama": (0-14 puan),
         "dil_bilgisi": (0-16 puan),
         "soz_dizimi": (0-20 puan),
-        "kelime": (0-14 puan),
-        "icerik": (0-20 puan)
+        "kelime": (0-14 puan)
       }},
       "errors": [
-        {{
-          "wrong": "Hatalı kelime (Metindeki hali)",
-          "correct": "Doğrusu",
-          "type": "Yazım",
-          "rule_id": "TDK_...", 
-          "explanation": "Kısa ve net açıklama."
-        }},
-        {{ "wrong": "...", "correct": "...", "type": "...", "rule_id": "...", "explanation": "..." }}
-      ],
-      "teacher_note": "Öğrenciye hitaben motive edici, A2 seviyesine uygun, 2-3 cümlelik not."
+         {{ "wrong": "...", "correct": "...", "rule_id": "...", "explanation": "..." }}
+      ]
     }}
     """
+
+    # ----------------------------------------
+    # 2. ADIM: CEFR ANALİZİ (İçerik & Yorum)
+    # ----------------------------------------
+    prompt_cefr = f"""
+    ROL: Sen yapıcı ve motive edici bir öğretmensin.
+    GÖREV: Öğrencinin ({data.level} seviyesi) yazdığı metni İÇERİK ve İLETİŞİM başarısı açısından değerlendir.
     
-    analysis_result = None
+    ⛔ DİKKAT:
+    - Yazım hatalarını görmezden gel (onu başkası puanladı).
+    - Sadece öğrencinin derdini anlatıp anlatamadığına bak.
+    
+    METİN: \"\"\"{data.ocr_text}\"\"\"
+    
+    SEVİYE BEKLENTİSİ: {cefr_desc}
+    
+    ÇIKTI (JSON):
+    {{
+      "rubric_content_score": (0-20 puan),
+      "teacher_note": "Öğrenciye hitaben (Sen diliyle), motive edici, {data.level} seviyesine uygun, hataları değil yapılan iyi şeyleri vurgulayan 2-3 cümlelik not."
+    }}
+    """
+
+    analysis_result = {}
     last_error = ""
 
+    # Gemini Çağrıları (Sıralı)
     for model_name in MODELS_TO_TRY:
         try:
-            # Gemini Çağrısı
-            response = client.models.generate_content(
-                model=model_name, 
-                contents=prompt, 
+            # 1. TDK ÇAĞRISI
+            resp_tdk = client.models.generate_content(
+                model=model_name, contents=prompt_tdk, 
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
+            json_tdk = json.loads(resp_tdk.text.strip().replace("```json", "").replace("```", ""))
             
-            text_resp = (response.text or "").strip().replace("```json", "").replace("```", "")
-            raw_result = json.loads(text_resp)
+            # 2. CEFR ÇAĞRISI
+            resp_cefr = client.models.generate_content(
+                model=model_name, contents=prompt_cefr, 
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            json_cefr = json.loads(resp_cefr.text.strip().replace("```json", "").replace("```", ""))
+
+            # 3. BİRLEŞTİRME (Frontend'in beklediği yapıya dönüştür)
             
-            # Validasyon ve Temizlik
-            sanitized = validate_analysis(raw_result, data.ocr_text, allowed_ids)
+            # Validasyon (Span düzeltme)
+            clean_tdk = validate_analysis(json_tdk, data.ocr_text, allowed_ids)
             
-            # Toplam Puanı Hesapla
-            total_score = sum(sanitized.get("rubric", {}).values())
-            sanitized["score_total"] = total_score
+            # Rubric Birleştirme
+            final_rubric = clean_tdk.get("rubric", {})
+            # Eksik alanları tamamla (güvenlik için)
+            for k in ["uzunluk", "noktalama", "dil_bilgisi", "soz_dizimi", "kelime"]:
+                if k not in final_rubric: final_rubric[k] = 0
             
-            analysis_result = sanitized
-            print(f"✅ Analiz Başarılı: {model_name} | Hata Sayısı: {len(sanitized.get('errors', []))} | Puan: {total_score}")
+            # İçerik puanını CEFR'den al
+            final_rubric["icerik"] = json_cefr.get("rubric_content_score", 10) # Varsayılan 10
+            
+            # Toplam Puan
+            total_score = sum(final_rubric.values())
+
+            # Final Obje
+            analysis_result = {
+                "rubric": final_rubric,
+                "errors": clean_tdk.get("errors", []),
+                "teacher_note": json_cefr.get("teacher_note", "Tebrikler.")
+            }
+            
+            # Kayıt için hazırlık
+            analysis_result["score_total"] = total_score
+            
+            print(f"✅ Analiz Tamam: {model_name} | Puan: {total_score}")
             break
+
         except Exception as e:
-            print(f"❌ Model Hatası ({model_name}): {e}")
+            print(f"⚠️ Model Hatası ({model_name}): {e}")
             last_error = str(e)
             continue
 
-    if not analysis_result: 
+    if not analysis_result:
         raise HTTPException(status_code=500, detail=f"Analiz başarısız: {last_error}")
 
+    # Veritabanına Kayıt
     try:
-        # Veritabanına Kayıt
         supabase.table("submissions").insert({
             "student_name": data.student_name, 
             "student_surname": data.student_surname, 
@@ -354,9 +350,10 @@ async def analyze_submission(data: AnalyzeRequest):
         }).execute()
         
         return {"status": "success", "data": analysis_result}
-    except Exception as e: 
+    except Exception as e:
         print(f"DB Hatası: {e}")
-        return {"status": "success", "data": analysis_result, "warning": "Veritabanına kaydedilemedi ama analiz döndü."}
+        return {"status": "success", "data": analysis_result, "warning": "DB kayıt hatası"}
+
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
     try:
