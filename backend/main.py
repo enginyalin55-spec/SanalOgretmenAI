@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Union, List, Dict, Any, Optional
 
 # =======================================================
-# 1. AYARLAR
+# 1) AYARLAR
 # =======================================================
 load_dotenv()
 
@@ -17,7 +17,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 if not API_KEY:
     raise RuntimeError("❌ KRİTİK HATA: GEMINI_API_KEY eksik!")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_URL = (os.getenv("SUPABASE_URL", "") or "").rstrip("/")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("❌ KRİTİK HATA: SUPABASE bilgileri eksik!")
@@ -25,7 +25,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="1.3.0")
+app = FastAPI(title="Sanal Ogretmen AI API", version="1.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +46,7 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MIME_BY_EXT = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
 # =======================================================
-# 2. HEALTH
+# 2) HEALTH
 # =======================================================
 @app.get("/")
 @app.get("/health")
@@ -54,7 +54,7 @@ def health_check():
     return {"status": "ok", "service": "Sanal Ogretmen AI Backend"}
 
 # =======================================================
-# 3. MODELLER
+# 3) MODELLER
 # =======================================================
 class AnalyzeRequest(BaseModel):
     ocr_text: str
@@ -72,7 +72,7 @@ class UpdateScoreRequest(BaseModel):
     new_total: int
 
 # =======================================================
-# 4. CEFR + TDK RULES
+# 4) CEFR + TDK RULES
 # =======================================================
 CEFR_KRITERLERI = {
     "A1": "Kısa, basit cümleler. Temel ihtiyaç iletişimi.",
@@ -106,11 +106,11 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
     ]
 
 # =======================================================
-# 5. YARDIMCILAR
+# 5) YARDIMCILAR
 # =======================================================
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
-# ✅ Türkçe lower düzeltmesi (İ/I)
+# ✅ Türkçe lower (İ/I düzeltmesi)
 TR_LOWER_MAP = str.maketrans({"İ": "i", "I": "ı"})
 def tr_lower(s: str) -> str:
     if not s:
@@ -122,7 +122,7 @@ def tr_lower_first(word: str) -> str:
         return ""
     return tr_lower(word[0]) + word[1:]
 
-# ✅ Cümle/satır başlangıcı için daha iyi boundary
+# ✅ Cümle/segment sınırı: nokta + newline + : ; — – -- vb.
 SENT_BOUNDARY = re.compile(r"([.!?]+|[\n\r]+|[:;]+|—|–|-{2,})")
 
 def normalize_text(text: str) -> str:
@@ -133,7 +133,6 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 def normalize_match(text: str) -> str:
-    # Türkçe İ/I kaynaklı sapmaları azalt
     return tr_lower(normalize_text(text))
 
 def to_int(x, default=0):
@@ -185,8 +184,31 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
     best = min(matches, key=lambda x: abs(x - hint_start)) if hint_start is not None else matches[0]
     return (best, best + len(wrong))
 
+# =======================================================
+# 5A) LLM DÜZELTME GÜVENLİK FİLTRESİ (cümle bozanları at)
+# =======================================================
+def is_safe_correction(wrong: str, correct: str) -> bool:
+    w = normalize_text(wrong)
+    c = normalize_text(correct)
+    if not w or not c:
+        return False
+
+    # Aşırı kısaltma: "Sen Şemsiye" -> "Şemsiye" gibi
+    if len(c) < max(2, int(len(w) * 0.6)):
+        return False
+
+    # Token örtüşmesi düşükse reddet
+    w_tokens = set(tr_lower(t) for t in re.findall(r"\b[^\W\d_]+\b", w, flags=re.UNICODE))
+    c_tokens = set(tr_lower(t) for t in re.findall(r"\b[^\W\d_]+\b", c, flags=re.UNICODE))
+    if w_tokens:
+        overlap = len(w_tokens & c_tokens) / max(1, len(w_tokens))
+        if overlap < 0.4:
+            return False
+
+    return True
+
 def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
-    """LLM'nin döndürdüğü hataları span ile güvenli hale getirir."""
+    """LLM'nin döndürdüğü hataları span ile güvenli hale getirir + cümle bozan düzeltmeleri filtreler."""
     if not isinstance(result, dict):
         return {"errors": []}
     raw_errors = result.get("errors", [])
@@ -207,6 +229,10 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
         if not wrong or not correct:
             continue
         if normalize_match(wrong) == normalize_match(correct):
+            continue
+
+        # ✅ cümle bozan / kelime düşüren düzeltmeleri at
+        if not is_safe_correction(wrong, correct):
             continue
 
         hint = None
@@ -249,7 +275,7 @@ def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return merged
 
 # =======================================================
-# 5A) OCR ŞÜPHELİ TESPİT
+# 5B) OCR ŞÜPHELİ TESPİT
 # =======================================================
 OCR_NOISE_PATTERNS = [
     re.compile(r".*\b[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-Z]\b"),
@@ -276,9 +302,9 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
     return False
 
 # =======================================================
-# 5B) Daha iyi "özel isim" + CÜMLE BAŞI tespiti (FIX)
+# 5C) ÖZEL İSİM + CÜMLE BAŞI (FIX)
 # =======================================================
-PROPER_ROOTS = {"samsun", "karadeniz", "türkiye"}  # istersen büyüt
+PROPER_ROOTS = {"samsun", "karadeniz", "türkiye"}
 
 def norm_token(token: str) -> str:
     if not token:
@@ -313,8 +339,9 @@ def is_probably_proper(word: str) -> bool:
 
 def find_unnecessary_capitals(full_text: str) -> list:
     """
-    ✅ Cümle başlangıçları doğru yakalanır.
-    ✅ Karma büyük/küçük (iStadyum) gibi durumlar OCR_ŞÜPHELİ olur (dayatma düzeltme yok).
+    ✅ Cümle başlangıcı düzgün
+    ✅ iStadyum gibi karma case -> OCR_ŞÜPHELİ (dayatma düzeltme yok)
+    ✅ "Sok" gibi OCR->çok adayı olan kelimelerde büyük harf kuralı üretme (çakışmayı azaltır)
     """
     starts = sentence_starts(full_text)
     errors = []
@@ -329,6 +356,10 @@ def find_unnecessary_capitals(full_text: str) -> list:
         if is_probably_proper(word):
             continue
 
+        # "Sok" büyük harf düzeltmesi ile "çok" düzeltmesi çakışmasın
+        if tr_lower(word) in {"sok"}:
+            continue
+
         upp = sum(1 for ch in word if ch.isupper())
         low = sum(1 for ch in word if ch.islower())
         is_weird_case = (upp >= 2 and low >= 1)
@@ -336,7 +367,7 @@ def find_unnecessary_capitals(full_text: str) -> list:
         if is_weird_case:
             errors.append({
                 "wrong": word,
-                "correct": word,  # düzeltme dayatma yok
+                "correct": word,
                 "type": "OCR_ŞÜPHELİ",
                 "rule_id": "TDK_08_BUYUK_GEREKSIZ",
                 "explanation": "Büyük/küçük harf karışıklığı OCR kaynaklı olabilir.",
@@ -359,15 +390,15 @@ def find_unnecessary_capitals(full_text: str) -> list:
     return errors
 
 # =======================================================
-# 5C) A2 sık hatalar + "da/de" (YUMUŞATILDI)
+# 5D) A2 HEURISTICS
 # =======================================================
 POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
 
 def find_conjunction_dade_joined(full_text: str) -> list:
     """
-    'bende', 'sende' gibi bağlaç olma ihtimali olanları önerir.
-    Ama 'mektubunda' (mektubun+da) gibi iyelik izi varsa dokunmaz.
-    Çıkanlar düşük güven -> ocr_suspect=True (UI'da "kontrol et").
+    da/de: agresif bölmeyi bırakıyoruz.
+    - base iyelik izi taşıyorsa (mektubun+da) => DOKUNMA
+    - kalanları düşük güven: ocr_suspect=True
     """
     errs = []
     for m in re.finditer(r"\b([^\W\d_]+)(da|de)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
@@ -375,8 +406,11 @@ def find_conjunction_dade_joined(full_text: str) -> list:
         suf = m.group(2)
         whole = full_text[m.start():m.end()]
 
-        # iyelik izi varsa çoğu zaman doğru: mektubun-da, evim-de, okulun-da...
         if POSSESSIVE_HINT.search(base):
+            continue
+
+        # Büyük harf/özel isim şüphesi varsa dokunma (Samsun'da vb.)
+        if any(ch.isupper() for ch in whole) or is_probably_proper(whole):
             continue
 
         errs.append({
@@ -393,17 +427,20 @@ def find_conjunction_dade_joined(full_text: str) -> list:
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
 
+    # cok/çok OCR varyantları
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
+        wrong = m.group(0)
         errs.append({
-            "wrong": m.group(0),
+            "wrong": wrong,
             "correct": "çok",
             "type": "Yazım",
             "rule_id": "TDK_28_YABANCI",
             "explanation": "‘çok’ kelimesinin yazımı.",
             "span": {"start": m.start(), "end": m.end()},
-            "ocr_suspect": True if m.group(0).lower() == "sok" else False
+            "ocr_suspect": True  # sok dahil hepsini şüpheli say (OCR olasılığı yüksek)
         })
 
+    # soru eki bitişik
     for m in re.finditer(r"\b([^\W\d_]{2,})(mi|mı|mu|mü)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         word = m.group(0)
         wl = tr_lower(word)
@@ -419,11 +456,46 @@ def find_common_a2_errors(full_text: str) -> list:
             "ocr_suspect": False
         })
 
-    # ❌ Buradan eski agresif da/de heuristiği kaldırıldı.
     return errs
 
 # =======================================================
-# 5D) CEFR fallback (0 puanları bitirmek için)
+# 5E) SPAN ÇATIŞMA ÇÖZÜMÜ (tek span tek öneri)
+# =======================================================
+RULE_PRIORITY = {
+    # Daha anlamlı düzeltmeler öne
+    "TDK_28_YABANCI": 100,
+    "TDK_03_SORU_EKI": 90,
+    "TDK_13_KESME_GENEL": 80,
+    "TDK_09_KESME_OZEL": 80,
+    "TDK_01_BAGLAC_DE": 60,
+    "TDK_08_BUYUK_GEREKSIZ": 30,
+    "TDK_05_BUYUK_CUMLE": 20,
+}
+
+def pick_best_per_span(errors: list) -> list:
+    buckets: Dict[tuple, List[dict]] = {}
+    for e in errors:
+        sp = e.get("span") or {}
+        key = (sp.get("start"), sp.get("end"))
+        if None in key:
+            continue
+        buckets.setdefault(key, []).append(e)
+
+    chosen = []
+    for _, items in buckets.items():
+        def score(e):
+            pri = RULE_PRIORITY.get(e.get("rule_id"), 0)
+            ocr_penalty = 20 if e.get("ocr_suspect") else 0  # kesin hata > şüpheli
+            same_penalty = 50 if normalize_match(e.get("wrong","")) == normalize_match(e.get("correct","")) else 0
+            return pri - ocr_penalty - same_penalty
+
+        chosen.append(max(items, key=score))
+
+    chosen.sort(key=lambda x: x["span"]["start"])
+    return chosen
+
+# =======================================================
+# 5F) CEFR fallback (0 puanı bitirmek için)
 # =======================================================
 def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
     t = normalize_text(text)
@@ -452,15 +524,10 @@ def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
         icerik += 4
     icerik = min(20, max(6, icerik))
 
-    return {
-        "uzunluk": int(uzunluk),
-        "soz_dizimi": int(soz_dizimi),
-        "kelime": int(kelime),
-        "icerik": int(icerik),
-    }
+    return {"uzunluk": int(uzunluk), "soz_dizimi": int(soz_dizimi), "kelime": int(kelime), "icerik": int(icerik)}
 
 # =======================================================
-# 6. ENDPOINTS
+# 6) ENDPOINTS
 # =======================================================
 @app.get("/check-class/{code}")
 async def check_class_code(code: str):
@@ -541,6 +608,7 @@ async def analyze_submission(data: AnalyzeRequest):
     allowed_ids = {r["rule_id"] for r in tdk_rules}
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
 
+    # 1) TDK AGENT
     prompt_tdk = f"""
 ROL: Sen nesnel ve kuralcı bir TDK denetçisisin.
 GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / ek yazımı hatalarını mümkün olduğunca TAM bul.
@@ -548,9 +616,8 @@ GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / 
 ÖNEMLİ:
 - "wrong" alanına metindeki parçayı BİREBİR yaz.
 - En az 15 hata bulmaya çalış (yoksa bulabildiğin kadar).
-- Cins isimlerde kesme kullanılmaz (stadyuma). Özel isimlerde kesme olabilir (Samsun'a).
-- Cümle içinde özel isim olmayan kelimeler büyük harfle yazılamaz.
 - OCR kaynaklı olabilecek parçalanmaları "ocr_suspect": true olarak İŞARETLE.
+- Cins isimlerde kesme kullanılmaz (stadyuma). Özel isimlerde kesme olabilir (Samsun'a).
 
 METİN: \"\"\"{full_text}\"\"\"
 
@@ -573,6 +640,7 @@ REFERANS KURALLAR:
 }}
 """
 
+    # 2) CEFR AGENT
     prompt_cefr = f"""
 ROL: Sen destekleyici bir öğretmensin.
 GÖREV: {data.level} seviyesindeki öğrencinin İLETİŞİM BECERİSİNİ değerlendir.
@@ -581,7 +649,7 @@ KURALLAR:
 1) Yazım/noktalama hatalarını PUANLAMADA ikinci plana at (iletişim öncelikli).
 2) PUANLAMA: Tam sayı.
 3) teacher_note başına "[SEVİYE: ...]" ekle.
-4) rubric_part içindeki 4 alan ZORUNLU ve her biri Int olmalı. Boş bırakma.
+4) rubric_part içindeki 4 alan ZORUNLU ve her biri Int olmalı.
 
 METİN: \"\"\"{full_text}\"\"\"
 
@@ -630,7 +698,9 @@ METİN: \"\"\"{full_text}\"\"\"
                 raise ValueError("Boş CEFR Yanıtı")
             json_cefr = json.loads(raw_cefr.replace("```json", "").replace("```", ""))
 
-            # PUAN birleştirme + CEFR fallback
+            # =======================================================
+            # PUAN BİRLEŞTİRME + FALLBACK
+            # =======================================================
             tdk_p = json_tdk.get("rubric_part", {}) if isinstance(json_tdk, dict) else {}
             cefr_p = json_cefr.get("rubric_part", {}) if isinstance(json_cefr, dict) else {}
 
@@ -647,12 +717,13 @@ METİN: \"\"\"{full_text}\"\"\"
             }
             total_score = sum(combined_rubric.values())
 
-            # HATA BİRLEŞTİRME
+            # =======================================================
+            # HATA TOPLAMA
+            # =======================================================
             cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
-
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
-            rule_dade = find_conjunction_dade_joined(full_text)  # ✅ yeni düşük güven da/de
+            rule_dade = find_conjunction_dade_joined(full_text)
 
             all_errors = merge_and_dedupe_errors(
                 cleaned_tdk.get("errors", []),
@@ -661,7 +732,12 @@ METİN: \"\"\"{full_text}\"\"\"
                 rule_dade
             )
 
-            # OCR şüphelileri ayır
+            # ✅ aynı span’daki çakışmaları tek öneriye indir
+            all_errors = pick_best_per_span(all_errors)
+
+            # =======================================================
+            # OCR/ÖĞRENCİ AYIR
+            # =======================================================
             errors_student = []
             errors_ocr = []
 
