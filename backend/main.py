@@ -606,20 +606,28 @@ BİÇİM KURALLARI:
 
 ÇIKTI:
 - SADECE OCR METNİ.
-- BAŞKA HİÇBİR ŞEY YAZMA.
-
+- BAŞKA HİÇBİR ŞEY YAZMA..
 """
 
         for model_name in MODELS_TO_TRY:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[prompt, types.Part.from_bytes(data=file_content, mime_type=safe_mime)]
+                    contents=[prompt, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        response_mime_type="text/plain",
+                    ),
                 )
+
                 extracted_text = (resp.text or "").strip()
+
+                # Bazen model ``` gibi sarmalayabiliyor, onları temizle
+                extracted_text = extracted_text.replace("```", "").strip()
+
                 if extracted_text:
                     break
-            except:
+            except Exception:
                 continue
 
         if not extracted_text:
