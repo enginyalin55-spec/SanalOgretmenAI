@@ -569,62 +569,41 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as up_err:
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
+        # =======================================================
+        # 1) AŞAMA: HAM OCR (DÜZELTME YOK)
+        # =======================================================
         extracted_text = ""
-        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
+        prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
 
 GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
-KESİN VE TARTIŞMASIZ KURALLAR:
+KESİN KURALLAR:
 - ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru, daha anlamlı veya daha Türkçe hale getirme.
-- ASLA yazım, dil bilgisi, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
-- Yanlış olduğunu düşünsen bile, GÖRDÜĞÜNÜ YAZ.
+- ASLA kelimeyi daha doğru / daha anlamlı hale getirme.
+- ASLA yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
+- Yanlış olduğunu düşünsen bile, gördüğünü yaz.
 
-? (SORU İŞARETİ) KULLANIMI — ÇOK ÖNEMLİ:
-- ? SADECE görsel olarak EMİN OLMADIĞIN HARF için kullanılır.
-- Bir harften emin değilsen, SADECE o harfi ? ile değiştir.
-  Örnek:
-  - görüşürüş → görüşür?ş
-  - haVası mı haHası mı emin değilsen → ha?ası
-- Yanlış yazılmış ama NET görünen kelimelerde ASLA ? kullanma.
-  Örnek:
-  - yağrır → yağrır (DOĞRU, ? YOK)
-  - lezettli → lezettli (DOĞRU, ? YOK)
-
-KELİME BAZLI BELİRSİZLİK:
-- Eğer bir KELİMENİN TAMAMI görsel olarak okunamıyorsa:
-  - Kelimeyi gördüğün gibi yaz
-  - Sonuna (?)
-  Örnek:
-  - Şamsun → Şamsun(?)
-
-BİÇİM KURALLARI:
-- SATIRLARI KORU (kağıttaki satır sonları birebir kalsın).
-- Ekstra boşluk, açıklama, yorum ekleme.
-- Tırnak, tire, nokta varsa gördüğün gibi yaz.
+BİÇİM:
+- SATIRLARI KORU (kağıttaki satır sonları kalsın).
+- Yorum/başlık/açıklama ekleme.
+- SADECE metni yaz.
 
 ÇIKTI:
-- SADECE OCR METNİ.
-- BAŞKA HİÇBİR ŞEY YAZMA.
+SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
 """
 
         for model_name in MODELS_TO_TRY:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[prompt, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
                     config=types.GenerateContentConfig(
                         temperature=0,
                         response_mime_type="text/plain",
                     ),
                 )
-
-                extracted_text = (resp.text or "").strip()
-
-                # Bazen model ``` gibi sarmalayabiliyor, onları temizle
-                extracted_text = extracted_text.replace("```", "").strip()
-
+                extracted_text = (resp.text or "").strip().replace("```", "").strip()
                 if extracted_text:
                     break
             except Exception:
@@ -633,12 +612,77 @@ BİÇİM KURALLARI:
         if not extracted_text:
             return {"status": "error", "message": "OCR Başarısız"}
 
-        return {"status": "success", "ocr_text": extracted_text, "image_url": image_url}
+        raw_text = extracted_text
+
+        # =======================================================
+        # 2) AŞAMA: SADECE ? / (?) İŞARETLEME (DÜZELTME YOK)
+        # =======================================================
+        flagged_text = ""
+        prompt_flag = f"""ROL: Sen bir OCR kontrol katibisin. Düzeltme yapmak YASAK.
+
+GÖREV:
+Aşağıdaki OCR metnini ASLA düzeltmeden, SADECE görsel belirsizliğini işaretle.
+
+KESİN KURALLAR:
+- Metni düzeltme. Kelimeyi daha doğru hale getirme.
+- Kelime ekleme/çıkarma yok.
+- Noktalama/büyük harf/ek düzeltmesi yok.
+- SADECE belirsiz HARFLERİ ? ile değiştir.
+
+? KULLANIMI:
+- ? SADECE görsel olarak EMİN OLMADIĞIN HARF için kullanılır.
+- Yanlış yazılmış ama NET görünen kelimelerde ASLA ? kullanma.
+  Örnek: yağrır → yağrır
+  Örnek: lezettli → lezettli
+- Emin değilsen sadece o harfi değiştir:
+  görüşürüş → görüşür?ş
+  havası/halvası emin değilsen → ha?ası
+- Bir kelimenin tamamı okunamıyorsa kelimenin sonuna (?) ekle.
+  Örnek: tolus → tolus(?)
+
+BİÇİM:
+- SATIRLARI KORU.
+- SADECE işaretlenmiş metni ver.
+- BAŞKA HİÇBİR ŞEY YAZMA.
+
+OCR METNİ:
+<<<
+{raw_text}
+>>>
+"""
+
+        for model_name in MODELS_TO_TRY:
+            try:
+                resp2 = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt_flag],
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        response_mime_type="text/plain",
+                    ),
+                )
+                flagged_text = (resp2.text or "").strip().replace("```", "").strip()
+                if flagged_text:
+                    break
+            except Exception:
+                continue
+
+        # flagged_text boş dönerse, en azından raw_text'i ver
+        if not flagged_text:
+            flagged_text = raw_text
+
+        return {
+            "status": "success",
+            "ocr_text": flagged_text,      # ✅ öğrenciye göster
+            "raw_ocr_text": raw_text,      # (opsiyonel) debug/karşılaştırma
+            "image_url": image_url
+        }
 
     except HTTPException:
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
