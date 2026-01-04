@@ -606,7 +606,7 @@ BİÇİM KURALLARI:
 
 ÇIKTI:
 - SADECE OCR METNİ.
-- BAŞKA HİÇBİR ŞEY YAZMA..
+- BAŞKA HİÇBİR ŞEY YAZMA.
 """
 
         for model_name in MODELS_TO_TRY:
