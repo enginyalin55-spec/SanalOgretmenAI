@@ -570,23 +570,28 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
         extracted_text = ""
-        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Düzeltmen yasaktır.
+        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Düzeltme/yorum yasaktır.
 
 GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
+TEMEL PRENSİP:
+- OCR yalnızca görsel sadakat üretir. Anlam, dil bilgisi, doğruluk seni ilgilendirmez.
+
 KESİN KURALLAR:
 - ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru, daha anlamlı veya daha Türkçe hale getirme.
-- ASLA noktalama, büyük harf veya ek düzeltmesi yapma.
-- Anlamı bozuk olsa bile GÖRDÜĞÜNÜ YAZ.
+- ASLA kelimeyi daha doğru / anlamlı hale getirme.
+- ASLA noktalama, büyük harf, ek, yazım düzeltmesi yapma.
+- Yanlış yazılmış olsa bile, eğer GÖRÜYORSAN AYNEN YAZ.
 
-OKUYAMADIĞIN / EMİN OLMADIĞIN DURUMLAR:
-- Bir HARF emin değilse: o harfi ? ile değiştir.
-  Örnek: yağrır → yağ?r
-- Bir KELİME emin değilse: kelimeyi olduğu gibi yaz, SONUNA (?) ekle.
-  Örnek: Şamsun → Şamsun(?)
-- Tam okuyamıyorsan: (?) yaz ve devam et.
+BELİRSİZLİK KURALI (SADECE GÖRSEL BELİRSİZLİK):
+- Emin olmadığın HARF için: o harfin yerine ? koy.
+  Örnek: görüşürüş belirsizse → görüşür?ş
+  Örnek: havası belirsizse → ha?ası
+- Emin olmadığın KELİME için: kelimeyi yaz ve sonuna (?) ekle.
+  Örnek: Samsun belirsizse → Samsun(?)
+- Emin olduğun halde yanlış olduğunu düşündüğün şeylerde ASLA ? kullanma.
+  Örnek: yağrır görüyorsan → yağrır (❌ yağ?r değil)
 
 BİÇİM:
 - SATIRLARI KORU (kağıttaki satır sonları dijital metinde de olsun).
@@ -594,7 +599,8 @@ BİÇİM:
 - Sadece metni ver.
 
 ÇIKTI:
-SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
+- Yalnızca OCR metnini yaz.
+- En sona tek satır olarak: <<END_OCR>>
 """
 
         for model_name in MODELS_TO_TRY:
