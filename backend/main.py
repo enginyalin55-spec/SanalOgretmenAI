@@ -639,6 +639,8 @@ KESİN KURALLAR:
   havası/halvası emin değilsen → ha?ası
 - Bir kelimenin tamamı okunamıyorsa kelimenin sonuna (?) ekle.
   Örnek: tolus → tolus(?)
+  Eğer tek bir kelime yanlışlıkla boşlukla iki parçaya ayrılmışsa ve tek kelime olduğu açıksa, parçaları BİRLEŞTİR ve emin olmadığın harfi ? ile işaretle; emin değilsen kelimenin sonuna (?) ekle.
+
 
 BİÇİM:
 - SATIRLARI KORU.
