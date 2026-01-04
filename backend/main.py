@@ -570,37 +570,40 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
         extracted_text = ""
-        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Düzeltme/yorum yasaktır.
+        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Tahmin edemezsin. Düzeltme yapamazsın.
 
-GÖREV:
+TEK GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
-TEMEL PRENSİP:
-- OCR yalnızca görsel sadakat üretir. Anlam, dil bilgisi, doğruluk seni ilgilendirmez.
+TEMEL KURAL (DEĞİŞMEZ):
+- OCR yalnızca GÖRSEL SADAKAT üretir.
+- Anlam, doğruluk, Türkçe bilgisi seni ilgilendirmez.
 
-KESİN KURALLAR:
-- ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru / anlamlı hale getirme.
-- ASLA noktalama, büyük harf, ek, yazım düzeltmesi yapma.
-- Yanlış yazılmış olsa bile, eğer GÖRÜYORSAN AYNEN YAZ.
+KESİN YASAKLAR:
+- ASLA kelimeyi düzeltme.
+- ASLA daha doğru / mantıklı / Türkçe hale getirme.
+- ASLA uydurma kelime yazma.
+- ASLA belirsizliği çözmeye çalışma.
 
-BELİRSİZLİK KURALI (SADECE GÖRSEL BELİRSİZLİK):
-- Emin olmadığın HARF için: o harfin yerine ? koy.
+BELİRSİZLİK KURALI (ZORUNLU):
+- Bir HARF görsel olarak net değilse → o harfin YERİNE ? KOY.
   Örnek: görüşürüş belirsizse → görüşür?ş
   Örnek: havası belirsizse → ha?ası
-- Emin olmadığın KELİME için: kelimeyi yaz ve sonuna (?) ekle.
+- Bir KELİME görsel olarak net değilse → kelimeyi yaz ve SONUNA (?) EKLE.
   Örnek: Samsun belirsizse → Samsun(?)
-- Emin olduğun halde yanlış olduğunu düşündüğün şeylerde ASLA ? kullanma.
-  Örnek: yağrır görüyorsan → yağrır (❌ yağ?r değil)
+- Bir kelime HİÇ OKUNAMIYORSA → sadece (?) yaz ve devam et.
+- Yanlış olduğunu düşünsen bile, GÖRÜYORSAN AYNEN YAZ.
+  Örnek: yağrır görüyorsan → yağrır (❌ yağ?r YAPMA)
 
 BİÇİM:
-- SATIRLARI KORU (kağıttaki satır sonları dijital metinde de olsun).
-- Yorum, açıklama, öneri ekleme.
-- Sadece metni ver.
+- Kağıttaki SATIRLARI KORU.
+- Büyük/küçük harf, noktalama neyse aynen yaz.
+- Yorum, açıklama, başlık EKLEME.
 
 ÇIKTI:
-- Yalnızca OCR metnini yaz.
-- En sona tek satır olarak: <<END_OCR>>
+- SADECE OCR METNİ.
+- En sona tek satır olarak şunu yaz: <<END_OCR>>
+
 """
 
         for model_name in MODELS_TO_TRY:
