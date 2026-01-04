@@ -674,11 +674,17 @@ OCR METNİ:
             flagged_text = raw_text
 
         return {
-            "status": "success",
-            "ocr_text": flagged_text,      # ✅ öğrenciye göster
-            "raw_ocr_text": raw_text,      # (opsiyonel) debug/karşılaştırma
-            "image_url": image_url
-        }
+    "status": "success",
+    "ocr_text": flagged_text,      # öğrenciye göster
+    "raw_ocr_text": raw_text,      # opsiyonel debug
+    "image_url": image_url,
+
+    # ✅ UX mikro metinler
+    "ocr_notice": "ℹ️ Turuncu işaretli (?) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
+    "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
+    "ocr_markers": { "char": "?", "word": "(?)" }  # opsiyonel
+}
+
 
     except HTTPException:
         raise

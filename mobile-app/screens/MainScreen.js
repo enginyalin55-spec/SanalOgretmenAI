@@ -46,6 +46,45 @@ const TDK_LOOKUP = {
   "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
+// --- OCR BELİRSİZLİK ÖNİZLEME ( ? / (?) Boyama + Dokununca Açıklama ) ---
+const OcrUncertainText = ({ text, hoverText }) => {
+  if (!text) return null;
+
+  // boşlukları da koru
+  const tokens = text.split(/(\s+)/);
+
+  const msg = hoverText || "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.";
+
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+      {tokens.map((tk, idx) => {
+        const isSpace = /^\s+$/.test(tk);
+        if (isSpace) {
+          return <Text key={idx} style={styles.normalText}>{tk}</Text>;
+        }
+
+        const isUncertainWord = tk.includes("(?)");
+        const hasQuestionChar = tk.includes("?");
+
+        const isUncertain = isUncertainWord || hasQuestionChar;
+
+        if (!isUncertain) {
+          return <Text key={idx} style={styles.normalText}>{tk}</Text>;
+        }
+
+        return (
+          <Pressable
+            key={idx}
+            onPress={() => Alert.alert("Belirsiz OCR", msg)}
+          >
+            <Text style={styles.ocrUncertainText}>{tk}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+};
+
 // --- HIGHLIGHT BİLEŞENİ ---
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
@@ -174,7 +213,6 @@ export default function MainScreen({ user, setUser }) {
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState(null); 
-  // Modal kullanmıyoruz, View Overlay kullanıyoruz
   const [showDetailOverlay, setShowDetailOverlay] = useState(false); 
   
   const [activeErrorData, setActiveErrorData] = useState(null);
@@ -185,6 +223,10 @@ export default function MainScreen({ user, setUser }) {
   const [loading, setLoading] = useState(false);
   const [editableText, setEditableText] = useState(""); 
   const [result, setResult] = useState(null);
+
+  // ✅ OCR UX mikro metinleri
+  const [ocrNotice, setOcrNotice] = useState("");
+  const [ocrHoverText, setOcrHoverText] = useState("");
 
   // BOŞ EKRAN KONTROLÜ
   if (!user) {
@@ -232,6 +274,7 @@ export default function MainScreen({ user, setUser }) {
 
   const resetFlow = () => { 
       setStep(1); setImage(null); setEditableText(""); setResult(null); setImageUrl(""); setActiveErrorData(null);
+      setOcrNotice(""); setOcrHoverText("");
   };
 
   const startOCR = async () => {
@@ -244,21 +287,54 @@ export default function MainScreen({ user, setUser }) {
         if (Platform.OS === 'web' && !filename) filename = "upload.jpg";
         let match = /\.(\w+)$/.exec(filename);
         let type = match ? `image/${match[1]}` : `image/jpeg`;
-        if (Platform.OS === 'web') { const res = await fetch(localUri); const blob = await res.blob(); formData.append('file', blob, filename); } 
-        else { formData.append('file', { uri: localUri, name: filename, type: type }); }
+
+        if (Platform.OS === 'web') { 
+          const res = await fetch(localUri); 
+          const blob = await res.blob(); 
+          formData.append('file', blob, filename); 
+        } else { 
+          formData.append('file', { uri: localUri, name: filename, type: type }); 
+        }
+
         formData.append('classroom_code', classCode);
         const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-        if (response.data.status === "success") { setEditableText(response.data.ocr_text); setImageUrl(response.data.image_url); setStep(2); }
-    } catch (error) { Alert.alert("Hata", "Metin okunamadı."); } finally { setLoading(false); }
+
+        if (response.data.status === "success") {
+          setEditableText(response.data.ocr_text || "");
+          setImageUrl(response.data.image_url || "");
+          setOcrNotice(response.data.ocr_notice || "OCR bazı harflerden emin olamadı. Turuncu işaretli yerleri kontrol edip düzelt.");
+          setOcrHoverText(response.data.ocr_hover_text || "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.");
+          setStep(2);
+        }
+    } catch (error) { 
+      console.error(error);
+      Alert.alert("Hata", "Metin okunamadı."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const startAnalysis = async () => {
     setLoading(true);
     try {
-        const payload = { ocr_text: editableText, image_url: imageUrl, student_name: studentName, student_surname: studentSurname, classroom_code: classCode, level: studentLevel, country: studentCountry, native_language: studentLanguage };
+        const payload = { 
+          ocr_text: editableText, 
+          image_url: imageUrl, 
+          student_name: studentName, 
+          student_surname: studentSurname, 
+          classroom_code: classCode, 
+          level: studentLevel, 
+          country: studentCountry, 
+          native_language: studentLanguage 
+        };
         const response = await axios.post(`${BASE_URL}/analyze`, payload);
         if (response.data.status === "success") { setResult(response.data.data); setStep(3); }
-    } catch (error) { Alert.alert("Hata", "Analiz yapılamadı."); } finally { setLoading(false); }
+    } catch (error) { 
+      console.error(error);
+      Alert.alert("Hata", "Analiz yapılamadı."); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
@@ -313,9 +389,30 @@ export default function MainScreen({ user, setUser }) {
                             </TouchableOpacity>
                         </>
                     )}
+
                     {step === 2 && (
                         <View style={{width:'100%'}}>
-                            <TextInput style={styles.ocrInput} multiline={true} value={editableText} onChangeText={setEditableText} />
+                            {/* ✅ OCR Mikro Açıklama */}
+                            {ocrNotice ? (
+                              <View style={styles.ocrBanner}>
+                                <Text style={styles.ocrBannerText}>{ocrNotice}</Text>
+                              </View>
+                            ) : null}
+
+                            {/* ✅ OCR Önizleme (Belirsiz yerler boyalı + dokununca açıklama) */}
+                            <View style={styles.ocrPreviewCard}>
+                              <Text style={styles.previewTitle}>OCR Önizleme (belirsiz yerler işaretli)</Text>
+                              <OcrUncertainText text={editableText} hoverText={ocrHoverText} />
+                            </View>
+
+                            {/* ✅ Asıl düzenleme alanı */}
+                            <TextInput 
+                              style={styles.ocrInput} 
+                              multiline={true} 
+                              value={editableText} 
+                              onChangeText={setEditableText} 
+                            />
+
                             <TouchableOpacity style={[styles.sendButton, {marginTop:15, backgroundColor:'#27ae60'}]} onPress={startAnalysis} disabled={loading}>
                                 {loading ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>✅ Analiz Et ve Gönder</Text>}
                             </TouchableOpacity>
@@ -392,7 +489,7 @@ export default function MainScreen({ user, setUser }) {
           )}
       </ScrollView>
 
-      {/* --- GEÇMİŞ DETAY (MODAL YERİNE OVERLAY VIEW - ARTIK ARKADA KALMAZ) --- */}
+      {/* --- GEÇMİŞ DETAY (MODAL YERİNE OVERLAY VIEW) --- */}
       {showDetailOverlay && selectedHistoryItem && (
           <View style={styles.fullScreenOverlay}>
              <View style={styles.detailContainer}>
@@ -436,7 +533,7 @@ export default function MainScreen({ user, setUser }) {
           </View>
       )}
 
-      {/* --- POPOVER BALONCUK (EN ÜST KATMAN - Z-INDEX 9999) --- */}
+      {/* --- POPOVER BALONCUK --- */}
       {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
     
     </View>
@@ -471,7 +568,10 @@ const styles = StyleSheet.create({
   btnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
   sendButton: { backgroundColor: '#2ecc71', width: '100%', padding: 18, borderRadius: 12, alignItems: 'center' },
   sendButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+
+  // ✅ OCR input
   ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width:'100%' },
+
   historyCard: { backgroundColor:'white', padding:15, borderRadius:12, marginBottom:15, ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.03)' }, default: { elevation: 2 } }) },
   
   resultContainer: { width: '100%', paddingBottom: 30 },
@@ -490,6 +590,35 @@ const styles = StyleSheet.create({
   noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
+
+  // ✅ OCR banner + preview
+  ocrBanner: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffeeba',
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  ocrBannerText: { color: '#856404', fontSize: 12, lineHeight: 16 },
+
+  ocrPreviewCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 10
+  },
+  previewTitle: { fontSize: 12, color: '#7f8c8d', marginBottom: 8, fontWeight: '600' },
+
+  ocrUncertainText: {
+    fontSize: 16,
+    lineHeight: 28,
+    color: '#d97706',
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'dotted'
+  },
 
   // --- OVERLAY STYLES ---
   popoverContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999 },
@@ -511,7 +640,7 @@ const styles = StyleSheet.create({
   ruleInfoText: { fontSize: 12, fontWeight: 'bold', color: '#2c3e50' },
   explanationText: { fontSize: 13, color: '#34495e', lineHeight: 18 },
 
-  // FULL SCREEN OVERLAY (GEÇMİŞ İÇİN) - Z-INDEX 9000 (POPOVER 9999 ALTINDA)
+  // FULL SCREEN OVERLAY
   fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
   detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
