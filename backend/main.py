@@ -570,39 +570,43 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
         extracted_text = ""
-        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Tahmin edemezsin. Düzeltme yapamazsın.
+        prompt = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
 
-TEK GÖREV:
+GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
-TEMEL KURAL (DEĞİŞMEZ):
-- OCR yalnızca GÖRSEL SADAKAT üretir.
-- Anlam, doğruluk, Türkçe bilgisi seni ilgilendirmez.
+KESİN VE TARTIŞMASIZ KURALLAR:
+- ASLA düzeltme yapma.
+- ASLA kelimeyi daha doğru, daha anlamlı veya daha Türkçe hale getirme.
+- ASLA yazım, dil bilgisi, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
+- Yanlış olduğunu düşünsen bile, GÖRDÜĞÜNÜ YAZ.
 
-KESİN YASAKLAR:
-- ASLA kelimeyi düzeltme.
-- ASLA daha doğru / mantıklı / Türkçe hale getirme.
-- ASLA uydurma kelime yazma.
-- ASLA belirsizliği çözmeye çalışma.
+? (SORU İŞARETİ) KULLANIMI — ÇOK ÖNEMLİ:
+- ? SADECE görsel olarak EMİN OLMADIĞIN HARF için kullanılır.
+- Bir harften emin değilsen, SADECE o harfi ? ile değiştir.
+  Örnek:
+  - görüşürüş → görüşür?ş
+  - haVası mı haHası mı emin değilsen → ha?ası
+- Yanlış yazılmış ama NET görünen kelimelerde ASLA ? kullanma.
+  Örnek:
+  - yağrır → yağrır (DOĞRU, ? YOK)
+  - lezettli → lezettli (DOĞRU, ? YOK)
 
-BELİRSİZLİK KURALI (ZORUNLU):
-- Bir HARF görsel olarak net değilse → o harfin YERİNE ? KOY.
-  Örnek: görüşürüş belirsizse → görüşür?ş
-  Örnek: havası belirsizse → ha?ası
-- Bir KELİME görsel olarak net değilse → kelimeyi yaz ve SONUNA (?) EKLE.
-  Örnek: Samsun belirsizse → Samsun(?)
-- Bir kelime HİÇ OKUNAMIYORSA → sadece (?) yaz ve devam et.
-- Yanlış olduğunu düşünsen bile, GÖRÜYORSAN AYNEN YAZ.
-  Örnek: yağrır görüyorsan → yağrır (❌ yağ?r YAPMA)
+KELİME BAZLI BELİRSİZLİK:
+- Eğer bir KELİMENİN TAMAMI görsel olarak okunamıyorsa:
+  - Kelimeyi gördüğün gibi yaz
+  - Sonuna (?)
+  Örnek:
+  - Şamsun → Şamsun(?)
 
-BİÇİM:
-- Kağıttaki SATIRLARI KORU.
-- Büyük/küçük harf, noktalama neyse aynen yaz.
-- Yorum, açıklama, başlık EKLEME.
+BİÇİM KURALLARI:
+- SATIRLARI KORU (kağıttaki satır sonları birebir kalsın).
+- Ekstra boşluk, açıklama, yorum ekleme.
+- Tırnak, tire, nokta varsa gördüğün gibi yaz.
 
 ÇIKTI:
 - SADECE OCR METNİ.
-- En sona tek satır olarak şunu yaz: <<END_OCR>>
+- BAŞKA HİÇBİR ŞEY YAZMA.
 
 """
 
