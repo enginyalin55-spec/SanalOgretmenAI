@@ -54,7 +54,8 @@ const RE_INWORD_Q = new RegExp(`([${LETTERS}])\\?([${LETTERS}])`, "g"); // arka?
 const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
 // ✅ Kelime sonu belirsiz ? (So?, Samsun'da?) ama gerçek soru işareti (nasılsın?) değil
 const RE_END_Q_TOKEN = new RegExp(
-  `((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`,
+  `((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+)|(?:[${LETTERS}]{5,}da)|(?:[${LETTERS}]{5,}de))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`
+,
   "g"
 );
 
