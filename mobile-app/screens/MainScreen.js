@@ -50,13 +50,23 @@ const TDK_LOOKUP = {
 // OCR BELİRSİZLİK SPAN’LARI (SADECE ? ve (?) için)
 // =======================================================
 const LETTERS = "A-Za-zÇĞİÖŞÜçğıöşü";
-const RE_INWORD_Q = new RegExp(`([${LETTERS}])\\?([${LETTERS}])`, "g"); // arka?ım, Sun?a, i?tadyum
+
+const RE_INWORD_Q = new RegExp(
+  `([${LETTERS}])\\?([${LETTERS}])`,
+  "g"
+); // arka?ım, Sun?a, i?tadyum
+
 const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
+
 // ✅ Kelime sonu belirsiz ? (So?, Samsun'da?) ama gerçek soru işareti (nasılsın?) değil
 const RE_END_Q_TOKEN = new RegExp(
   `(^|\\s|[\\(\\[\\{\\\"\\'])((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`,
   "g"
 );
+
+// ✅ görüşürü?.  ?!, ?, gibi → OCR belirsizliği (gerçek soru değil)
+const RE_Q_BEFORE_PUNCT = /\?(?=[\.,;:!\)\]\}])/g;
+
 
 
 // (Opsiyonel ama tavsiye: kelime sonu So? gibi yakalamak istersen aç)
@@ -86,7 +96,11 @@ function buildOcrUncertaintySpans(text) {
   const qIndex = m3.index + (m3[1]?.length || 0) + (m3[2]?.length || 0);
   spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
 }
-
+// 4) "?." "?,", "?!" gibi anormal kombinasyonlar -> OCR belirsizliği (gerçek soru değil)
+  let m4;
+  while ((m4 = RE_Q_BEFORE_PUNCT.exec(text)) !== null) {
+    spans.push({ start: m4.index, end: m4.index + 1, kind: "char_punct" });
+  }
 
   // 3) kelime sonu ? (istersen aç)
   // let m3;
