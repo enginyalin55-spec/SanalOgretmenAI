@@ -48,16 +48,16 @@ const TDK_LOOKUP = {
 
 // =======================================================
 // OCR BELİRSİZLİK SPAN’LARI (SADECE ? ve (?) için)
-// NOT: Gerçek soru işareti (nasılsın?) gibi noktalama ?’larını
-// “belirsizlik” saymıyoruz. Bu yüzden sadece “harf arası ?” ve “(?)” işaretlenir.
 // =======================================================
 const LETTERS = "A-Za-zÇĞİÖŞÜçğıöşü";
 const RE_INWORD_Q = new RegExp(`([${LETTERS}])\\?([${LETTERS}])`, "g"); // arka?ım, Sun?a, i?tadyum
 const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
 
+// (Opsiyonel ama tavsiye: kelime sonu So? gibi yakalamak istersen aç)
+// const RE_END_Q = new RegExp(`([${LETTERS}])\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`, "g");
+
 function buildOcrUncertaintySpans(text) {
   if (!text) return [];
-
   const spans = [];
 
   // 1) (?)
@@ -73,13 +73,19 @@ function buildOcrUncertaintySpans(text) {
     spans.push({ start: qIndex, end: qIndex + 1, kind: "char" });
   }
 
+  // 3) kelime sonu ? (istersen aç)
+  // let m3;
+  // while ((m3 = RE_END_Q.exec(text)) !== null) {
+  //   const qIndex = m3.index + 1;
+  //   spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
+  // }
+
   spans.sort((a, b) => a.start - b.start);
   return spans;
 }
 
 function hasOcrUncertainty(text) {
-  const spans = buildOcrUncertaintySpans(text);
-  return spans.length > 0;
+  return buildOcrUncertaintySpans(text).length > 0;
 }
 
 // =======================================================
@@ -119,7 +125,6 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
     parts.push({ type: "text", key: `t-end`, content: text.slice(cursor) });
   }
 
-  // ✅ En kritik fark: Tek bir <Text> parent içinde inline <Text> children
   return (
     <Text style={styles.ocrText}>
       {parts.map((p) => {
@@ -146,9 +151,8 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
   );
 };
 
-
 // =======================================================
-// ANALİZ HIGHLIGHT (KIRMIZI) — SENİN ORİJİNALİN
+// ANALİZ HIGHLIGHT (KIRMIZI)
 // =======================================================
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
@@ -208,9 +212,8 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-
 // =======================================================
-// POPOVER: ANALİZ HATA DETAYI (SENİN ORİJİNALİN)
+// POPOVER: ANALİZ HATA DETAYI
 // =======================================================
 const ErrorPopover = ({ data, onClose }) => {
   if (!data?.err) return null;
@@ -307,7 +310,10 @@ export default function MainScreen({ user, setUser }) {
   const [image, setImage] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [editableText, setEditableText] = useState("");
+
+  // ✅ TEK METİN STATE’İ
+  const [ocrText, setOcrText] = useState("");
+
   const [result, setResult] = useState(null);
 
   // BOŞ EKRAN KONTROLÜ
@@ -347,7 +353,7 @@ export default function MainScreen({ user, setUser }) {
   const resetFlow = () => {
     setStep(1);
     setImage(null);
-    setEditableText("");
+    setOcrText("");
     setResult(null);
     setImageUrl("");
     setActiveErrorData(null);
@@ -403,8 +409,9 @@ export default function MainScreen({ user, setUser }) {
 
       const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (response.data.status === "success") {
-        setEditableText(response.data.ocr_text);
-        setImageUrl(response.data.image_url);
+        // ✅ OCR çıktısı tek state’e
+        setOcrText(response.data.ocr_text || "");
+        setImageUrl(response.data.image_url || "");
         setStep(2);
       }
     } catch (error) {
@@ -418,7 +425,8 @@ export default function MainScreen({ user, setUser }) {
     setLoading(true);
     try {
       const payload = {
-        ocr_text: editableText,
+        // ✅ her zaman en güncel metin
+        ocr_text: ocrText,
         image_url: imageUrl,
         student_name: studentName,
         student_surname: studentSurname,
@@ -428,7 +436,10 @@ export default function MainScreen({ user, setUser }) {
         native_language: studentLanguage
       };
       const response = await axios.post(`${BASE_URL}/analyze`, payload);
-      if (response.data.status === "success") { setResult(response.data.data); setStep(3); }
+      if (response.data.status === "success") {
+        setResult(response.data.data);
+        setStep(3);
+      }
     } catch (error) {
       Alert.alert("Hata", "Analiz yapılamadı.");
     } finally {
@@ -448,9 +459,10 @@ export default function MainScreen({ user, setUser }) {
     setActiveOcrHintData({ span, ...safeCoords });
   };
 
+  // ✅ artık banner da ocrText’e bakıyor
   const showOcrBanner = useMemo(() => {
-    return step === 2 && hasOcrUncertainty(editableText);
-  }, [step, editableText]);
+    return step === 2 && hasOcrUncertainty(ocrText);
+  }, [step, ocrText]);
 
   return (
     <View style={styles.container}>
@@ -518,16 +530,17 @@ export default function MainScreen({ user, setUser }) {
                   {/* ✅ OCR ÖNİZLEME (TURUNCU İŞARETLİ) */}
                   <View style={styles.ocrPreviewCard}>
                     <Text style={styles.ocrPreviewTitle}>OCR Önizleme (belirsiz yerler işaretli)</Text>
-                    <OcrUncertaintyText text={editableText} onPressHint={handleOpenOcrHint} />
+                    {/* ✅ artık ocrText */}
+                    <OcrUncertaintyText text={ocrText} onPressHint={handleOpenOcrHint} />
                   </View>
 
+                  {/* ✅ TEK METİN: TEXTAREA ocrText’i edit eder */}
                   <TextInput
                     style={styles.ocrInput}
                     multiline={true}
-                    value={editableText}
+                    value={ocrText}
                     onChangeText={(t) => {
-                      setEditableText(t);
-                      // metin değişince açık hint popover varsa kapat (konum kayar)
+                      setOcrText(t);
                       if (activeOcrHintData) setActiveOcrHintData(null);
                     }}
                   />
@@ -553,7 +566,8 @@ export default function MainScreen({ user, setUser }) {
                 <View style={styles.analysisCard}>
                   <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
                   <HighlightedText
-                    text={editableText}
+                    // ✅ artık ocrText
+                    text={ocrText}
                     errors={result.errors}
                     onErrorPress={handleOpenPopover}
                   />
@@ -718,7 +732,7 @@ const styles = StyleSheet.create({
   sendButton: { backgroundColor: '#2ecc71', width: '100%', padding: 18, borderRadius: 12, alignItems: 'center' },
   sendButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
 
-  // ✅ OCR BANDI
+  // OCR BANDI
   ocrBanner: {
     backgroundColor: '#fff7ed',
     borderWidth: 1,
@@ -729,7 +743,7 @@ const styles = StyleSheet.create({
   },
   ocrBannerText: { color: '#92400e', fontSize: 13, lineHeight: 18, fontWeight: '600' },
 
-  // ✅ OCR ÖNİZLEME KUTUSU
+  // OCR ÖNİZLEME
   ocrPreviewCard: {
     backgroundColor: '#ffffff',
     borderWidth: 1,
@@ -738,15 +752,16 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12
   },
+  ocrPreviewTitle: { fontWeight: 'bold', color: '#6b7280', marginBottom: 8, fontSize: 12 },
 
-  // ✅ tek metin akışı (OCR & Analiz ortak)
+  // tek metin akışı
   ocrText: {
     fontSize: 16,
     lineHeight: 28,
     color: '#2c3e50',
   },
 
-  // ✅ OCR belirsiz (turuncu underline)
+  // OCR belirsiz (turuncu)
   ocrHintInline: {
     color: '#d97706',
     fontWeight: '700',
@@ -754,7 +769,7 @@ const styles = StyleSheet.create({
     textDecorationColor: '#f59e0b',
   },
 
-  // ✅ Analiz hatası (kırmızı vurgulu)
+  // Analiz hatası (kırmızı)
   errorInline: {
     color: '#c0392b',
     fontWeight: 'bold',
@@ -762,9 +777,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     textDecorationColor: '#e74c3c',
   },
-
-
-  ocrPreviewTitle: { fontWeight: 'bold', color: '#6b7280', marginBottom: 8, fontSize: 12 },
 
   ocrInput: {
     backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50',
@@ -783,23 +795,6 @@ const styles = StyleSheet.create({
 
   analysisCard: { backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#eee' },
   analysisTitle: { fontWeight: 'bold', color: '#34495e', marginBottom: 10, fontSize: 14 },
-
-  textWrapper: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  normalText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
-
-  // ✅ OCR belirsizlik highlight (turuncu + alt çizgi)
-  ocrHintBox: {
-    paddingHorizontal: 3,
-    marginHorizontal: 1,
-    borderBottomWidth: 2,
-    borderBottomColor: '#f59e0b',
-    marginBottom: 4
-  },
-  ocrHintText: { fontSize: 16, lineHeight: 28, color: '#d97706', fontWeight: '700' },
-
-  // Analiz hata highlight (kırmızı)
-  errorBox: { backgroundColor: '#fff0f0', borderRadius: 4, paddingHorizontal: 4, marginHorizontal: 2, borderBottomWidth: 2, borderBottomColor: '#e74c3c', marginBottom: 4 },
-  errorTextInner: { fontSize: 16, lineHeight: 24, color: '#c0392b', fontWeight: 'bold' },
 
   errorItem: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
