@@ -52,6 +52,11 @@ const TDK_LOOKUP = {
 const LETTERS = "A-Za-zÇĞİÖŞÜçğıöşü";
 const RE_INWORD_Q = new RegExp(`([${LETTERS}])\\?([${LETTERS}])`, "g"); // arka?ım, Sun?a, i?tadyum
 const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
+// ✅ Kelime sonu belirsiz ? (So?, Samsun'da?) ama gerçek soru işareti (nasılsın?) değil
+const RE_END_Q_TOKEN = new RegExp(
+  `((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`,
+  "g"
+);
 
 // (Opsiyonel ama tavsiye: kelime sonu So? gibi yakalamak istersen aç)
 // const RE_END_Q = new RegExp(`([${LETTERS}])\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`, "g");
@@ -71,6 +76,12 @@ function buildOcrUncertaintySpans(text) {
   while ((m2 = RE_INWORD_Q.exec(text)) !== null) {
     const qIndex = m2.index + 1; // ilk harften sonra gelen ?
     spans.push({ start: qIndex, end: qIndex + 1, kind: "char" });
+  }
+  // 3) Kelime sonu belirsiz ? (So?, Samsun'da?) → sadece ? işaretini turuncu yap
+  let m3;
+  while ((m3 = RE_END_Q_TOKEN.exec(text)) !== null) {
+    const qIndex = m3.index + (m3[1]?.length || 0); // token'ın sonundaki ?
+    spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
   }
 
   // 3) kelime sonu ? (istersen aç)
