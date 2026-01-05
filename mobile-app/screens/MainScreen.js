@@ -90,7 +90,7 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
 
   if (!text) return null;
   if (!spans || spans.length === 0) {
-    return <Text style={styles.normalText}>{text}</Text>;
+    return <Text style={styles.ocrText}>{text}</Text>;
   }
 
   const parts = [];
@@ -99,7 +99,6 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
   spans.forEach((sp, idx) => {
     const start = Math.max(0, sp.start);
     const end = Math.min(text.length, sp.end);
-
     if (start >= end || start < cursor) return;
 
     if (start > cursor) {
@@ -120,30 +119,33 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
     parts.push({ type: "text", key: `t-end`, content: text.slice(cursor) });
   }
 
+  // ✅ En kritik fark: Tek bir <Text> parent içinde inline <Text> children
   return (
-    <View style={styles.textWrapper}>
+    <Text style={styles.ocrText}>
       {parts.map((p) => {
         if (p.type === "text") {
-          return <Text key={p.key} style={styles.normalText}>{p.content}</Text>;
+          return (
+            <Text key={p.key} style={styles.ocrText}>
+              {p.content}
+            </Text>
+          );
         }
 
         return (
-          <TouchableOpacity
+          <Text
             key={p.key}
-            activeOpacity={0.7}
-            style={styles.ocrHintBox}
-            onPress={(evt) => {
-              const { pageX, pageY } = evt.nativeEvent;
-              onPressHint?.(p.span, { x: pageX, y: pageY });
-            }}
+            style={styles.ocrHintInline}
+            onPress={() => onPressHint?.(p.span, { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 })}
+            suppressHighlighting={true}
           >
-            <Text style={styles.ocrHintText}>{p.content}</Text>
-          </TouchableOpacity>
+            {p.content}
+          </Text>
         );
       })}
-    </View>
+    </Text>
   );
 };
+
 
 // =======================================================
 // ANALİZ HIGHLIGHT (KIRMIZI) — SENİN ORİJİNALİN
@@ -156,7 +158,7 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
     .sort((a, b) => a.span.start - b.span.start);
 
   if (safeErrors.length === 0) {
-    return <Text style={styles.normalText}>{text}</Text>;
+    return <Text style={styles.ocrText}>{text}</Text>;
   }
 
   const parts = [];
@@ -165,55 +167,47 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   safeErrors.forEach((err, index) => {
     const start = Math.max(0, err.span.start);
     let end = err.span.end;
-
     if (end > text.length) end = text.length;
     if (start >= end || start < cursor) return;
 
     if (start > cursor) {
-      parts.push({
-        type: 'text',
-        key: `t-${cursor}`,
-        content: text.slice(cursor, start)
-      });
+      parts.push({ type: "text", key: `t-${cursor}`, content: text.slice(cursor, start) });
     }
 
-    parts.push({
-      type: 'error',
-      key: `e-${index}`,
-      content: text.slice(start, end),
-      errorData: err
-    });
-
+    parts.push({ type: "error", key: `e-${index}`, content: text.slice(start, end), errorData: err });
     cursor = end;
   });
 
   if (cursor < text.length) {
-    parts.push({ type: 'text', key: `t-end`, content: text.slice(cursor) });
+    parts.push({ type: "text", key: "t-end", content: text.slice(cursor) });
   }
 
   return (
-    <View style={styles.textWrapper}>
+    <Text style={styles.ocrText}>
       {parts.map((p) => {
-        if (p.type === 'text') {
-          return <Text key={p.key} style={styles.normalText}>{p.content}</Text>;
+        if (p.type === "text") {
+          return (
+            <Text key={p.key} style={styles.ocrText}>
+              {p.content}
+            </Text>
+          );
         }
+
         return (
-          <TouchableOpacity
+          <Text
             key={p.key}
-            onPress={(evt) => {
-              const { pageX, pageY } = evt.nativeEvent;
-              onErrorPress(p.errorData, { x: pageX, y: pageY });
-            }}
-            activeOpacity={0.6}
-            style={styles.errorBox}
+            style={styles.errorInline}
+            onPress={() => onErrorPress?.(p.errorData, { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 })}
+            suppressHighlighting={true}
           >
-            <Text style={styles.errorTextInner}>{p.content}</Text>
-          </TouchableOpacity>
+            {p.content}
+          </Text>
         );
       })}
-    </View>
+    </Text>
   );
 };
+
 
 // =======================================================
 // POPOVER: ANALİZ HATA DETAYI (SENİN ORİJİNALİN)
@@ -744,6 +738,32 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12
   },
+
+  // ✅ tek metin akışı (OCR & Analiz ortak)
+  ocrText: {
+    fontSize: 16,
+    lineHeight: 28,
+    color: '#2c3e50',
+  },
+
+  // ✅ OCR belirsiz (turuncu underline)
+  ocrHintInline: {
+    color: '#d97706',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+    textDecorationColor: '#f59e0b',
+  },
+
+  // ✅ Analiz hatası (kırmızı vurgulu)
+  errorInline: {
+    color: '#c0392b',
+    fontWeight: 'bold',
+    backgroundColor: '#fff0f0',
+    textDecorationLine: 'underline',
+    textDecorationColor: '#e74c3c',
+  },
+
+
   ocrPreviewTitle: { fontWeight: 'bold', color: '#6b7280', marginBottom: 8, fontSize: 12 },
 
   ocrInput: {
