@@ -615,151 +615,82 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         raw_text = extracted_text
 
         # =======================================================
-        # 2) AŞAMA: BELİRSİZLİK MASKESİ (2 TUR + UNION)
-        # - Metni üretme yok, sadece MASKE üret: '.' ve '?'
-        # - Uzunluk %100 korunur (sanitize + apply)
+        # 2) AŞAMA: SADECE ? / (?) İŞARETLEME (DÜZELTME YOK)
         # =======================================================
-
-        def _sanitize_mask(mask: str, target_len: int) -> str:
-            if not mask:
-                return "." * target_len
-
-            cleaned = []
-            for ch in mask:
-                if ch in (".", "?"):
-                    cleaned.append(ch)
-            mask = "".join(cleaned)
-
-            if len(mask) < target_len:
-                mask += "." * (target_len - len(mask))
-            elif len(mask) > target_len:
-                mask = mask[:target_len]
-
-            return mask
-
-        def _union_masks(m1: str, m2: str) -> str:
-            L = min(len(m1), len(m2))
-            m1, m2 = m1[:L], m2[:L]
-            return "".join("?" if (a == "?" or b == "?") else "." for a, b in zip(m1, m2))
-
-        def _apply_mask(raw: str, mask: str) -> str:
-            L = min(len(raw), len(mask))
-            out = []
-            for i in range(L):
-                out.append("?" if mask[i] == "?" else raw[i])
-            if len(raw) > L:
-                out.append(raw[L:])
-            return "".join(out)
-
-        def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.65) -> str:
-            L = min(len(raw), len(masked_text))
-            raw = raw[:L]
-            masked_text = masked_text[:L]
-
-            chars = list(masked_text)
-            i, n = 0, len(chars)
-
-            while i < n:
-                if raw[i].isspace():
-                    i += 1
-                    continue
-
-                start = i
-                while i < n and not raw[i].isspace():
-                    i += 1
-                end = i
-
-                seg = chars[start:end]
-                if seg:
-                    q_count = sum(1 for c in seg if c == "?")
-                    if (q_count / len(seg)) >= threshold:
-                        for k in range(start, end):
-                            chars[k] = "?"
-
-            return "".join(chars)
-
-        def _build_mask_prompt(rt: str) -> str:
-            return f"""ROL: Sen bir OCR belirsizlik kontrol katibisin. Düzeltme yapmak YASAK.
+        flagged_text = ""
+        prompt_flag = f"""ROL: Sen bir OCR kontrol katibisin. Düzeltme yapmak YASAK.
 
 GÖREV:
-Aşağıdaki OCR metninin HER KARAKTERİ için görselde o karakterin NET olup olmadığını işaretleyen bir MASKE üret.
-
-ÇIKTI (MASKE) KURALLARI:
-- ÇIKTI SADECE '.' ve '?' karakterlerinden oluşmalıdır.
-- Uzunluk, OCR metni ile BİREBİR aynı olmalıdır.
-- '.' => o pozisyondaki karakter NET (eminim)
-- '?' => o pozisyondaki karakter BELİRSİZ (emin değilim)
+Aşağıdaki OCR metnini ASLA düzeltmeden, SADECE görsel belirsizliğini işaretle.
 
 KESİN KURALLAR:
-- OCR metnini ASLA değiştirme (düzeltme/birleştirme/bölme) YASAK.
-- Kelime ekleme/çıkarma YASAK.
-- Sadece maske üret.
-- Açıklama yazma.
+- Metni düzeltme. Kelimeyi daha doğru hale getirme.
+- Kelime ekleme/çıkarma yok.
+- Noktalama/büyük harf/ek düzeltmesi yok.
+- SADECE belirsiz HARFLERİ ? ile değiştir.
+
+? KULLANIMI:
+- ? SADECE görsel olarak EMİN OLMADIĞIN HARF için kullanılır.
+- Yanlış yazılmış ama NET görünen kelimelerde ASLA ? kullanma.
+  Örnek: yağrır → yağrır
+  Örnek: lezettli → lezettli
+- Emin değilsen sadece o harfi değiştir:
+  görüşürüş → görüşür?ş
+  havası/halvası emin değilsen → ha?ası
+- Bir kelimenin tamamı okunamıyorsa kelimenin sonuna (?) ekle.
+  Örnek: tolus → tolus(?)
+  Eğer tek bir kelime yanlışlıkla boşlukla iki parçaya ayrılmışsa ve tek kelime olduğu açıksa, parçaları BİRLEŞTİR ve emin olmadığın harfi ? ile işaretle; emin değilsen kelimenin sonuna (?) ekle.
+
+
+BİÇİM:
+- SATIRLARI KORU.
+- SADECE işaretlenmiş metni ver.
+- BAŞKA HİÇBİR ŞEY YAZMA.
 
 OCR METNİ:
 <<<
-{rt}
+{raw_text}
 >>>
-
-ÇIKTI:
-SADECE MASKEYİ yaz.
 """
 
-        mask_pass1 = ""
-        mask_pass2 = ""
+        for model_name in MODELS_TO_TRY:
+            try:
+                resp2 = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt_flag],
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        response_mime_type="text/plain",
+                    ),
+                )
+                flagged_text = (resp2.text or "").strip().replace("```", "").strip()
+                if flagged_text:
+                    break
+            except Exception:
+                continue
 
-        for pass_idx in (1, 2):
-            prompt_mask = _build_mask_prompt(raw_text)
-            mask_out = ""
-
-            for model_name in MODELS_TO_TRY:
-                try:
-                    resp_m = client.models.generate_content(
-                        model=model_name,
-                        contents=[prompt_mask, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
-                        config=types.GenerateContentConfig(
-                            temperature=0,
-                            response_mime_type="text/plain",
-                        ),
-                    )
-                    mask_out = (resp_m.text or "").strip().replace("```", "").strip()
-                    if mask_out:
-                        break
-                except Exception:
-                    continue
-
-            sanitized = _sanitize_mask(mask_out, len(raw_text))
-            if pass_idx == 1:
-                mask_pass1 = sanitized
-            else:
-                mask_pass2 = sanitized
-
-        final_mask = _union_masks(mask_pass1, mask_pass2)
-        flagged_text = _apply_mask(raw_text, final_mask)
-
-        # Kelimenin çoğu belirsizse kelimeyi komple '?' yap (opsiyonel ama faydalı)
-        flagged_text = _word_level_expand(raw_text, flagged_text, threshold=0.65)
-
-        # Final garanti: uzunluk %100 korunsun
-        if len(flagged_text) != len(raw_text):
+        # flagged_text boş dönerse, en azından raw_text'i ver
+        if not flagged_text:
             flagged_text = raw_text
 
         return {
-            "status": "success",
-            "ocr_text": flagged_text,      # öğrenciye göster
-            "raw_ocr_text": raw_text,      # opsiyonel debug
-            "image_url": image_url,
+    "status": "success",
+    "ocr_text": flagged_text,      # öğrenciye göster
+    "raw_ocr_text": raw_text,      # opsiyonel debug
+    "image_url": image_url,
 
-            # ✅ UX mikro metinler (artık (?) yok, sadece ? var)
-            "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net okunamayan harflerdir. Lütfen düzeltiniz.",
-            "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
-            "ocr_markers": {"char": "?"}
-        }
+    # ✅ UX mikro metinler
+    "ocr_notice": "ℹ️ Turuncu işaretli (?) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
+    "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
+    "ocr_markers": { "char": "?", "word": "(?)" }  # opsiyonel
+}
+
 
     except HTTPException:
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
