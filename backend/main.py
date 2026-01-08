@@ -669,7 +669,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 out.append(raw[L:])
             return "".join(out)
 
-        def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.85) -> str:
+        def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.95) -> str:
             L = min(len(raw), len(masked_text))
             raw = raw[:L]
             masked_text = masked_text[:L]
@@ -761,7 +761,7 @@ SADECE MASKEYİ yaz.
             "ocr_text": flagged_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net engin okunamayan harflerdir. Lütfen düzeltiniz.",
+            "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net okunamayan harflerdir. Lütfen düzeltiniz.",
             "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
             "ocr_markers": {"char": "?"}
         }
