@@ -615,19 +615,34 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         raw_text = extracted_text
         target_len = len(raw_text)
 
-        # =======================================================
+                # =======================================================
         # 2) AŞAMA: BELİRSİZLİK MASKESİ (2 TUR + UNION)
         # - Metni değiştirme yok
         # - ÇIKTI SADECE '.' ve '?' (maske)
         # - Uzunluk %100 korunur
         # =======================================================
 
+        target_len = len(raw_text)
+
         def _sanitize_mask(mask: str, target_len: int) -> str:
-            # sadece '.' ve '?' bırak
+            # sadece '.' ve '?' bırak + model saçmalıklarını normalize et
             if not mask:
                 return "." * target_len
+
+            # newline normalize
             mask = mask.replace("\r\n", "\n").replace("\r", "\n")
-            cleaned = [ch for ch in mask if ch in (".", "?")]
+
+            # fullwidth question mark
+            mask = mask.replace("\uFF1F", "?")
+
+            # bazen 1/0 gibi maske dönebiliyor
+            mask = mask.replace("1", "?").replace("0", ".")
+
+            # SADECE . ve ? ayıkla
+            cleaned = []
+            for ch in mask:
+                if ch == "." or ch == "?":
+                    cleaned.append(ch)
             mask = "".join(cleaned)
 
             # uzunluk garanti
@@ -635,6 +650,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 mask += "." * (target_len - len(mask))
             elif len(mask) > target_len:
                 mask = mask[:target_len]
+
             return mask
 
         def _union_masks(m1: str, m2: str) -> str:
@@ -705,7 +721,6 @@ OCR METNİ:
 SADECE MASKEYİ yaz.
 """
 
-        # 2 pass
         masks = []
         for _ in (1, 2):
             prompt_mask = _build_mask_prompt(raw_text)
