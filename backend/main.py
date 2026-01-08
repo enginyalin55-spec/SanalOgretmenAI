@@ -761,7 +761,7 @@ SADECE MASKEYİ yaz.
             "ocr_text": flagged_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net okunamayan harflerdir. Lütfen düzeltiniz.",
+            "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net engin okunamayan harflerdir. Lütfen düzeltiniz.",
             "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
             "ocr_markers": {"char": "?"}
         }
