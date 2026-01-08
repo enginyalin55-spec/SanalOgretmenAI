@@ -748,7 +748,7 @@ SADECE MASKEYİ yaz.
         flagged_text = _apply_mask(raw_text, final_mask)
 
         # Kelime çoğu belirsizse komple ????? yap
-        flagged_text = _word_level_expand(raw_text, flagged_text, threshold=0.65)
+        flagged_text = _word_level_expand(raw_text, flagged_text, threshold=0.85)
 
         # Final garanti: uzunluk korunsun
         if len(flagged_text) != len(raw_text):
