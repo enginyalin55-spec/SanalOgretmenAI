@@ -613,29 +613,28 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return {"status": "error", "message": "OCR Başarısız"}
 
         raw_text = extracted_text
+        target_len = len(raw_text)
 
         # =======================================================
         # 2) AŞAMA: BELİRSİZLİK MASKESİ (2 TUR + UNION)
         # - Metni değiştirme yok
-        # - Sadece '.' ve '?' maskesi üretilir
+        # - ÇIKTI SADECE '.' ve '?' (maske)
         # - Uzunluk %100 korunur
         # =======================================================
 
         def _sanitize_mask(mask: str, target_len: int) -> str:
+            # sadece '.' ve '?' bırak
             if not mask:
                 return "." * target_len
-
-            cleaned = []
-            for ch in mask:
-                if ch in (".", "?"):
-                    cleaned.append(ch)
+            mask = mask.replace("\r\n", "\n").replace("\r", "\n")
+            cleaned = [ch for ch in mask if ch in (".", "?")]
             mask = "".join(cleaned)
 
+            # uzunluk garanti
             if len(mask) < target_len:
                 mask += "." * (target_len - len(mask))
             elif len(mask) > target_len:
                 mask = mask[:target_len]
-
             return mask
 
         def _union_masks(m1: str, m2: str) -> str:
@@ -653,6 +652,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return "".join(out)
 
         def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.65) -> str:
+            # Bir kelimenin çoğu '?' ise tamamını '?' yap
             L = min(len(raw), len(masked_text))
             raw = raw[:L]
             masked_text = masked_text[:L]
@@ -676,7 +676,6 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                     if (q_count / len(seg)) >= threshold:
                         for k in range(start, end):
                             chars[k] = "?"
-
             return "".join(chars)
 
         def _build_mask_prompt(rt: str) -> str:
@@ -706,10 +705,9 @@ OCR METNİ:
 SADECE MASKEYİ yaz.
 """
 
-        mask_pass1 = ""
-        mask_pass2 = ""
-
-        for pass_idx in (1, 2):
+        # 2 pass
+        masks = []
+        for _ in (1, 2):
             prompt_mask = _build_mask_prompt(raw_text)
             mask_out = ""
 
@@ -729,13 +727,9 @@ SADECE MASKEYİ yaz.
                 except Exception:
                     continue
 
-            sanitized = _sanitize_mask(mask_out, len(raw_text))
-            if pass_idx == 1:
-                mask_pass1 = sanitized
-            else:
-                mask_pass2 = sanitized
+            masks.append(_sanitize_mask(mask_out, target_len))
 
-        final_mask = _union_masks(mask_pass1, mask_pass2)
+        final_mask = _union_masks(masks[0], masks[1])
         flagged_text = _apply_mask(raw_text, final_mask)
 
         # Kelime çoğu belirsizse komple ????? yap
@@ -747,11 +741,9 @@ SADECE MASKEYİ yaz.
 
         return {
             "status": "success",
-            "ocr_text": flagged_text,      # öğrenciye göster
-            "raw_ocr_text": raw_text,      # opsiyonel debug
+            "ocr_text": flagged_text,
+            "raw_ocr_text": raw_text,
             "image_url": image_url,
-
-            # ✅ UX mikro metinler (artık (?) yok, sadece ? var)
             "ocr_notice": "ℹ️ Metindeki '?' karakterleri OCR tarafından görsel olarak net okunamayan harflerdir. Lütfen düzeltiniz.",
             "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
             "ocr_markers": {"char": "?"}
