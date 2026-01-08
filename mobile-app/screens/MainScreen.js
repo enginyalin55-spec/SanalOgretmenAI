@@ -343,6 +343,8 @@ export default function MainScreen({ user, setUser }) {
 
   // ✅ TEK METİN STATE’İ
   const [ocrText, setOcrText] = useState("");
+// ✅ OCR banner mesajı (backend’den gelecek)
+const [ocrNotice, setOcrNotice] = useState("");
 
   const [result, setResult] = useState(null);
 
@@ -384,6 +386,7 @@ export default function MainScreen({ user, setUser }) {
     setStep(1);
     setImage(null);
     setOcrText("");
+     setOcrNotice("");
     setResult(null);
     setImageUrl("");
     setActiveErrorData(null);
@@ -439,11 +442,12 @@ export default function MainScreen({ user, setUser }) {
 
       const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (response.data.status === "success") {
-        // ✅ OCR çıktısı tek state’e
-        setOcrText(response.data.ocr_text || "");
-        setImageUrl(response.data.image_url || "");
-        setStep(2);
-      }
+  setOcrText(response.data.ocr_text || "");
+  setImageUrl(response.data.image_url || "");
+  setOcrNotice(response.data.ocr_notice || ""); // ✅ ekle
+  setStep(2);
+}
+
     } catch (error) {
       Alert.alert("Hata", "Metin okunamadı.");
     } finally {
@@ -491,8 +495,9 @@ export default function MainScreen({ user, setUser }) {
 
   // ✅ artık banner da ocrText’e bakıyor
   const showOcrBanner = useMemo(() => {
-    return step === 2 && hasOcrUncertainty(ocrText);
-  }, [step, ocrText]);
+  return step === 2 && (hasOcrUncertainty(ocrText) || !!ocrNotice);
+}, [step, ocrText, ocrNotice]);
+
 
   return (
     <View style={styles.container}>
@@ -550,12 +555,13 @@ export default function MainScreen({ user, setUser }) {
                 <View style={{ width: '100%' }}>
                   {/* ✅ OCR BELİRSİZLİK BANDI */}
                   {showOcrBanner && (
-                    <View style={styles.ocrBanner}>
-                      <Text style={styles.ocrBannerText}>
-                        OCR bazı harflerden emin olamadı. Turuncu işaretli yerleri kontrol edip düzelt.
-                      </Text>
-                    </View>
-                  )}
+  <View style={styles.ocrBanner}>
+    <Text style={styles.ocrBannerText}>
+      {ocrNotice || "OCR bazı harflerden emin olamadı. Turuncu işaretli yerleri kontrol edip düzelt."}
+    </Text>
+  </View>
+)}
+
 
                   {/* ✅ OCR ÖNİZLEME (TURUNCU İŞARETLİ) */}
                   <View style={styles.ocrPreviewCard}>
