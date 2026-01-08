@@ -47,75 +47,76 @@ const TDK_LOOKUP = {
 };
 
 // =======================================================
-// OCR BELİRSİZLİK SPAN’LARI (SADECE ? ve (?) için)
+// OCR BELİRSİZLİK SPAN’LARI (GENEL)
+// - kelime içinde tek ?   (harf yerine)
+// - ???? gibi belirsiz bloklar
+// - legacy: (?)
 // =======================================================
 const LETTERS = "A-Za-zÇĞİÖŞÜçğıöşü";
 
-const RE_INWORD_Q = new RegExp(
-  `([${LETTERS}])\\?([${LETTERS}])`,
-  "g"
-); // arka?ım, Sun?a, i?tadyum
+// 1) Legacy: (?)
+// tolus(?)
+const RE_WORD_UNKNOWN = /\(\?\)/g;
 
-const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
+// 2) Blok belirsizlik: ??, ???, ???? (tam okunamayan parça)
+// ????? -> hepsini turuncu yap
+const RE_Q_RUN = /\?{2,}/g;
 
-// ✅ Kelime sonu belirsiz ? (So?, Samsun'da?) ama gerçek soru işareti (nasılsın?) değil
-const RE_END_Q_TOKEN = new RegExp(
-  `(^|\\s|[\\(\\[\\{\\\"\\'])((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`,
-  "g"
-);
-
-// ✅ görüşürü?.  ?!, ?, gibi → OCR belirsizliği (gerçek soru değil)
-const RE_Q_BEFORE_PUNCT = /\?(?=[\.,;:!\)\]\}])/g;
-
-
-
-// (Opsiyonel ama tavsiye: kelime sonu So? gibi yakalamak istersen aç)
-// const RE_END_Q = new RegExp(`([${LETTERS}])\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`, "g");
+// 3) Kelime içinde tek ? : arka?ım, i?tadyum, ha?ası, görüşür?ş
+// (Lookbehind kullanmıyoruz, RN uyumlu)
+const RE_INWORD_Q = new RegExp(`([${LETTERS}])\\?([${LETTERS}])`, "g");
 
 function buildOcrUncertaintySpans(text) {
   if (!text) return [];
   const spans = [];
 
-  // 1) (?)
-  let m1;
-  while ((m1 = RE_WORD_UNKNOWN.exec(text)) !== null) {
-    spans.push({ start: m1.index, end: m1.index + m1[0].length, kind: "word" });
+  // A) legacy (?):
+  let mA;
+  while ((mA = RE_WORD_UNKNOWN.exec(text)) !== null) {
+    spans.push({ start: mA.index, end: mA.index + mA[0].length, kind: "legacy_word" });
   }
 
-  // 2) harf?harf (tek karakter ?)
-  let m2;
-  while ((m2 = RE_INWORD_Q.exec(text)) !== null) {
-    const qIndex = m2.index + 1; // ilk harften sonra gelen ?
-    spans.push({ start: qIndex, end: qIndex + 1, kind: "char" });
-  }
-  // 3) Kelime sonu belirsiz ? (So?, Samsun'da?) → sadece ? işaretini turuncu yap
-  let m3;
-  while ((m3 = RE_END_Q_TOKEN.exec(text)) !== null) {
-  // m3[1] = baştaki boşluk/prefix (veya boş string)
-  // m3[2] = token (So / Samsun'da gibi)
-  const qIndex = m3.index + (m3[1]?.length || 0) + (m3[2]?.length || 0);
-  spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
-}
-// 4) "?." "?,", "?!" gibi anormal kombinasyonlar -> OCR belirsizliği (gerçek soru değil)
-  let m4;
-  while ((m4 = RE_Q_BEFORE_PUNCT.exec(text)) !== null) {
-    spans.push({ start: m4.index, end: m4.index + 1, kind: "char_punct" });
+  // B) ???? blokları:
+  let mB;
+  while ((mB = RE_Q_RUN.exec(text)) !== null) {
+    spans.push({ start: mB.index, end: mB.index + mB[0].length, kind: "q_run" });
   }
 
-  // 3) kelime sonu ? (istersen aç)
-  // let m3;
-  // while ((m3 = RE_END_Q.exec(text)) !== null) {
-  //   const qIndex = m3.index + 1;
-  //   spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
-  // }
+  // C) kelime içi tek ?:
+  let mC;
+  while ((mC = RE_INWORD_Q.exec(text)) !== null) {
+    // eşleşen şey: "a?b" -> ? işareti mC.index+1
+    const qIndex = mC.index + 1;
+    spans.push({ start: qIndex, end: qIndex + 1, kind: "char_inword" });
+  }
 
   spans.sort((a, b) => a.start - b.start);
-  return spans;
+
+  // Çakışmaları temizle (üst üste binenleri kırp)
+  const cleaned = [];
+  for (const sp of spans) {
+    const last = cleaned[cleaned.length - 1];
+    if (!last) {
+      cleaned.push(sp);
+      continue;
+    }
+    if (sp.start >= last.end) {
+      cleaned.push(sp);
+      continue;
+    }
+    // overlap varsa: daha uzun olanı tut (genelde ???? bloğu)
+    const lastLen = last.end - last.start;
+    const spLen = sp.end - sp.start;
+    if (spLen > lastLen) cleaned[cleaned.length - 1] = sp;
+  }
+
+  return cleaned;
 }
 
 function hasOcrUncertainty(text) {
   return buildOcrUncertaintySpans(text).length > 0;
 }
+
 
 // =======================================================
 // OCR BELİRSİZLİK HIGHLIGHT (TURUNCU)
