@@ -638,12 +638,18 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             # bazen 1/0 gibi maske dönebiliyor
             mask = mask.replace("1", "?").replace("0", ".")
 
-            # SADECE . ve ? ayıkla
-            cleaned = []
+            # SADECE . ve ? + boşluk/newline => '.' olacak şekilde normalize et
+            mapped = []
             for ch in mask:
                 if ch == "." or ch == "?":
-                    cleaned.append(ch)
-            mask = "".join(cleaned)
+                    mapped.append(ch)
+                elif ch == " " or ch == "\t" or ch == "\n":
+                    mapped.append(".")
+                else:
+                    # diğer her şeyi yok say (uzunluğu altta pad'leyeceğiz)
+                    continue
+
+            mask = "".join(mapped)
 
             # uzunluk garanti
             if len(mask) < target_len:
@@ -667,7 +673,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 out.append(raw[L:])
             return "".join(out)
 
-        def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.65) -> str:
+        def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.85) -> str:
             # Bir kelimenin çoğu '?' ise tamamını '?' yap
             L = min(len(raw), len(masked_text))
             raw = raw[:L]
@@ -692,6 +698,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                     if (q_count / len(seg)) >= threshold:
                         for k in range(start, end):
                             chars[k] = "?"
+
             return "".join(chars)
 
         def _build_mask_prompt(rt: str) -> str:
@@ -763,6 +770,7 @@ SADECE MASKEYİ yaz.
             "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
             "ocr_markers": {"char": "?"}
         }
+
 
     except HTTPException:
         raise
