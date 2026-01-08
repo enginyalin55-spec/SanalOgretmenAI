@@ -622,36 +622,32 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         # - Uzunluk %100 korunur
         # =======================================================
 
+                # =======================================================
+        # 2) AŞAMA: BELİRSİZLİK MASKESİ (2 TUR + UNION)
+        # =======================================================
+
         target_len = len(raw_text)
 
         def _sanitize_mask(mask: str, target_len: int) -> str:
-            # sadece '.' ve '?' bırak + model saçmalıklarını normalize et
+            # KRİTİK: Uzunluk ve indeks KORUNACAK. Silmek yok, map var.
             if not mask:
                 return "." * target_len
 
-            # newline normalize
             mask = mask.replace("\r\n", "\n").replace("\r", "\n")
-
-            # fullwidth question mark
             mask = mask.replace("\uFF1F", "?")
-
-            # bazen 1/0 gibi maske dönebiliyor
             mask = mask.replace("1", "?").replace("0", ".")
 
-            # SADECE . ve ? + boşluk/newline => '.' olacak şekilde normalize et
             mapped = []
             for ch in mask:
-                if ch == "." or ch == "?":
-                    mapped.append(ch)
-                elif ch == " " or ch == "\t" or ch == "\n":
+                if ch == "?":
+                    mapped.append("?")
+                elif ch == ".":
                     mapped.append(".")
                 else:
-                    # diğer her şeyi yok say (uzunluğu altta pad'leyeceğiz)
-                    continue
+                    mapped.append(".")
 
             mask = "".join(mapped)
 
-            # uzunluk garanti
             if len(mask) < target_len:
                 mask += "." * (target_len - len(mask))
             elif len(mask) > target_len:
@@ -674,7 +670,6 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return "".join(out)
 
         def _word_level_expand(raw: str, masked_text: str, threshold: float = 0.85) -> str:
-            # Bir kelimenin çoğu '?' ise tamamını '?' yap
             L = min(len(raw), len(masked_text))
             raw = raw[:L]
             masked_text = masked_text[:L]
@@ -698,8 +693,8 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                     if (q_count / len(seg)) >= threshold:
                         for k in range(start, end):
                             chars[k] = "?"
-
             return "".join(chars)
+
 
         def _build_mask_prompt(rt: str) -> str:
             return f"""ROL: Sen bir OCR belirsizlik kontrol katibisin. Düzeltme yapmak YASAK.
