@@ -570,19 +570,29 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
         # =======================================================
-        # 1) AŞAMA: HAM OCR (DÜZELTME YOK)
+        # TEK AŞAMA: OCR + BELİRSİZLİK İŞARETİ (DÜZELTME YOK)
         # =======================================================
         extracted_text = ""
-        prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
+
+        prompt_ocr = """
+ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
 
 GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
 KESİN KURALLAR:
 - ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru / daha anlamlı hale getirme.
-- ASLA yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
+- ASLA kelimeyi daha doğru hale getirme.
+- ASLA bağlamdan tahmin etme.
+- Yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
 - Yanlış olduğunu düşünsen bile, gördüğünü yaz.
+
+BELİRSİZLİK KURALI:
+- Eğer bir HARFİ net okuyamıyorsan, SADECE o harf yerine ⍰ yaz.
+- EMİN OLDUĞUN hiçbir harfte ⍰ kullanma.
+- Kelimeyi uydurma / tamamlamaya çalışma.
+- Kelimenin tamamı okunmuyorsa, okunuşu belirsiz olan harfleri ⍰ ile yaz.
+- Görselde GERÇEK soru işareti (?) varsa, aynen ? olarak yaz.
 
 BİÇİM:
 - SATIRLARI KORU (kağıttaki satır sonları kalsın).
@@ -597,7 +607,10 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    contents=[
+                        prompt_ocr,
+                        types.Part.from_bytes(data=file_content, mime_type=safe_mime),
+                    ],
                     config=types.GenerateContentConfig(
                         temperature=0,
                         response_mime_type="text/plain",
@@ -612,84 +625,23 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         if not extracted_text:
             return {"status": "error", "message": "OCR Başarısız"}
 
-        raw_text = extracted_text
-
-        # =======================================================
-        # 2) AŞAMA: SADECE ? / (?) İŞARETLEME (DÜZELTME YOK)
-        # =======================================================
-        flagged_text = ""
-        prompt_flag = f"""ROL: Sen bir OCR kontrol katibisin. Düzeltme yapmak YASAK.
-
-GÖREV:
-Aşağıdaki OCR metnini ASLA düzeltmeden, SADECE görsel belirsizliğini işaretle.
-
-KESİN KURALLAR:
-- Metni düzeltme. Kelimeyi daha doğru hale getirme.
-- Kelime ekleme/çıkarma yok.
-- Noktalama/büyük harf/ek düzeltmesi yok.
-- SADECE belirsiz HARFLERİ ? ile değiştir.
-
-? KULLANIMI:
-- ? SADECE görsel olarak EMİN OLMADIĞIN HARF için kullanılır.
-- Yanlış yazılmış ama NET görünen kelimelerde ASLA ? kullanma.
-  Örnek: yağrır → yağrır
-  Örnek: lezettli → lezettli
-- Emin değilsen sadece o harfi değiştir:
-  görüşürüş → görüşür?ş
-  havası/halvası emin değilsen → ha?ası
-- Bir kelimenin tamamı okunamıyorsa kelimenin sonuna (?) ekle.
-  Örnek: tolus → tolus(?)
-  Eğer tek bir kelime yanlışlıkla boşlukla iki parçaya ayrılmışsa ve tek kelime olduğu açıksa, parçaları BİRLEŞTİR ve emin olmadığın harfi ? ile işaretle; emin değilsen kelimenin sonuna (?) ekle.
-
-
-BİÇİM:
-- SATIRLARI KORU.
-- SADECE işaretlenmiş metni ver.
-- BAŞKA HİÇBİR ŞEY YAZMA.
-
-OCR METNİ:
-<<<
-{raw_text}
->>>
-"""
-
-        for model_name in MODELS_TO_TRY:
-            try:
-                resp2 = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt_flag],
-                    config=types.GenerateContentConfig(
-                        temperature=0,
-                        response_mime_type="text/plain",
-                    ),
-                )
-                flagged_text = (resp2.text or "").strip().replace("```", "").strip()
-                if flagged_text:
-                    break
-            except Exception:
-                continue
-
-        # flagged_text boş dönerse, en azından raw_text'i ver
-        if not flagged_text:
-            flagged_text = raw_text
-
         return {
-    "status": "success",
-    "ocr_text": flagged_text,      # öğrenciye göster
-    "raw_ocr_text": raw_text,      # opsiyonel debug
-    "image_url": image_url,
+            "status": "success",
+            "ocr_text": extracted_text,      # öğrenciye göster (⍰ içerir)
+            "raw_ocr_text": extracted_text,  # opsiyonel debug
+            "image_url": image_url,
 
-    # ✅ UX mikro metinler
-    "ocr_notice": "ℹ️ Turuncu işaretli (?) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
-    "ocr_hover_text": "OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.",
-    "ocr_markers": { "char": "?", "word": "(?)" }  # opsiyonel
-}
-
+            # ✅ UX mikro metinler
+            "ocr_notice": "ℹ️ Turuncu işaretli (⍰) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
+            "ocr_hover_text": "OCR bu karakteri net okuyamadı. Öğrenci kontrol etmelidir.",
+            "ocr_markers": {"char": "⍰"},
+        }
 
     except HTTPException:
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 
 @app.post("/analyze")
