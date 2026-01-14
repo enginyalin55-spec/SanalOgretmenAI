@@ -569,23 +569,34 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as up_err:
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
-        # =======================================================
-        # 1) AŞAMA: HAM OCR (DÜZELTME YOK)
+                # =======================================================
+        # 1) AŞAMA: HAM OCR + GÖRSEL BELİRSİZLİK İŞARETLEME (DÜZELTME YOK)
         # =======================================================
         extracted_text = ""
+
         prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
+
+TEK KRİTER:
+OCR için tek kriter GÖRSEL EMİNLİKTİR. Anlam, dil bilgisi, kelimenin doğruluğu önemli değildir.
 
 GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
+Emin olmadığın yerleri mutlaka işaretle.
 
 KESİN KURALLAR:
 - ASLA düzeltme yapma.
 - ASLA kelimeyi daha doğru / daha anlamlı hale getirme.
 - ASLA yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
 - Yanlış olduğunu düşünsen bile, gördüğünü yaz.
+- TAHMİN YASAK: %100 emin değilsen işaret koymak ZORUNDASIN.
+
+İŞARETLEME:
+- %100 emin olmadığın harfi ? ile yaz.
+- Bir kelimenin tamamı %100 net değilse kelimenin SONUNA ⍰ ekle.
+- Emin olmadığın yerde İŞARET KOYMADAN GEÇMEK YASAKTIR.
 
 BİÇİM:
-- SATIRLARI KORU (kağıttaki satır sonları kalsın).
+- SATIRLARI KORU.
 - Yorum/başlık/açıklama ekleme.
 - SADECE metni yaz.
 
@@ -597,15 +608,23 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    contents=[
+                        prompt_ocr,
+                        types.Part.from_bytes(
+                            data=file_content,
+                            mime_type=safe_mime
+                        )
+                    ],
                     config=types.GenerateContentConfig(
                         temperature=0,
                         response_mime_type="text/plain",
                     ),
                 )
+
                 extracted_text = (resp.text or "").strip().replace("```", "").strip()
                 if extracted_text:
                     break
+
             except Exception:
                 continue
 
@@ -613,6 +632,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return {"status": "error", "message": "OCR Başarısız"}
 
         raw_text = extracted_text
+
 
         # =======================================================
         # 2) AŞAMA: EMNİYET FİLTRESİ (DÜZELTME YOK, SADECE ⍰ İŞARETLE)
