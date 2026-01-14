@@ -570,29 +570,19 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
         # =======================================================
-        # TEK AŞAMA: OCR + BELİRSİZLİK İŞARETİ (DÜZELTME YOK)
+        # 1) AŞAMA: HAM OCR (DÜZELTME YOK)
         # =======================================================
         extracted_text = ""
-
-        prompt_ocr = """
-ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
+        prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
 
 GÖREV:
 Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
 
 KESİN KURALLAR:
 - ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru hale getirme.
-- ASLA bağlamdan tahmin etme.
-- Yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
+- ASLA kelimeyi daha doğru / daha anlamlı hale getirme.
+- ASLA yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
 - Yanlış olduğunu düşünsen bile, gördüğünü yaz.
-
-BELİRSİZLİK KURALI:
-- Eğer bir HARFİ net okuyamıyorsan, SADECE o harf yerine ⍰ yaz.
-- EMİN OLDUĞUN hiçbir harfte ⍰ kullanma.
-- Kelimeyi uydurma / tamamlamaya çalışma.
-- Kelimenin tamamı okunmuyorsa, okunuşu belirsiz olan harfleri ⍰ ile yaz.
-- Görselde GERÇEK soru işareti (?) varsa, aynen ? olarak yaz.
 
 BİÇİM:
 - SATIRLARI KORU (kağıttaki satır sonları kalsın).
@@ -607,10 +597,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[
-                        prompt_ocr,
-                        types.Part.from_bytes(data=file_content, mime_type=safe_mime),
-                    ],
+                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
                     config=types.GenerateContentConfig(
                         temperature=0,
                         response_mime_type="text/plain",
@@ -625,16 +612,134 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         if not extracted_text:
             return {"status": "error", "message": "OCR Başarısız"}
 
+        raw_text = extracted_text
+
+        # =======================================================
+        # 2) AŞAMA: EMNİYET FİLTRESİ (DÜZELTME YOK, SADECE ⍰ İŞARETLE)
+        #    Amaç: LLM tahmin edip "emin değilim" demese bile,
+        #    Türkçe-dışı / şüpheli kelimelerde karakter maskele.
+        # =======================================================
+        MARK_CHAR = "⍰"
+        WORD_MARK = "(⍰)"
+
+        VOWELS = set("aeıioöuüAEIİOÖUÜ")
+        # Türkçe'de çok nadir/şüpheli görülen bazı ikililer (heuristic)
+        SUSPICIOUS_BIGRAMS = {
+            "tz", "zd", "dt", "tb", "pk", "bp", "gk", "kg", "qy", "wq", "xq",
+            "yi̇",  # bazı OCR birleşimleri
+        }
+        # Türkçe'de beklenmeyen karakterler (rakam, ascii dışı vb.)
+        ALLOWED_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZçÇğĞıİöÖşŞüÜ'-.,;:!?()“”\" \n\t")
+
+        def is_turkish_like_word(w: str) -> bool:
+            # Sadece harflerden oluşmayan parçaları (ör. "2026", "—") kelime saymayalım
+            letters = [c for c in w if c.isalpha() or c in "çÇğĞıİöÖşŞüÜ"]
+            if not letters:
+                return True
+
+            # En az 1 ünlü yoksa çok şüpheli (örn: "trl", "stdy")
+            if not any(c in VOWELS for c in letters):
+                return False
+
+            # 4+ ünsüz ardışık ise şüpheli
+            consec_cons = 0
+            for c in letters:
+                if c in VOWELS:
+                    consec_cons = 0
+                else:
+                    consec_cons += 1
+                    if consec_cons >= 4:
+                        return False
+
+            # Basit bigram kontrolü
+            low = "".join(letters).lower()
+            for i in range(len(low) - 1):
+                bg = low[i:i+2]
+                if bg in SUSPICIOUS_BIGRAMS:
+                    return False
+
+            return True
+
+        def mask_one_char(word: str) -> str:
+            """
+            Kelimeyi ASLA düzeltmez.
+            Sadece şüpheli kelimede 1 karakteri ⍰ yapar.
+            Hangi karakter?:
+              - Harf olmayan/garip karakter varsa onu maskeler.
+              - Yoksa uzun ünsüz dizisinin ortasını maskeler.
+              - Hâlâ seçemezse sonuna (⍰) ekler.
+            """
+            # Garip karakter yakala
+            for idx, ch in enumerate(word):
+                if ch not in ALLOWED_CHARS:
+                    return word[:idx] + MARK_CHAR + word[idx+1:]
+
+            # Harf dizisi üzerinden ünsüz serisi bul
+            letters_idx = [(i, ch) for i, ch in enumerate(word) if ch.isalpha() or ch in "çÇğĞıİöÖşŞüÜ"]
+            if not letters_idx:
+                return word + WORD_MARK
+
+            # 4+ ünsüz koşusunu bul
+            run = []
+            current = []
+            for i, ch in letters_idx:
+                if ch in VOWELS:
+                    if len(current) >= 4:
+                        run = current
+                        break
+                    current = []
+                else:
+                    current.append((i, ch))
+            if not run and len(current) >= 4:
+                run = current
+
+            if run:
+                mid_i = run[len(run)//2][0]
+                return word[:mid_i] + MARK_CHAR + word[mid_i+1:]
+
+            # Bigram yakala ve ikinci harfi maskele
+            low = "".join(ch for _, ch in letters_idx).lower()
+            if len(low) >= 2:
+                for j in range(len(low) - 1):
+                    if low[j:j+2] in SUSPICIOUS_BIGRAMS:
+                        # j+1'in orijinal indexini bul
+                        orig_i = letters_idx[j+1][0]
+                        return word[:orig_i] + MARK_CHAR + word[orig_i+1:]
+
+            # Son çare: kelime sonuna işaret
+            return word + WORD_MARK
+
+        def post_mask_text(text: str) -> str:
+            # Satırları koruyarak token bazlı ilerleyelim.
+            # Boşlukları kaybetmemek için split değil, regex ile token yakalayacağız.
+            def repl(m):
+                token = m.group(0)
+                # Çok kısa şeylere dokunma
+                if len(token) <= 2:
+                    return token
+                # Kelime benzeri token ise kontrol et
+                if any(ch.isalpha() or ch in "çÇğĞıİöÖşŞüÜ" for ch in token):
+                    if not is_turkish_like_word(token):
+                        return mask_one_char(token)
+                return token
+
+            # "kelime benzeri" parçaları yakala (boşluk/enter aynen kalsın)
+            # Not: apostrof ve tireyi de token içine alıyoruz.
+            pattern = r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+"
+            return re.sub(pattern, repl, text)
+
+        flagged_text = post_mask_text(raw_text)
+
         return {
             "status": "success",
-            "ocr_text": extracted_text,      # öğrenciye göster (⍰ içerir)
-            "raw_ocr_text": extracted_text,  # opsiyonel debug
+            "ocr_text": flagged_text,      # öğrenciye göster (⍰ işaretli)
+            "raw_ocr_text": raw_text,      # opsiyonel debug
             "image_url": image_url,
 
-            # ✅ UX mikro metinler
-            "ocr_notice": "ℹ️ Turuncu işaretli (⍰) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
-            "ocr_hover_text": "OCR bu karakteri net okuyamadı. Öğrenci kontrol etmelidir.",
-            "ocr_markers": {"char": "⍰"},
+            # UX metinleri
+            "ocr_notice": f"ℹ️ Turuncu işaretli ({MARK_CHAR}) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
+            "ocr_hover_text": "OCR bu kısmı net okuyamadı. Öğrenci kontrol etmelidir.",
+            "ocr_markers": { "char": MARK_CHAR, "word": WORD_MARK }
         }
 
     except HTTPException:
