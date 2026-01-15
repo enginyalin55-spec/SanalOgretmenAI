@@ -596,6 +596,14 @@ KESİN KURALLAR:
 - Eğer bir kelimenin tamamından %100 emin değilsen (tamamını okuyabilsen bile) kelimenin SONUNA '⍰' ekle. (ör: tramvay⍰)
 - Belirsizlik varken işaret koymadan geçmek YASAKTIR.
 
+DİAKRİTİK KURAL (ÇOK ÖNEMLİ):
+- Türkçede şu çiftler görsel olarak çok karışır: ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g.
+- Bu çiftlerden birinde %100 emin değilsen HARFİ SEÇMEK YASAKTIR.
+  Örnek: görüşürüş kelimesinde ü/u net değilse "görüşür⍰ş" yaz.
+- Bu çiftlerde belirsizlik varsa asla düz harfi yazıp geçme; mutlaka '⍰' kullan.
+- Kağıtta tek kelime gördüğün yerleri ASLA iki kelimeye bölme.
+  Eğer bölünmüş gibi görünüyorsa ve emin değilsen: tek kelime yaz ve sonuna '⍰' ekle.
+
 GERÇEK SORU İŞARETİ:
 - '?' karakterini sadece KAĞITTA açıkça görülen bir soru işareti varsa kullan.
 - Bu durumda '?' sadece cümlenin sonunda yer alır. Cümle içinde '?' kullanma.
@@ -755,7 +763,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
 
         flagged_text = raw_text
 
-                # =======================================================
+        # =======================================================
         # BELİRSİZLİK '?' TEMİZLİĞİ:
         # - Kelime başı/kelime içi '?' => '⍰'
         # - Cümle sonundaki gerçek '?' korunur
@@ -770,6 +778,33 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return text
 
         flagged_text = normalize_uncertainty_q(flagged_text)
+               # =======================================================
+        # DİAKRİTİK EMNİYET (DÜZELTME YOK):
+        # Aynı kelimede hem diakritikli hem düz harf varsa,
+        # düz harfi '⍰' yapar. (örn: görüşüruş -> görüşür⍰ş)
+        # =======================================================
+        def mark_mixed_diacritics(token: str) -> str:
+            pairs = [
+                ("ü", "u"), ("Ü", "U"),
+                ("ö", "o"), ("Ö", "O"),
+                ("ş", "s"), ("Ş", "S"),
+                ("ç", "c"), ("Ç", "C"),
+                ("ğ", "g"), ("Ğ", "G"),
+                ("ı", "i"), ("I", "İ"),
+            ]
+            for di, plain in pairs:
+                if di in token and plain in token:
+                    token = token.replace(plain, "⍰")
+            return token
+
+        def apply_mixed_diacritic_marking(text: str) -> str:
+            if not text:
+                return text
+            def repl(m: re.Match) -> str:
+                return mark_mixed_diacritics(m.group(0))
+            return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
+
+        flagged_text = apply_mixed_diacritic_marking(flagged_text)
 
 
         return {
