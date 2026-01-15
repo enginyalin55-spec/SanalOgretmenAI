@@ -569,7 +569,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as up_err:
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
-                # =======================================================
+        # =======================================================
         # 1) AŞAMA: HAM OCR + GÖRSEL BELİRSİZLİK İŞARETLEME (DÜZELTME YOK)
         # =======================================================
         extracted_text = ""
@@ -590,10 +590,15 @@ KESİN KURALLAR:
 - Yanlış olduğunu düşünsen bile, gördüğünü yaz.
 - TAHMİN YASAK: %100 emin değilsen işaret koymak ZORUNDASIN.
 
-İŞARETLEME:
-- %100 emin olmadığın harfi ? ile yaz.
-- Bir kelimenin tamamı %100 net değilse kelimenin SONUNA ⍰ ekle.
-- Emin olmadığın yerde İŞARET KOYMADAN GEÇMEK YASAKTIR.
+İŞARETLEME (ZORUNLU):
+- Belirsizlik işareti olarak ASLA '?' kullanma. Belirsizlik için SADECE '⍰' kullan.
+- Eğer bir HARF %100 net değilse o harfi '⍰' ile değiştir. (ör: fut⍰ol)
+- Eğer bir kelimenin tamamından %100 emin değilsen (tamamını okuyabilsen bile) kelimenin SONUNA '⍰' ekle. (ör: tramvay⍰)
+- Belirsizlik varken işaret koymadan geçmek YASAKTIR.
+
+GERÇEK SORU İŞARETİ:
+- '?' karakterini sadece KAĞITTA açıkça görülen bir soru işareti varsa kullan.
+- Bu durumda '?' sadece cümlenin sonunda yer alır. Cümle içinde '?' kullanma.
 
 BİÇİM:
 - SATIRLARI KORU.
@@ -640,7 +645,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         #    Türkçe-dışı / şüpheli kelimelerde karakter maskele.
         # =======================================================
         MARK_CHAR = "⍰"
-        WORD_MARK = "(⍰)"
+        WORD_MARK = "⍰"
 
         VOWELS = set("aeıioöuüAEIİOÖUÜ")
         # Türkçe'de çok nadir/şüpheli görülen bazı ikililer (heuristic)
@@ -749,6 +754,23 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             return re.sub(pattern, repl, text)
 
         flagged_text = post_mask_text(raw_text)
+
+                # =======================================================
+        # BELİRSİZLİK '?' TEMİZLİĞİ:
+        # - Kelime başı/kelime içi '?' => '⍰'
+        # - Cümle sonundaki gerçek '?' korunur
+        # =======================================================
+        def normalize_uncertainty_q(text: str) -> str:
+            if not text:
+                return text
+            # Kelime başındaki ? (örn: "?tolus") -> "⍰tolus"
+            text = re.sub(r"(?m)(?<!\S)\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"⍰\1", text)
+            # Kelime içindeki ? (örn: "fut?ol") -> "fut⍰ol"
+            text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
+            return text
+
+        flagged_text = normalize_uncertainty_q(flagged_text)
+
 
         return {
             "status": "success",
