@@ -5,6 +5,7 @@ from google.genai import types
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os, json, uuid, re
+import unicodedata
 from pydantic import BaseModel
 from typing import Union, List, Dict, Any, Optional
 
@@ -100,7 +101,6 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
 # =======================================================
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
 
-# ✅ Türkçe lower fix
 TR_LOWER_MAP = str.maketrans({"İ": "i", "I": "ı"})
 def tr_lower(s: str) -> str:
     if not s:
@@ -175,7 +175,6 @@ def sentence_starts(text: str) -> set:
             starts.add(idx)
     return starts
 
-# basit özel isim ipuçları (gerekirse genişlet)
 PROPER_ROOTS = {"samsun", "karadeniz", "türkiye"}
 
 def norm_token(token: str) -> str:
@@ -223,10 +222,6 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
         return None
 
     best = min(matches, key=lambda x: abs(x - hint_start)) if hint_start is not None else matches[0]
-
-    # ⚠️ burada idx, newline->space dönüştürülmüş metne göre
-    # Basit yaklaşım: gerçek metinde de aynı indeks çoğunlukla tutar (satır sonu azsa).
-    # Daha sağlam istersen mapping yapılır ama şimdilik pratikte yeterli.
     return (best, best + len(wrong_n))
 
 # =======================================================
@@ -238,15 +233,12 @@ def is_safe_correction(wrong: str, correct: str) -> bool:
     if not w or not c:
         return False
 
-    # 1) Cümle/paragraf gibi uzun parça düzeltmesi istemiyoruz
     if len(w) > 25 or "\n" in w:
         return False
 
-    # 2) Aşırı kısaltma (kelime düşürme)
     if len(c) < max(2, int(len(w) * 0.75)):
         return False
 
-    # 3) Çok büyük değişimi engelle (basit karakter set örtüşmesi)
     w0 = normalize_match(w)
     c0 = normalize_match(c)
     common = set(w0) & set(c0)
@@ -279,7 +271,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
         if normalize_match(wrong) == normalize_match(correct):
             continue
 
-        # ✅ paraphrase/cümle bozma filtresi
         if not is_safe_correction(wrong, correct):
             continue
 
@@ -290,8 +281,6 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
         fixed = _find_best_span(full_text, wrong, hint)
         if fixed:
             start, end = fixed
-            # gerçek metinden slice almak newline index farkında sorun çıkarabilir.
-            # UI için wrong olarak LLM wrong'ı tutmak daha güvenli:
             clean_errors.append({
                 "wrong": wrong,
                 "correct": correct,
@@ -359,7 +348,6 @@ def find_unnecessary_capitals(full_text: str) -> list:
         if is_probably_proper(word):
             continue
 
-        # "Sok" kelimesi çoğu zaman OCR->çok; büyük harf önerisi üretme
         if tr_lower(word) in {"sok"}:
             continue
 
@@ -404,11 +392,9 @@ def find_conjunction_dade_joined(full_text: str) -> list:
         suf = m.group(2)
         whole = full_text[m.start():m.end()]
 
-        # mektubun-da, evim-de gibi -> bölme
         if POSSESSIVE_HINT.search(base):
             continue
 
-        # özel isim/büyük harf varsa dokunma
         if any(ch.isupper() for ch in whole) or is_probably_proper(whole):
             continue
 
@@ -426,7 +412,6 @@ def find_conjunction_dade_joined(full_text: str) -> list:
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
 
-    # cok/çok OCR varyantları
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
         wrong = m.group(0)
         errs.append({
@@ -439,7 +424,6 @@ def find_common_a2_errors(full_text: str) -> list:
             "ocr_suspect": True
         })
 
-    # soru eki bitişik: geldinmi -> geldin mi
     for m in re.finditer(r"\b([^\W\d_]{2,})(mi|mı|mu|mü)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         word = m.group(0)
         wl = tr_lower(word)
@@ -540,6 +524,9 @@ async def check_class_code(code: str):
     except:
         return {"valid": False}
 
+# =======================================================
+# OCR: SADECE GÖRSEL KATİP (dilsel heuristik YOK)
+# =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
@@ -569,9 +556,6 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as up_err:
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
-        # =======================================================
-        # 1) AŞAMA: HAM OCR + GÖRSEL BELİRSİZLİK İŞARETLEME (DÜZELTME YOK)
-        # =======================================================
         extracted_text = ""
 
         prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
@@ -599,10 +583,7 @@ KESİN KURALLAR:
 DİAKRİTİK KURAL (ÇOK ÖNEMLİ):
 - Türkçede şu çiftler görsel olarak çok karışır: ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g.
 - Bu çiftlerden birinde %100 emin değilsen HARFİ SEÇMEK YASAKTIR.
-  Örnek: görüşürüş kelimesinde ü/u net değilse "görüşür⍰ş" yaz.
-- Bu çiftlerde belirsizlik varsa asla düz harfi yazıp geçme; mutlaka '⍰' kullan.
-- Kağıtta tek kelime gördüğün yerleri ASLA iki kelimeye bölme.
-  Eğer bölünmüş gibi görünüyorsa ve emin değilsen: tek kelime yaz ve sonuna '⍰' ekle.
+- Belirsiz harfi mutlaka '⍰' ile yaz.
 
 GERÇEK SORU İŞARETİ:
 - '?' karakterini sadece KAĞITTA açıkça görülen bir soru işareti varsa kullan.
@@ -623,10 +604,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                     model=model_name,
                     contents=[
                         prompt_ocr,
-                        types.Part.from_bytes(
-                            data=file_content,
-                            mime_type=safe_mime
-                        )
+                        types.Part.from_bytes(data=file_content, mime_type=safe_mime)
                     ],
                     config=types.GenerateContentConfig(
                         temperature=0,
@@ -634,154 +612,56 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                     ),
                 )
 
-                extracted_text = (resp.text or "").strip().replace("```", "").strip()
+                # ❗️Strip yok: satır başı / girinti bozulmasın
+                extracted_text = (resp.text or "").replace("```", "")
+                extracted_text = extracted_text.rstrip("\n")
                 if extracted_text:
                     break
-
             except Exception:
                 continue
 
         if not extracted_text:
             return {"status": "error", "message": "OCR Başarısız"}
 
-        raw_text = extracted_text
+        # Unicode normalize (ü/ş gibi karakterlerde stabilite)
+        raw_text = unicodedata.normalize("NFC", extracted_text)
 
-
-        # =======================================================
-        # 2) AŞAMA: EMNİYET FİLTRESİ (DÜZELTME YOK, SADECE ⍰ İŞARETLE)
-        #    Amaç: LLM tahmin edip "emin değilim" demese bile,
-        #    Türkçe-dışı / şüpheli kelimelerde karakter maskele.
-        # =======================================================
         MARK_CHAR = "⍰"
         WORD_MARK = "⍰"
 
-        VOWELS = set("aeıioöuüAEIİOÖUÜ")
-        # Türkçe'de çok nadir/şüpheli görülen bazı ikililer (heuristic)
-        SUSPICIOUS_BIGRAMS = {
-            "tz", "zd", "dt", "tb", "pk", "bp", "gk", "kg", "qy", "wq", "xq",
-            "yi̇",  # bazı OCR birleşimleri
-        }
-        # Türkçe'de beklenmeyen karakterler (rakam, ascii dışı vb.)
-        ALLOWED_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZçÇğĞıİöÖşŞüÜ'-.,;:!?()“”\" \n\t")
-
-        def is_turkish_like_word(w: str) -> bool:
-            # Sadece harflerden oluşmayan parçaları (ör. "2026", "—") kelime saymayalım
-            letters = [c for c in w if c.isalpha() or c in "çÇğĞıİöÖşŞüÜ"]
-            if not letters:
-                return True
-
-            # En az 1 ünlü yoksa çok şüpheli (örn: "trl", "stdy")
-            if not any(c in VOWELS for c in letters):
-                return False
-
-            # 4+ ünsüz ardışık ise şüpheli
-            consec_cons = 0
-            for c in letters:
-                if c in VOWELS:
-                    consec_cons = 0
-                else:
-                    consec_cons += 1
-                    if consec_cons >= 4:
-                        return False
-
-            # Basit bigram kontrolü
-            low = "".join(letters).lower()
-            for i in range(len(low) - 1):
-                bg = low[i:i+2]
-                if bg in SUSPICIOUS_BIGRAMS:
-                    return False
-
-            return True
-
-        def mask_one_char(word: str) -> str:
-            """
-            Kelimeyi ASLA düzeltmez.
-            Sadece şüpheli kelimede 1 karakteri ⍰ yapar.
-            Hangi karakter?:
-              - Harf olmayan/garip karakter varsa onu maskeler.
-              - Yoksa uzun ünsüz dizisinin ortasını maskeler.
-              - Hâlâ seçemezse sonuna (⍰) ekler.
-            """
-            # Garip karakter yakala
-            for idx, ch in enumerate(word):
-                if ch not in ALLOWED_CHARS:
-                    return word[:idx] + MARK_CHAR + word[idx+1:]
-
-            # Harf dizisi üzerinden ünsüz serisi bul
-            letters_idx = [(i, ch) for i, ch in enumerate(word) if ch.isalpha() or ch in "çÇğĞıİöÖşŞüÜ"]
-            if not letters_idx:
-                return word + WORD_MARK
-
-            # 4+ ünsüz koşusunu bul
-            run = []
-            current = []
-            for i, ch in letters_idx:
-                if ch in VOWELS:
-                    if len(current) >= 4:
-                        run = current
-                        break
-                    current = []
-                else:
-                    current.append((i, ch))
-            if not run and len(current) >= 4:
-                run = current
-
-            if run:
-                mid_i = run[len(run)//2][0]
-                return word[:mid_i] + MARK_CHAR + word[mid_i+1:]
-
-            # Bigram yakala ve ikinci harfi maskele
-            low = "".join(ch for _, ch in letters_idx).lower()
-            if len(low) >= 2:
-                for j in range(len(low) - 1):
-                    if low[j:j+2] in SUSPICIOUS_BIGRAMS:
-                        # j+1'in orijinal indexini bul
-                        orig_i = letters_idx[j+1][0]
-                        return word[:orig_i] + MARK_CHAR + word[orig_i+1:]
-
-            # Son çare: kelime sonuna işaret
-            return word + WORD_MARK
-
-        def post_mask_text(text: str) -> str:
-            # Satırları koruyarak token bazlı ilerleyelim.
-            # Boşlukları kaybetmemek için split değil, regex ile token yakalayacağız.
-            def repl(m):
-                token = m.group(0)
-                # Çok kısa şeylere dokunma
-                if len(token) <= 2:
-                    return token
-                # Kelime benzeri token ise kontrol et
-                if any(ch.isalpha() or ch in "çÇğĞıİöÖşŞüÜ" for ch in token):
-                    if not is_turkish_like_word(token):
-                        return mask_one_char(token)
-                return token
-
-            # "kelime benzeri" parçaları yakala (boşluk/enter aynen kalsın)
-            # Not: apostrof ve tireyi de token içine alıyoruz.
-            pattern = r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+"
-            return re.sub(pattern, repl, text)
-
-        flagged_text = raw_text
-
         # =======================================================
-        # BELİRSİZLİK '?' TEMİZLİĞİ:
-        # - Kelime başı/kelime içi '?' => '⍰'
-        # - Cümle sonundaki gerçek '?' korunur
+        # BELİRSİZLİK '?' TEMİZLİĞİ (GEREKİRSE):
+        # - Cümle sonundaki gerçek '?' KALIR
+        # - Kelime içi/başı '?' => '⍰'
         # =======================================================
         def normalize_uncertainty_q(text: str) -> str:
             if not text:
                 return text
-            # Kelime başındaki ? (örn: "?tolus") -> "⍰tolus"
-            text = re.sub(r"(?m)(?<!\S)\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"⍰\1", text)
-            # Kelime içindeki ? (örn: "fut?ol") -> "fut⍰ol"
-            text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
+
+            # 1) Kelime içindeki ? (örn: fut?ol) -> fut⍰ol
+            text = re.sub(
+                r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])",
+                r"\1⍰\2",
+                text
+            )
+
+            # 2) Kelime başındaki ? (örn: ?tolus) -> ⍰tolus
+            #    ama SATIR BAŞINDA tek başına soru işareti gibi durumlara dokunma
+            text = re.sub(
+                r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])",
+                r"\1⍰\2",
+                text
+            )
+
+            # 3) Cümle sonu ? korunur: buraya ekstra bir şey yapmıyoruz.
             return text
 
-        flagged_text = normalize_uncertainty_q(flagged_text)
-               # =======================================================
-        # DİAKRİTİK EMNİYET (DÜZELTME YOK):
-        # Aynı kelimede hem diakritikli hem düz harf varsa,
-        # düz harfi '⍰' yapar. (örn: görüşüruş -> görüşür⍰ş)
+        flagged_text = normalize_uncertainty_q(raw_text)
+
+        # =======================================================
+        # DİAKRİTİK EMNİYET (TAHMİN YOK):
+        # Aynı kelimede hem diakritikli hem düz harf VARSA,
+        # düz olanı ⍰ yap. (örn: görüşüruş -> görüşür⍰ş)
         # =======================================================
         def mark_mixed_diacritics(token: str) -> str:
             pairs = [
@@ -790,12 +670,13 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 ("ş", "s"), ("Ş", "S"),
                 ("ç", "c"), ("Ç", "C"),
                 ("ğ", "g"), ("Ğ", "G"),
-                ("ı", "i"), ("I", "İ"),
+                ("ı", "i"), ("İ", "I"),  # ✅ düzeltildi
             ]
+            out = token
             for di, plain in pairs:
-                if di in token and plain in token:
-                    token = token.replace(plain, "⍰")
-            return token
+                if di in out and plain in out:
+                    out = out.replace(plain, "⍰")
+            return out
 
         def apply_mixed_diacritic_marking(text: str) -> str:
             if not text:
@@ -806,14 +687,12 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
 
         flagged_text = apply_mixed_diacritic_marking(flagged_text)
 
-
         return {
             "status": "success",
             "ocr_text": flagged_text,      # öğrenciye göster (⍰ işaretli)
-            "raw_ocr_text": raw_text,      # opsiyonel debug
+            "raw_ocr_text": raw_text,      # debug (LLM ham çıktısı)
             "image_url": image_url,
 
-            # UX metinleri
             "ocr_notice": f"ℹ️ Turuncu işaretli ({MARK_CHAR}) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
             "ocr_hover_text": "OCR bu kısmı net okuyamadı. Öğrenci kontrol etmelidir.",
             "ocr_markers": { "char": MARK_CHAR, "word": WORD_MARK }
@@ -824,8 +703,9 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-
-
+# =======================================================
+# ANALYZE (Aynen bırakıldı)
+# =======================================================
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
     if not data.ocr_text or not data.ocr_text.strip():
@@ -840,9 +720,6 @@ async def analyze_submission(data: AnalyzeRequest):
     allowed_ids = {r["rule_id"] for r in tdk_rules}
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
 
-    # =======================================================
-    # 1) TDK AGENT (paraphrase yasak)
-    # =======================================================
     prompt_tdk = f"""
 ROL: Sen nesnel ve kuralcı bir TDK denetçisisin.
 GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / ek yazımı hatalarını bul.
@@ -876,9 +753,6 @@ REFERANS KURALLAR:
 }}
 """
 
-    # =======================================================
-    # 2) CEFR AGENT
-    # =======================================================
     prompt_cefr = f"""
 ROL: Sen destekleyici bir öğretmensin.
 GÖREV: {data.level} seviyesindeki öğrencinin iletişim becerisini değerlendir.
@@ -936,9 +810,6 @@ METİN: \"\"\"{display_text}\"\"\"
                 raise ValueError("Boş CEFR Yanıtı")
             json_cefr = json.loads(raw_cefr.replace("```json", "").replace("```", ""))
 
-            # =======================================================
-            # PUAN BİRLEŞTİRME + FALLBACK
-            # =======================================================
             tdk_p = json_tdk.get("rubric_part", {}) if isinstance(json_tdk, dict) else {}
             cefr_p = json_cefr.get("rubric_part", {}) if isinstance(json_cefr, dict) else {}
 
@@ -955,9 +826,6 @@ METİN: \"\"\"{display_text}\"\"\"
             }
             total_score = sum(combined_rubric.values())
 
-            # =======================================================
-            # HATA TOPLAMA
-            # =======================================================
             cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
@@ -970,12 +838,8 @@ METİN: \"\"\"{display_text}\"\"\"
                 rule_dade
             )
 
-            # ✅ aynı span çatışmasını tek öneriye indir
             all_errors = pick_best_per_span(all_errors)
 
-            # =======================================================
-            # OCR / ÖĞRENCİ AYIR
-            # =======================================================
             errors_student = []
             errors_ocr = []
 
@@ -1004,13 +868,9 @@ METİN: \"\"\"{display_text}\"\"\"
 
             final_result = {
                 "rubric": combined_rubric,
-
-                # eski UI uyumluluğu: errors = öğrenci hataları
                 "errors": errors_student,
-
                 "errors_student": errors_student,
                 "errors_ocr": errors_ocr,
-
                 "teacher_note": raw_note,
                 "score_total": total_score
             }
@@ -1026,14 +886,13 @@ METİN: \"\"\"{display_text}\"\"\"
     if not final_result:
         raise HTTPException(status_code=500, detail=f"Analiz başarısız: {last_error}")
 
-    # DB kayıt
     try:
         supabase.table("submissions").insert({
             "student_name": data.student_name.strip(),
             "student_surname": data.student_surname.strip(),
             "classroom_code": data.classroom_code.strip(),
             "image_url": data.image_url,
-            "ocr_text": full_text,  # ✅ newline ile saklanır
+            "ocr_text": full_text,
             "level": data.level,
             "country": data.country,
             "native_language": data.native_language,
