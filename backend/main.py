@@ -626,6 +626,65 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         # Unicode normalize (ü/ş gibi karakterlerde stabilite)
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
+        # =======================================================
+        # 1B) AŞAMA: OCR AUDIT (METNİ DÜZELTME YOK, SADECE ⍰ EKLE)
+        # Amaç: model yanlış okuduğu halde emin davranıyorsa (tolus gibi),
+        # ikinci kez görsele baktırıp şüpheli yerlere ⍰ koydurmak.
+        # =======================================================
+        audited_text = ""
+
+        prompt_audit = f"""ROL: Sen bir OCR denetçisisin (auditor).
+GÖREV: Aşağıdaki OCR metnini SADECE görsele bakarak kontrol et.
+
+KATI KURAL:
+- Metni ASLA düzeltme.
+- ASLA kelimeyi değiştirme.
+- ASLA harf ekleme/çıkarma yapma.
+- SADECE şu iki şeyi yapabilirsin:
+  (1) Emin olmadığın HARFİ "⍰" ile değiştir.
+  (2) Bir kelimenin tamamı şüpheliyse kelimenin SONUNA "⍰" ekle.
+
+ZORUNLU İŞARET:
+- Eğer görselde net değilse işaretlemeden geçmek YASAK.
+- Özellikle şu durumlarda mutlaka işaret koy:
+  - Görselde net değilse ve okuma "garip" görünüyorsa → kelime sonuna ⍰
+  - Türkçe diakritik çiftlerinde (ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g) en ufak belirsizlik varsa → ilgili harf ⍰
+
+GERÇEK SORU İŞARETİ:
+- Görselde açıkça soru işareti varsa "?" kalır. Aksi halde "?" üretme.
+
+BİÇİM:
+- SATIRLARI KORU.
+- Açıklama ekleme.
+- SADECE nihai OCR metni.
+
+KONTROL EDİLECEK OCR METNİ:
+\"\"\"{raw_text}\"\"\"
+"""
+
+        for model_name in MODELS_TO_TRY:
+            try:
+                resp_audit = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        prompt_audit,
+                        types.Part.from_bytes(data=file_content, mime_type=safe_mime)
+                    ],
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        response_mime_type="text/plain",
+                    ),
+                )
+                audited_text = (resp_audit.text or "").replace("```", "")
+                audited_text = audited_text.rstrip("\n")
+                if audited_text:
+                    break
+            except Exception:
+                continue
+
+        # ✅ Audit başarılıysa onu kullan, değilse raw_text ile devam
+        text_for_marking = audited_text if audited_text else raw_text
+
         MARK_CHAR = "⍰"
         WORD_MARK = "⍰"
 
@@ -653,10 +712,11 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 text
             )
 
-            # 3) Cümle sonu ? korunur: buraya ekstra bir şey yapmıyoruz.
+            # 3) Cümle sonu ? korunur
             return text
 
-        flagged_text = normalize_uncertainty_q(raw_text)
+        # ✅ raw_text yerine audit edilmiş metin üstünde işaretleme
+        flagged_text = normalize_uncertainty_q(text_for_marking)
 
         # =======================================================
         # DİAKRİTİK EMNİYET (TAHMİN YOK):
@@ -670,7 +730,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                 ("ş", "s"), ("Ş", "S"),
                 ("ç", "c"), ("Ç", "C"),
                 ("ğ", "g"), ("Ğ", "G"),
-                ("ı", "i"), ("İ", "I"),  # ✅ düzeltildi
+                ("ı", "i"), ("İ", "I"),
             ]
             out = token
             for di, plain in pairs:
@@ -689,13 +749,12 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
 
         return {
             "status": "success",
-            "ocr_text": flagged_text,      # öğrenciye göster (⍰ işaretli)
-            "raw_ocr_text": raw_text,      # debug (LLM ham çıktısı)
+            "ocr_text": flagged_text,
+            "raw_ocr_text": raw_text,
             "image_url": image_url,
-
             "ocr_notice": f"ℹ️ Turuncu işaretli ({MARK_CHAR}) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
             "ocr_hover_text": "OCR bu kısmı net okuyamadı. Öğrenci kontrol etmelidir.",
-            "ocr_markers": { "char": MARK_CHAR, "word": WORD_MARK }
+            "ocr_markers": {"char": MARK_CHAR, "word": WORD_MARK}
         }
 
     except HTTPException:
