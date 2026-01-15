@@ -753,7 +753,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
             pattern = r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+"
             return re.sub(pattern, repl, text)
 
-        flagged_text = post_mask_text(raw_text)
+        flagged_text = raw_text
 
                 # =======================================================
         # BELİRSİZLİK '?' TEMİZLİĞİ:
