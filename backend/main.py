@@ -746,6 +746,50 @@ KONTROL EDİLECEK OCR METNİ:
             return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
 
         flagged_text = apply_mixed_diacritic_marking(flagged_text)
+                # =======================================================
+        # SON GÜVENLİK KATMANI (DÜZELTME YOK, SADECE ⍰ İŞARETLE)
+        # - Garip tırnak/karakter → ⍰
+        # - Türkçe kelime gibi durmayan token → kelime sonuna ⍰
+        # =======================================================
+        TR_VOWELS = set("aeıioöuüAEIİOÖUÜ")
+
+        def looks_turkish_like(token: str) -> bool:
+            letters = [c for c in token if c.isalpha() or c in "ÇĞİÖŞÜçğıöşü"]
+            if not letters:
+                return True
+
+            if not any(c in TR_VOWELS for c in letters):
+                return False
+
+            consec_cons = 0
+            for c in letters:
+                if c in TR_VOWELS:
+                    consec_cons = 0
+                else:
+                    consec_cons += 1
+                    if consec_cons >= 4:
+                        return False
+
+            return True
+
+        def final_uncertainty_pass(text: str) -> str:
+            def repl(m: re.Match) -> str:
+                tok = m.group(0)
+
+                # 1) Garip tırnak karakterleri → ⍰
+                if any(ch in tok for ch in ['"', "“", "”"]):
+                    return tok.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
+
+                # 2) Türkçe kelime gibi durmayan token → sonuna ⍰ (düzeltme YOK)
+                if not looks_turkish_like(tok):
+                    return tok if tok.endswith("⍰") else (tok + "⍰")
+
+                return tok
+
+            # Token içine tırnak da dahil
+            return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-\"“”]+", repl, text)
+
+        flagged_text = final_uncertainty_pass(flagged_text)
 
         return {
             "status": "success",
