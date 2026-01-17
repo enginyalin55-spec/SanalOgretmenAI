@@ -644,6 +644,10 @@ KATI KURAL:
   (1) Emin olmadığın HARFİ "⍰" ile değiştir.
   (2) Bir kelimenin tamamı şüpheliyse kelimenin SONUNA "⍰" ekle.
 
+  ŞÜPHE EŞİĞİ:
+- Şüphen %1 bile varsa işaretlemek ZORUNDASIN.
+- Kararsızsan HARFİ ⍰ yap; kelime genel olarak şüpheliyse kelime sonuna ⍰ koy.
+
 ZORUNLU İŞARET:
 - Eğer görselde net değilse işaretlemeden geçmek YASAK.
 - Özellikle şu durumlarda mutlaka işaret koy:
