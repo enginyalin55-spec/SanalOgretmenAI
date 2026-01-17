@@ -757,6 +757,9 @@ KONTROL EDİLECEK OCR METNİ:
             letters = [c for c in token if c.isalpha() or c in "ÇĞİÖŞÜçğıöşü"]
             if not letters:
                 return True
+            # ✅ TEK HARFLİ PARÇALAR: final pass dokunmasın (⍰ bölmesi sonrası oluşuyor)
+            if len(letters) == 1:
+                return True
             if not any(c in TR_VOWELS for c in letters):
                 return False
 
