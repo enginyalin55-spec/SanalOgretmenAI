@@ -810,7 +810,12 @@ KONTROL EDİLECEK OCR METNİ:
 async def analyze_submission(data: AnalyzeRequest):
     if not data.ocr_text or not data.ocr_text.strip():
         raise HTTPException(status_code=400, detail="Metin boş, analiz yapılamaz.")
-
+    # ✅ HARD BLOCK: ⍰ varsa analiz YASAK
+    if "⍰" in data.ocr_text:
+        raise HTTPException(
+            status_code=400,
+            detail="OCR belirsiz (⍰) işaretli yerler var. Lütfen önce bu kısımları düzeltin."
+        )
     full_text = normalize_text(data.ocr_text)  # ✅ newline korunuyor
     display_text = full_text.replace("\n", " ")  # LLM için
 
