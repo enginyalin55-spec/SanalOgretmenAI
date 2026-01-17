@@ -644,23 +644,27 @@ KATI KURAL:
   (1) Emin olmadığın HARFİ "⍰" ile değiştir.
   (2) Bir kelimenin tamamı şüpheliyse kelimenin SONUNA "⍰" ekle.
 
-  ŞÜPHE EŞİĞİ:
-- Şüphen %1 bile varsa işaretlemek ZORUNDASIN.
+ŞÜPHE EŞİĞİ:
+- %1 bile kararsızsan işaretlemek ZORUNDASIN. Kararsızsan kelime sonuna ⍰ koy.
 - Kararsızsan HARFİ ⍰ yap; kelime genel olarak şüpheliyse kelime sonuna ⍰ koy.
 
 ZORUNLU İŞARET:
 - Eğer görselde net değilse işaretlemeden geçmek YASAK.
 - Özellikle şu durumlarda mutlaka işaret koy:
-  - Görselde net değilse ve okuma "garip" görünüyorsa → kelime sonuna ⍰
-  - Türkçe diakritik çiftlerinde (ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g) en ufak belirsizlik varsa → ilgili harf ⍰
+- Görselde net değilse ve okuma "garip" görünüyorsa → kelime sonuna ⍰
+- Türkçe diakritik çiftlerinde (ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g) en ufak belirsizlik varsa → ilgili harf ⍰
 
 GERÇEK SORU İŞARETİ:
 - Görselde açıkça soru işareti varsa "?" kalır. Aksi halde "?" üretme.
-
+- Öğrenci metin boyunca bir kelimeyi aynı şekilde yazmışsa (yanlış bile olsa),
+  bu bir OCR belirsizliği değildir; ASLA ⍰ ekleme.
 BİÇİM:
 - SATIRLARI KORU.
 - Açıklama ekleme.
 - SADECE nihai OCR metni.
+
+- Anlamsız, garip veya Türkçeye uymuyor gibi görünmesi TEK BAŞINA şüphe sebebi değildir.
+  Şüphe yalnızca GÖRSEL netlik üzerinden değerlendirilir.
 
 KONTROL EDİLECEK OCR METNİ:
 \"\"\"{raw_text}\"\"\"
