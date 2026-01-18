@@ -525,11 +525,12 @@ async def check_class_code(code: str):
         return {"valid": False}
 
 # =======================================================
-# OCR: SADECE GÖRSEL KATİP (dilsel heuristik YOK)
+# OCR: GENEL AMAÇLI ŞÜPHECİ YAKLAŞIM (General Purpose Skeptic)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
+        # 1. Dosya Okuma ve Hazırlık
         file_content = await read_limited(file, MAX_FILE_SIZE)
 
         filename = file.filename or "unknown.jpg"
@@ -547,6 +548,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
 
+        # 2. Supabase Upload
         try:
             supabase.storage.from_("odevler").upload(
                 unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"}
@@ -556,46 +558,21 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception as up_err:
             print(f"⚠️ Upload Uyarısı: {up_err}")
 
+        # =======================================================
+        # 3. AŞAMA 1: HAM OCR (Düzeltme Yasaklı Kâtip)
+        # =======================================================
         extracted_text = ""
+        
+        prompt_ocr = """ROL: Sen bir el yazısı aktarım uzmanısın.
+GÖREV: Görseldeki metni harfiyen dijitale aktar.
 
-        prompt_ocr = """ROL: Sen bir OCR katibisin. Öğretmen değilsin. Dil uzmanı değilsin.
-
-TEK KRİTER:
-OCR için tek kriter GÖRSEL EMİNLİKTİR. Anlam, dil bilgisi, kelimenin doğruluğu önemli değildir.
-
-GÖREV:
-Bu görseldeki EL YAZISI Türkçe metni, KAĞITTA GÖRDÜĞÜN GİBİ dijital metne aktar.
-Emin olmadığın yerleri mutlaka işaretle.
-
-KESİN KURALLAR:
-- ASLA düzeltme yapma.
-- ASLA kelimeyi daha doğru / daha anlamlı hale getirme.
-- ASLA yazım, noktalama, büyük/küçük harf, ek düzeltmesi yapma.
-- Yanlış olduğunu düşünsen bile, gördüğünü yaz.
-- TAHMİN YASAK: %100 emin değilsen işaret koymak ZORUNDASIN.
-
-İŞARETLEME (ZORUNLU):
-- Belirsizlik işareti olarak ASLA '?' kullanma. Belirsizlik için SADECE '⍰' kullan.
-- Eğer bir HARF %100 net değilse o harfi '⍰' ile değiştir. (ör: fut⍰ol)
-- Eğer bir kelimenin tamamından %100 emin değilsen (tamamını okuyabilsen bile) kelimenin SONUNA '⍰' ekle. (ör: tramvay⍰)
-- Belirsizlik varken işaret koymadan geçmek YASAKTIR.
-
-DİAKRİTİK KURAL (ÇOK ÖNEMLİ):
-- Türkçede şu çiftler görsel olarak çok karışır: ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g.
-- Bu çiftlerden birinde %100 emin değilsen HARFİ SEÇMEK YASAKTIR.
-- Belirsiz harfi mutlaka '⍰' ile yaz.
-
-GERÇEK SORU İŞARETİ:
-- '?' karakterini sadece KAĞITTA açıkça görülen bir soru işareti varsa kullan.
-- Bu durumda '?' sadece cümlenin sonunda yer alır. Cümle içinde '?' kullanma.
-
-BİÇİM:
-- SATIRLARI KORU.
-- Yorum/başlık/açıklama ekleme.
-- SADECE metni yaz.
+KRİTİK KURALLAR:
+1. OTO-DÜZELTME YAPMA: Beynindeki "kelime düzeltme" özelliğini kapat. Öğrenci "geliyorm" yazdıysa "geliyorm" yaz. "geliyorum" yapma.
+2. HARF SADAKATİ: Harfler "yitzden" gibi görünüyorsa "yitzden" yaz. Bunu "yüzden" diye düzeltme.
+3. BELİRSİZLİK: Bir harf silikse, karalanmışsa veya üst üste binmişse o harf yerine '⍰' koy.
 
 ÇIKTI:
-SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
+Sadece metni ver. Yorum yok.
 """
 
         for model_name in MODELS_TO_TRY:
@@ -611,10 +588,7 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
                         response_mime_type="text/plain",
                     ),
                 )
-
-                # ❗️Strip yok: satır başı / girinti bozulmasın
-                extracted_text = (resp.text or "").replace("```", "")
-                extracted_text = extracted_text.rstrip("\n")
+                extracted_text = (resp.text or "").replace("```", "").rstrip("\n")
                 if extracted_text:
                     break
             except Exception:
@@ -623,51 +597,35 @@ SADECE OCR METNİ. BAŞKA HİÇBİR ŞEY YAZMA.
         if not extracted_text:
             return {"status": "error", "message": "OCR Başarısız"}
 
-        # Unicode normalize (ü/ş gibi karakterlerde stabilite)
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 1B) AŞAMA: OCR AUDIT (METNİ DÜZELTME YOK, SADECE ⍰ EKLE)
-        # Amaç: model yanlış okuduğu halde emin davranıyorsa (tolus gibi),
-        # ikinci kez görsele baktırıp şüpheli yerlere ⍰ koydurmak.
+        # 4. AŞAMA 2: AUDIT (Mantık ve Görsel Çatışması Kontrolü)
+        # Genel Geçer Çözüm: "Tuhaf kelime" + "Kötü Görsel" = "⍰"
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen bir OCR denetçisisin (auditor).
-GÖREV: Aşağıdaki OCR metnini SADECE görsele bakarak kontrol et.
+        prompt_audit = f"""ROL: Sen titiz bir OCR denetçisisin.
+GÖREV: Ham OCR çıktısını görselle kıyasla ve "Anlamsızlık = Belirsizlik" ilkesini uygula.
 
-KATI KURAL:
-- Metni ASLA düzeltme.
-- ASLA kelimeyi değiştirme.
-- ASLA harf ekleme/çıkarma yapma.
-- SADECE şu iki şeyi yapabilirsin:
-  (1) Emin olmadığın HARFİ "⍰" ile değiştir.
-  (2) Bir kelimenin tamamı şüpheliyse kelimenin SONUNA "⍰" ekle.
-
-ŞÜPHE EŞİĞİ:
-- %1 bile kararsızsan işaretlemek ZORUNDASIN. Kararsızsan kelime sonuna ⍰ koy.
-- Kararsızsan HARFİ ⍰ yap; kelime genel olarak şüpheliyse kelime sonuna ⍰ koy.
-
-ZORUNLU İŞARET:
-- Eğer görselde net değilse işaretlemeden geçmek YASAK.
-- Özellikle şu durumlarda mutlaka işaret koy:
-- Görselde net değilse ve okuma "garip" görünüyorsa → kelime sonuna ⍰
-- Türkçe diakritik çiftlerinde (ü/u, ö/o, ı/i, ş/s, ç/c, ğ/g) en ufak belirsizlik varsa → ilgili harf ⍰
-
-GERÇEK SORU İŞARETİ:
-- Görselde açıkça soru işareti varsa "?" kalır. Aksi halde "?" üretme.
-- Öğrenci metin boyunca bir kelimeyi aynı şekilde yazmışsa (yanlış bile olsa),
-  bu bir OCR belirsizliği değildir; ASLA ⍰ ekleme.
-BİÇİM:
-- SATIRLARI KORU.
-- Açıklama ekleme.
-- SADECE nihai OCR metni.
-
-- Anlamsız, garip veya Türkçeye uymuyor gibi görünmesi TEK BAŞINA şüphe sebebi değildir.
-  Şüphe yalnızca GÖRSEL netlik üzerinden değerlendirilir.
-
-KONTROL EDİLECEK OCR METNİ:
+GİRDİ METNİ:
 \"\"\"{raw_text}\"\"\"
+
+UYGULAYACAĞIN MANTIK (ADIM ADIM):
+1. Metindeki kelimeleri Türkçenin yapısına göre tara.
+2. "Bu kelime Türkçede var mı?" veya "Bu cümlede mantıklı mı?" diye sor.
+   (Örnek: "yitzden", "tolus", "halvası", "geliyormu?sun" gibi tuhaflıkları yakala.)
+3. Eğer kelime TUHAF, ANLAMSIZ veya BAĞLAMA UYMUYORSA, hemen GÖRSELE BAK.
+4. Görseldeki el yazısı o noktada %100 net ve kusursuz mu?
+   - HAYIR (Yazı çirkin, bitişik, silik veya harfler karışmış) -> O zaman OCR hata yapmıştır.
+   - AKSİYON: Şüpheli harfi veya kelime sonunu '⍰' ile işaretle.
+
+KURAL:
+- Asla doğrusunu yazma. (Örn: "yitzden" gördün, görsel kötü, "yüzden" yazma. "y⍰zden" yaz.)
+- Emin olamadığın en ufak bir kıvrım veya nokta varsa '⍰' bas.
+
+ÇIKTI:
+Sadece işaretlenmiş metni ver.
 """
 
         for model_name in MODELS_TO_TRY:
@@ -683,63 +641,35 @@ KONTROL EDİLECEK OCR METNİ:
                         response_mime_type="text/plain",
                     ),
                 )
-                audited_text = (resp_audit.text or "").replace("```", "")
-                audited_text = audited_text.rstrip("\n")
+                audited_text = (resp_audit.text or "").replace("```", "").rstrip("\n")
                 if audited_text:
                     break
             except Exception:
                 continue
 
-        # ✅ Audit başarılıysa onu kullan, değilse raw_text ile devam
+        # Denetimden geçen metni kullan, yoksa ham metne dön
         text_for_marking = audited_text if audited_text else raw_text
-
+        
         MARK_CHAR = "⍰"
         WORD_MARK = "⍰"
 
         # =======================================================
-        # BELİRSİZLİK '?' TEMİZLİĞİ (GEREKİRSE):
-        # - Cümle sonundaki gerçek '?' KALIR
-        # - Kelime içi/başı '?' => '⍰'
+        # 5. AŞAMA: PYTHON CLEANUP (Yardımcı Fonksiyonlar)
         # =======================================================
+
+        # A) Soru İşareti Temizliği
         def normalize_uncertainty_q(text: str) -> str:
-            if not text:
-                return text
-
-            # 1) Kelime içindeki ? (örn: fut?ol) -> fut⍰ol
-            text = re.sub(
-                r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])",
-                r"\1⍰\2",
-                text
-            )
-
-            # 2) Kelime başındaki ? (örn: ?tolus) -> ⍰tolus
-            #    ama SATIR BAŞINDA tek başına soru işareti gibi durumlara dokunma
-            text = re.sub(
-                r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])",
-                r"\1⍰\2",
-                text
-            )
-
-            # 3) Cümle sonu ? korunur
+            if not text: return text
+            # Kelime içi ? -> ⍰
+            text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
+            # Kelime başı ? -> ⍰
+            text = re.sub(r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
             return text
 
-        # ✅ raw_text yerine audit edilmiş metin üstünde işaretleme
-        flagged_text = normalize_uncertainty_q(text_for_marking)
-
-        # =======================================================
-        # DİAKRİTİK EMNİYET (TAHMİN YOK):
-        # Aynı kelimede hem diakritikli hem düz harf VARSA,
-        # düz olanı ⍰ yap. (örn: görüşüruş -> görüşür⍰ş)
-        # =======================================================
+        # B) Diakritik Karışıklığı (ü/u aynı kelimede varsa şüphelidir)
         def mark_mixed_diacritics(token: str) -> str:
-            pairs = [
-                ("ü", "u"), ("Ü", "U"),
-                ("ö", "o"), ("Ö", "O"),
-                ("ş", "s"), ("Ş", "S"),
-                ("ç", "c"), ("Ç", "C"),
-                ("ğ", "g"), ("Ğ", "G"),
-                ("ı", "i"), ("İ", "I"),
-            ]
+            pairs = [("ü", "u"), ("Ü", "U"), ("ö", "o"), ("Ö", "O"), ("ş", "s"), ("Ş", "S"), 
+                     ("ç", "c"), ("Ç", "C"), ("ğ", "g"), ("Ğ", "G"), ("ı", "i"), ("İ", "I")]
             out = token
             for di, plain in pairs:
                 if di in out and plain in out:
@@ -747,53 +677,41 @@ KONTROL EDİLECEK OCR METNİ:
             return out
 
         def apply_mixed_diacritic_marking(text: str) -> str:
-            if not text:
-                return text
+            if not text: return text
             def repl(m: re.Match) -> str:
                 return mark_mixed_diacritics(m.group(0))
             return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
 
-        flagged_text = apply_mixed_diacritic_marking(flagged_text)
-        # =======================================================
-        # SON GÜVENLİK KATMANI (DÜZELTME YOK, SADECE ⍰ İŞARETLE)
-        # - Garip tırnak/karakter → ⍰
-        # - Türkçe kelime gibi durmayan token → kelime sonuna ⍰
-        # =======================================================
+        # C) Genel Güvenlik (Tırnaklar ve Türkçe olmayan tokenlar)
         TR_VOWELS = set("aeıioöuüAEIİOÖUÜ")
-
         def looks_turkish_like(token: str) -> bool:
             letters = [c for c in token if c.isalpha() or c in "ÇĞİÖŞÜçğıöşü"]
-            if not letters:
-                return True
-            # ✅ TEK HARFLİ PARÇALAR: final pass dokunmasın (⍰ bölmesi sonrası oluşuyor)
-            if len(letters) == 1:
-                return True
-            if not any(c in TR_VOWELS for c in letters):
-                return False
-
+            if not letters: return True
+            if len(letters) == 1: return True
+            if not any(c in TR_VOWELS for c in letters): return False # Hiç sesli yoksa
+            
             consec_cons = 0
             for c in letters:
-                if c in TR_VOWELS:
-                    consec_cons = 0
+                if c in TR_VOWELS: consec_cons = 0
                 else:
                     consec_cons += 1
-                    if consec_cons >= 4:
-                        return False
+                    if consec_cons >= 4: return False # 4 sessiz yan yana
             return True
 
         def final_uncertainty_pass(text: str) -> str:
-            # 1) Metindeki akıllı tırnakları direkt ⍰ yap (token regex’e sokmadan)
+            # Akıllı tırnakları ⍰ yap
             text = text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
-
-            # 2) Sadece kelime tokenları üzerinde kontrol (tırnak yok!)
+            
             def repl(m) -> str:
                 tok = m.group(0)
                 if not looks_turkish_like(tok):
                     return tok if tok.endswith("⍰") else (tok + "⍰")
                 return tok
-
             return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
 
+        # Fonksiyonları uygula
+        flagged_text = normalize_uncertainty_q(text_for_marking)
+        flagged_text = apply_mixed_diacritic_marking(flagged_text)
         flagged_text = final_uncertainty_pass(flagged_text)
 
         return {
@@ -810,7 +728,6 @@ KONTROL EDİLECEK OCR METNİ:
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
 # =======================================================
 # ANALYZE (Aynen bırakıldı)
 # =======================================================
