@@ -601,28 +601,34 @@ Sadece metni ver. Yorum yok.
 
         # =======================================================
         # 4. AŞAMA 2: AUDIT (Mantık ve Görsel Çatışması Kontrolü)
-        # Genel Geçer Çözüm: "Tuhaf kelime" + "Kötü Görsel" = "⍰"
+        # GÜNCELLEME: Bağlamsal saçmalıkları (halvası) ve uydurma kelimeleri (otolus) yakalamak için sertleştirildi.
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen titiz bir OCR denetçisisin.
-GÖREV: Ham OCR çıktısını görselle kıyasla ve "Anlamsızlık = Belirsizlik" ilkesini uygula.
+        prompt_audit = f"""ROL: Sen Türkçe dil yapısına hakim, acımasız bir OCR denetçisisin.
+GÖREV: Ham OCR çıktısını tara ve "Görsel-Mantık Uyuşmazlığı" olan yerleri ⍰ ile işaretle.
 
 GİRDİ METNİ:
 \"\"\"{raw_text}\"\"\"
 
-UYGULAYACAĞIN MANTIK (ADIM ADIM):
-1. Metindeki kelimeleri Türkçenin yapısına göre tara.
-2. "Bu kelime Türkçede var mı?" veya "Bu cümlede mantıklı mı?" diye sor.
-   (Örnek: "yitzden", "tolus", "halvası", "geliyormu?sun" gibi tuhaflıkları yakala.)
-3. Eğer kelime TUHAF, ANLAMSIZ veya BAĞLAMA UYMUYORSA, hemen GÖRSELE BAK.
-4. Görseldeki el yazısı o noktada %100 net ve kusursuz mu?
-   - HAYIR (Yazı çirkin, bitişik, silik veya harfler karışmış) -> O zaman OCR hata yapmıştır.
-   - AKSİYON: Şüpheli harfi veya kelime sonunu '⍰' ile işaretle.
+DENETİM ADIMLARI:
+1. UYDURMA KELİME KONTROLÜ:
+   - "otolus", "tolus", "yitzden" gibi Türkçede OLMAYAN kelimeler var mı?
+   - VARSA -> Görsele bak. Yazı kötüyse direkt kelime sonuna '⍰' ekle. (Örn: otolus⍰)
+
+2. BAĞLAM (CONTEXT) KONTROLÜ:
+   - Kelime sözlükte var ama cümlede SAÇMA mı?
+   - ÖRNEK: "Samsun'un halvası çok soğuk." -> "Halva" gerçek kelime ama "hava" kastedilmiş olabilir.
+   - ÖRNEK: "Geliyormuşsun" yerine "Geliyormuşun" -> Ek hatası mı görsel belirsizlik mi?
+   - AKSİYON: Cümle akışını bozan mantıksız kelimeler görürsen ve görselde en ufak bir belirsizlik varsa '⍰' koy. (ha⍰vası)
+
+3. HARF KARIŞIKLIĞI:
+   - Özellikle 'u/ü', 'o/ö', 'v/y' harfleri karışmış mı?
+   - Şüphe duyduğun harfi '⍰' yap.
 
 KURAL:
-- Asla doğrusunu yazma. (Örn: "yitzden" gördün, görsel kötü, "yüzden" yazma. "y⍰zden" yaz.)
-- Emin olamadığın en ufak bir kıvrım veya nokta varsa '⍰' bas.
+- ASLA DÜZELTME YAPMA (Doğrusunu yazma). Sadece boz ve ⍰ koy.
+- "otolus" -> "otobüs" YAPMA. -> "otolus⍰" veya "oto⍰us" YAP.
 
 ÇIKTI:
 Sadece işaretlenmiş metni ver.
