@@ -586,12 +586,16 @@ Sadece metin.
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 2. AŞAMA: GÖRSEL NETLİK DENETÇİSİ (Mantık Yok, Sadece Piksel)
+        # 2. AŞAMA: GÖRSEL NETLİK DENETÇİSİ (Tam Metin Garantili)
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen bir görüntü işleme uzmanısın. Dilbilimci DEĞİLSİN.
-GÖREV: Ham metni görsele bakarak kontrol et. Sadece FİZİKSEL OLARAK OKUNAMAYAN yerleri işaretle.
+        prompt_audit = f"""ROL: Sen bir görüntü işleme uzmanısın.
+GÖREV: Sana verilen metnin TAMAMINI koruyarak, sadece görsel olarak okunamayan yerlere müdahale et.
+
+KRİTİK ÇIKTI KURALI:
+- Metnin BAŞINI ve SONUNU asla kesme. Tüm paragrafı olduğu gibi ver.
+- Sadece işaretlediğin kelimeleri değil, SAĞLAM olan kelimeleri de aynen koru.
 
 YASAKLAR:
 - Kelime anlamlı mı? -> BAKMA. (Mont yemek gayet normal kabul et.)
@@ -601,10 +605,10 @@ YASAKLAR:
 İŞARETLEME KURALI (⍰):
 1. Harfler silik, mürekkep dağılmış veya üstü karalanmış mı? -> EVET ise ⍰ koy.
 2. Yazı o kadar çirkin ki 'u' mu 'ü' mü olduğu görsel olarak imkansız mı? -> EVET ise ⍰ koy.
-3. Yazı NET ama kelime YANLIŞ mı? (Örn: Net bir şekilde 'Mont' yazılmış) -> İŞARETLEME.
+3. Yazı NET ama kelime YANLIŞ mı? (Örn: Net bir şekilde 'Mont' yazılmış) -> DOKUNMA.
 
 ÇIKTI:
-Sadece işaretlenmiş metni ver.
+İşaretlenmiş (veya temiz) metnin TAMAMI.
 """
 
         for model_name in MODELS_TO_TRY:
