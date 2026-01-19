@@ -436,7 +436,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         # ---------------------------------------------------
         # C) CONFIDENCE FILTERING (Maskeleme Algoritması)
         # ---------------------------------------------------
-        CONFIDENCE_THRESHOLD = 0.75  # %75 altı maskelenir
+        CONFIDENCE_THRESHOLD = 0.50  # %75 altı maskelenir
         
         masked_parts = []
         raw_parts = []
