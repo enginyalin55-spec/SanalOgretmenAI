@@ -525,46 +525,45 @@ async def check_class_code(code: str):
         return {"valid": False}
 
 # =======================================================
-# OCR: AYNA MODU (Tam Görsel Sadakat - Yorum Yok)
+# OCR: "APTAL KATİP" MODU (Dil Bilgisini Unut, Şekle Bak)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
-        # 1. Dosya Okuma
+        # 1. Dosya Hazırlığı
         file_content = await read_limited(file, MAX_FILE_SIZE)
-
         filename = file.filename or "unknown.jpg"
         file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
         if file_ext not in ALLOWED_EXTENSIONS: file_ext = "jpg"
+        safe_mime = file.content_type or MIME_BY_EXT.get(file_ext, "image/jpeg")
         
-        safe_mime = file.content_type
-        if not safe_mime or not safe_mime.startswith("image/"):
-            safe_mime = MIME_BY_EXT.get(file_ext, "image/jpeg")
-
+        # Supabase Upload (Aynı)
         safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", classroom_code)[:20]
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
-
         try:
-            supabase.storage.from_("odevler").upload(
-                unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"}
-            )
+            supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"})
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
             image_url = res if isinstance(res, str) else res.get("publicUrl")
         except: pass
 
         # =======================================================
-        # 1. AŞAMA: DUYGUSUZ KATİP (Gördüğünü Yaz)
+        # 1. AŞAMA: HARF TANIMA (Kelime Tanıma DEĞİL)
         # =======================================================
         extracted_text = ""
         
-        prompt_ocr = """ROL: Sen yorum yapmayan, sadece gördüğünü aktaran bir OCR robotusun.
-GÖREV: Görseldeki el yazısını birebir harf aktarımıyla dijitale çevir.
+        # PROMPT DEĞİŞİKLİĞİ: Modele bunun "Anlamsız Şifreli Metin" olduğunu söylüyoruz.
+        prompt_ocr = """ROL: Sen harf şekillerini tanıyan bir robotsun. Hangi dilde yazdığını BİLMİYORSUN.
+GÖREV: Resimdeki sembolleri/harfleri sırasıyla yaz.
 
-KESİN KURALLAR:
-1. DÜZELTME YASAK: Metin "Kebap ve Mont" ise "Mont" olarak yaz. "Mantı" diye düzeltme.
-2. ANLAM ARAMA: Cümle anlamsız olsa bile harfler neyse onu yaz.
-3. HARF SADAKATİ: Öğrenci imla hatası yaptıysa (örn: "geliyorm"), sen de hatayı aynen yaz ("geliyorm").
+KURALLAR:
+1. "otolus" görüyorsan "otolus" yaz. ASLA "otobüs" yapma. (En büyük yasak budur).
+2. "yitzden" görüyorsan "yitzden" yaz. "yüzden" yapma.
+3. "halvası" görüyorsan "halvası" yaz. "havası" yapma.
+4. Harfler bitişikse veya silikse, okuyamadığın sembol yerine '⍰' koy.
+
+ÖNEMLİ:
+Metin mantıklı olmak zorunda DEĞİL. Senin görevin anlamlı kelime üretmek değil, kağıttaki mürekkep izlerini harfe dökmektir.
 
 ÇIKTI:
 Sadece metin.
@@ -586,36 +585,29 @@ Sadece metin.
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 2. AŞAMA: HARF BAZLI GÖRSEL DENETİM (Sözlük YOK, Sadece Şekil)
-        # GÜNCELLEME: Kelime anlamına bakmaz. Sadece harfin şekli bozuksa ⍰ basar.
+        # 2. AŞAMA: TEYİT VE İŞARETLEME
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen bir Paleografsın (Eski yazı uzmanı). Anlamla ilgilenmezsin, sadece harf şekilleriyle ilgilenirsin.
-GÖREV: Metni görselle harf-harf karşılaştır.
+        prompt_audit = f"""ROL: Sen bir düzeltmen DEĞİL, bir hata arayıcısısın.
+GÖREV: Ham metni görselle karşılaştır. YZ'nin "Otomatik Düzeltme" yapıp yapmadığını kontrol et.
 
-TEMEL PRENSİP: "Şüphe varsa ⍰ koy."
+KONTROL LİSTESİ:
+1. KAĞITTA "otolus" YAZIYOR AMA METİNDE "otobüs" MÜ VAR?
+   -> HEMEN "otolus" (veya "otolus⍰") OLARAK DEĞİŞTİR. (Görseli esas al).
 
-KURALLAR (HARF BAZLI):
-1. HARF BELİRSİZLİĞİ:
-   - "ve" kelimesindeki 'v' harfi görselde tam kapanmamış, 'u' gibi mi duruyor? -> "⍰e" yap.
-   - "Sahile" kelimesindeki 'S' harfi bir karalamaya mı benziyor? -> "⍰ahile" yap.
-   - Bir harfin ne olduğu %100 net değilse, o harfin yerine '⍰' koy.
+2. KAĞITTA "halvası" GİBİ DURUYOR AMA METİNDE "havası" MI VAR?
+   -> HEMEN GÖRSELE GÖRE DÜZELT: "halvası⍰" yap.
 
-2. LEKELER VE NOKTALAMA:
-   - "farklı ama" arasında bir leke veya nokta var mı?
-   - Eğer nokta netse -> "farklı.ama" yaz.
-   - Eğer leke ne olduğu belirsizse -> "farklı⍰ama" yaz.
+3. BELİRSİZLİKLER:
+   - "yitzden" kelimesinde harfler birbirine girmişse -> "y⍰tzden" yap.
+   - "çünku" kelimesinde 'u' harfi 'ü'ye benziyor veya silikse -> "çünk⍰" yap.
 
-3. KELİME BÜTÜNLÜĞÜ (DOKUNMA):
-   - "yitzden" yazılmış ve harfler NET okunuyorsa -> "yitzden" olarak bırak. (Anlamsız olması önemli değil).
-   - "Mont" yazılmış ve harfler NET ise -> "Mont" olarak bırak.
-
-ÖZET:
-Senin görevin kelime düzeltmek değil. Senin görevin, görsel olarak bozuk, silik, ezik, üst üste binmiş harfleri tespit edip '⍰' ile işaretlemektir.
+AMACIMIZ:
+Öğrencinin yazdığı yanlışları veya okunaksız yerleri olduğu gibi göstermek. Asla doğrusunu yazma.
 
 ÇIKTI:
-Metnin TAMAMI. Sadece görsel olarak emin olamadığın harfleri ⍰ yap.
+Metnin tamamını ver.
 """
 
         for model_name in MODELS_TO_TRY:
@@ -632,37 +624,21 @@ Metnin TAMAMI. Sadece görsel olarak emin olamadığın harfleri ⍰ yap.
         final_text = audited_text if audited_text else raw_text
 
         # =======================================================
-        # 3. AŞAMA: CLEANUP (Sadece Format Temizliği)
+        # 3. AŞAMA: SON RÖTUŞLAR
         # =======================================================
         
         def normalize_uncertainty_q(text: str) -> str:
             if not text: return text
+            # ? işaretlerini ⍰ yap
             text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
             text = re.sub(r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
             return text
 
-        # Diakritik kontrolü: Sadece görsel belirsizlik yaratan çiftler
-        def mark_mixed_diacritics(token: str) -> str:
-            pairs = [("ü", "u"), ("Ü", "U"), ("ö", "o"), ("Ö", "O"), ("ş", "s"), ("Ş", "S"), 
-                     ("ç", "c"), ("Ç", "C"), ("ğ", "g"), ("Ğ", "G"), ("ı", "i"), ("İ", "I")]
-            out = token
-            for di, plain in pairs:
-                if di in out and plain in out:
-                    out = out.replace(plain, "⍰")
-            return out
-
-        def apply_mixed_diacritic_marking(text: str) -> str:
-            if not text: return text
-            def repl(m: re.Match) -> str:
-                return mark_mixed_diacritics(m.group(0))
-            return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
-
-        # Tırnakları temizle ama mantıksal kontrol YAPMA
         def final_cleanup(text: str) -> str:
+            # Tırnakları temizle
             return text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
 
         flagged_text = normalize_uncertainty_q(final_text)
-        flagged_text = apply_mixed_diacritic_marking(flagged_text)
         flagged_text = final_cleanup(flagged_text)
 
         return {
