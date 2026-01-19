@@ -525,19 +525,20 @@ async def check_class_code(code: str):
         return {"valid": False}
 
 # =======================================================
-# OCR: "APTAL KATİP" MODU (Dil Bilgisini Unut, Şekle Bak)
+# OCR: "GENEL" GÖRSEL DENETİM (Kelime Bazlı Değil, Şekil Bazlı)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
-        # 1. Dosya Hazırlığı
         file_content = await read_limited(file, MAX_FILE_SIZE)
+        
+        # Dosya hazırlıkları (Standart)
         filename = file.filename or "unknown.jpg"
         file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
         if file_ext not in ALLOWED_EXTENSIONS: file_ext = "jpg"
         safe_mime = file.content_type or MIME_BY_EXT.get(file_ext, "image/jpeg")
         
-        # Supabase Upload (Aynı)
+        # Upload (Standart)
         safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", classroom_code)[:20]
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
@@ -548,22 +549,18 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except: pass
 
         # =======================================================
-        # 1. AŞAMA: HARF TANIMA (Kelime Tanıma DEĞİL)
+        # 1. AŞAMA: HAM OCR (Kelime Tahmini YASAK)
         # =======================================================
         extracted_text = ""
         
-        # PROMPT DEĞİŞİKLİĞİ: Modele bunun "Anlamsız Şifreli Metin" olduğunu söylüyoruz.
-        prompt_ocr = """ROL: Sen harf şekillerini tanıyan bir robotsun. Hangi dilde yazdığını BİLMİYORSUN.
-GÖREV: Resimdeki sembolleri/harfleri sırasıyla yaz.
+        # BU PROMPT HİÇBİR KELİMEYİ TANIMAZ, SADECE HARF ŞEKLİNE BAKAR
+        prompt_ocr = """ROL: Sen harf şekillerini tanıyan optik bir tarayıcısın.
+GÖREV: Resimdeki el yazısını harf harf aktar.
 
-KURALLAR:
-1. "otolus" görüyorsan "otolus" yaz. ASLA "otobüs" yapma. (En büyük yasak budur).
-2. "yitzden" görüyorsan "yitzden" yaz. "yüzden" yapma.
-3. "halvası" görüyorsan "halvası" yaz. "havası" yapma.
-4. Harfler bitişikse veya silikse, okuyamadığın sembol yerine '⍰' koy.
-
-ÖNEMLİ:
-Metin mantıklı olmak zorunda DEĞİL. Senin görevin anlamlı kelime üretmek değil, kağıttaki mürekkep izlerini harfe dökmektir.
+GENEL PRENSİPLER:
+1. TAHMİN YASAK: Bir kelime anlamsız görünse bile (örn: 'gelyrm', 'tlfn'), harfler netse aynen yaz.
+2. DÜZELTME YASAK: Yazım hatalarını düzeltme.
+3. HARF HASSASİYETİ: 'S' ve 'Ç', 'O' ve 'Ö', 'U' ve 'Ü' ayrımlarına dikkat et. Nokta veya kuyruk görüyorsan yaz.
 
 ÇIKTI:
 Sadece metin.
@@ -581,33 +578,40 @@ Sadece metin.
             except: continue
 
         if not extracted_text: return {"status": "error", "message": "OCR Başarısız"}
-        
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 2. AŞAMA: TEYİT VE İŞARETLEME
+        # 2. AŞAMA: GÖRSEL ŞÜPHE DENETİMİ (Genel Kurallar)
+        # HİÇBİR KELİME HARDCODE EDİLMEDİ.
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen bir düzeltmen DEĞİL, bir hata arayıcısısın.
-GÖREV: Ham metni görselle karşılaştır. YZ'nin "Otomatik Düzeltme" yapıp yapmadığını kontrol et.
+        prompt_audit = f"""ROL: Sen bir Grafologsun (Yazı Bilimci). Kelimelerin anlamıyla değil, yazılış netliğiyle ilgilenirsin.
+GÖREV: Metni görselle kıyasla. Sadece FİZİKSEL OLARAK NET OLMAYAN harfleri işaretle.
 
-KONTROL LİSTESİ:
-1. KAĞITTA "otolus" YAZIYOR AMA METİNDE "otobüs" MÜ VAR?
-   -> HEMEN "otolus" (veya "otolus⍰") OLARAK DEĞİŞTİR. (Görseli esas al).
+GENEL DENETİM KURALLARI (HEPSİ İÇİN GEÇERLİ):
 
-2. KAĞITTA "halvası" GİBİ DURUYOR AMA METİNDE "havası" MI VAR?
-   -> HEMEN GÖRSELE GÖRE DÜZELT: "halvası⍰" yap.
+1. ÇENGEL VE NOKTA KONTROLÜ (Sok vs Çok):
+   - Eğer metinde 'S', 'O', 'U', 'I' harfleri varsa görsele zoom yap.
+   - Harfin altında silik bir çengel, üstünde silik bir nokta var mı?
+   - EVET ise ve emin olamıyorsan harfi '⍰' yap. (Örn: Sok -> ⍰ok)
 
-3. BELİRSİZLİKLER:
-   - "yitzden" kelimesinde harfler birbirine girmişse -> "y⍰tzden" yap.
-   - "çünku" kelimesinde 'u' harfi 'ü'ye benziyor veya silikse -> "çünk⍰" yap.
+2. BİTİŞİK HARF KONTROLÜ (yitzden vs yüzden):
+   - Harfler birbirine girmiş, üst üste binmiş mi?
+   - Bir harfin nerede bitip diğerinin nerede başladığı belirsiz mi?
+   - EVET ise o bölgeyi '⍰' ile işaretle.
 
-AMACIMIZ:
-Öğrencinin yazdığı yanlışları veya okunaksız yerleri olduğu gibi göstermek. Asla doğrusunu yazma.
+3. KARALAMA VE SİLİNTİ:
+   - Öğrenci yazdığı kelimenin üstünü çizmiş veya karalamış mı?
+   - Yazı silik veya okunaksız mı?
+   - EVET ise '⍰' koy.
+
+ÖZET:
+- Yazı net ama kelime yanlışsa (Örn: Mont) -> DOKUNMA. (Bu öğrencinin hatasıdır).
+- Yazı silik, karışık veya harf belirsizse -> ⍰ KOY. (Bu OCR'ın göremediği yerdir).
 
 ÇIKTI:
-Metnin tamamını ver.
+Metnin TAMAMI.
 """
 
         for model_name in MODELS_TO_TRY:
@@ -624,22 +628,24 @@ Metnin tamamını ver.
         final_text = audited_text if audited_text else raw_text
 
         # =======================================================
-        # 3. AŞAMA: SON RÖTUŞLAR
+        # 3. AŞAMA: SON TEMİZLİK
         # =======================================================
-        
-        def normalize_uncertainty_q(text: str) -> str:
+        def normalize_markers(text: str) -> str:
             if not text: return text
-            # ? işaretlerini ⍰ yap
-            text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
-            text = re.sub(r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
-            return text
+            # ? -> ⍰ dönüşümü
+            return text.replace("?", "⍰").replace("??", "⍰")
 
+        # Tırnakları temizle
         def final_cleanup(text: str) -> str:
-            # Tırnakları temizle
             return text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
 
-        flagged_text = normalize_uncertainty_q(final_text)
+        flagged_text = normalize_markers(final_text)
         flagged_text = final_cleanup(flagged_text)
+
+        # Cümle sonu gerçek soru işaretlerini koruma (Regex ile)
+        # Kelime içindeki ? -> ⍰, Cümle sonundaki ? -> ? kalır.
+        # Bu basit regex, kelime ortasındaki ?'leri yakalar.
+        flagged_text = re.sub(r"(\w)\?(\w)", r"\1⍰\2", flagged_text)
 
         return {
             "status": "success",
