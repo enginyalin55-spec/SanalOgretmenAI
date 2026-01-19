@@ -586,29 +586,36 @@ Sadece metin.
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 2. AŞAMA: GÖRSEL NETLİK DENETÇİSİ (Tam Metin Garantili)
+        # 2. AŞAMA: HARF BAZLI GÖRSEL DENETİM (Sözlük YOK, Sadece Şekil)
+        # GÜNCELLEME: Kelime anlamına bakmaz. Sadece harfin şekli bozuksa ⍰ basar.
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen bir görüntü işleme uzmanısın.
-GÖREV: Sana verilen metnin TAMAMINI koruyarak, sadece görsel olarak okunamayan yerlere müdahale et.
+        prompt_audit = f"""ROL: Sen bir Paleografsın (Eski yazı uzmanı). Anlamla ilgilenmezsin, sadece harf şekilleriyle ilgilenirsin.
+GÖREV: Metni görselle harf-harf karşılaştır.
 
-KRİTİK ÇIKTI KURALI:
-- Metnin BAŞINI ve SONUNU asla kesme. Tüm paragrafı olduğu gibi ver.
-- Sadece işaretlediğin kelimeleri değil, SAĞLAM olan kelimeleri de aynen koru.
+TEMEL PRENSİP: "Şüphe varsa ⍰ koy."
 
-YASAKLAR:
-- Kelime anlamlı mı? -> BAKMA. (Mont yemek gayet normal kabul et.)
-- Cümle düşük mü? -> BAKMA.
-- Harf hatası mı var? -> BAKMA.
+KURALLAR (HARF BAZLI):
+1. HARF BELİRSİZLİĞİ:
+   - "ve" kelimesindeki 'v' harfi görselde tam kapanmamış, 'u' gibi mi duruyor? -> "⍰e" yap.
+   - "Sahile" kelimesindeki 'S' harfi bir karalamaya mı benziyor? -> "⍰ahile" yap.
+   - Bir harfin ne olduğu %100 net değilse, o harfin yerine '⍰' koy.
 
-İŞARETLEME KURALI (⍰):
-1. Harfler silik, mürekkep dağılmış veya üstü karalanmış mı? -> EVET ise ⍰ koy.
-2. Yazı o kadar çirkin ki 'u' mu 'ü' mü olduğu görsel olarak imkansız mı? -> EVET ise ⍰ koy.
-3. Yazı NET ama kelime YANLIŞ mı? (Örn: Net bir şekilde 'Mont' yazılmış) -> DOKUNMA.
+2. LEKELER VE NOKTALAMA:
+   - "farklı ama" arasında bir leke veya nokta var mı?
+   - Eğer nokta netse -> "farklı.ama" yaz.
+   - Eğer leke ne olduğu belirsizse -> "farklı⍰ama" yaz.
+
+3. KELİME BÜTÜNLÜĞÜ (DOKUNMA):
+   - "yitzden" yazılmış ve harfler NET okunuyorsa -> "yitzden" olarak bırak. (Anlamsız olması önemli değil).
+   - "Mont" yazılmış ve harfler NET ise -> "Mont" olarak bırak.
+
+ÖZET:
+Senin görevin kelime düzeltmek değil. Senin görevin, görsel olarak bozuk, silik, ezik, üst üste binmiş harfleri tespit edip '⍰' ile işaretlemektir.
 
 ÇIKTI:
-İşaretlenmiş (veya temiz) metnin TAMAMI.
+Metnin TAMAMI. Sadece görsel olarak emin olamadığın harfleri ⍰ yap.
 """
 
         for model_name in MODELS_TO_TRY:
