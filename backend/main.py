@@ -525,139 +525,116 @@ async def check_class_code(code: str):
         return {"valid": False}
 
 # =======================================================
-# OCR: "GENEL" GÖRSEL DENETİM (Kelime Bazlı Değil, Şekil Bazlı)
+# OCR: (GEÇİCİ) LLM TABANLI HAM AKTARIM
+# NOT: Bu sürüm, "audit" (2. LLM çağrısı) ve ?->⍰ gibi
+#      yanlış dönüşümleri kaldırır. Ama yine de LLM ile
+#      OCR yapmanın uzun metinde garanti veremeyeceğini
+#      unutma. (Bir sonraki adım: confidence-score OCR)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
         file_content = await read_limited(file, MAX_FILE_SIZE)
-        
+
+        # -------------------------------------------------------
         # Dosya hazırlıkları (Standart)
+        # -------------------------------------------------------
         filename = file.filename or "unknown.jpg"
         file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-        if file_ext not in ALLOWED_EXTENSIONS: file_ext = "jpg"
+        if file_ext not in ALLOWED_EXTENSIONS:
+            file_ext = "jpg"
+
         safe_mime = file.content_type or MIME_BY_EXT.get(file_ext, "image/jpeg")
-        
+
+        # -------------------------------------------------------
         # Upload (Standart)
+        # -------------------------------------------------------
         safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", classroom_code)[:20]
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
+
         try:
-            supabase.storage.from_("odevler").upload(unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"})
+            supabase.storage.from_("odevler").upload(
+                unique_filename,
+                file_content,
+                {"content-type": safe_mime, "upsert": "false"},
+            )
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
             image_url = res if isinstance(res, str) else res.get("publicUrl")
-        except: pass
+        except:
+            pass
 
         # =======================================================
-        # 1. AŞAMA: HAM OCR (Kelime Tahmini YASAK)
+        # 1) AŞAMA: HAM OCR (TEK ÇAĞRI)  ✅
+        # - İKİNCİ LLM "AUDIT" AŞAMASI KALDIRILDI
+        # - Amaç: Metni tekrar yazdırıp bozmayı azaltmak
         # =======================================================
         extracted_text = ""
-        
-        # BU PROMPT HİÇBİR KELİMEYİ TANIMAZ, SADECE HARF ŞEKLİNE BAKAR
-        prompt_ocr = """ROL: Sen harf şekillerini tanıyan optik bir tarayıcısın.
-GÖREV: Resimdeki el yazısını harf harf aktar.
 
-GENEL PRENSİPLER:
-1. TAHMİN YASAK: Bir kelime anlamsız görünse bile (örn: 'gelyrm', 'tlfn'), harfler netse aynen yaz.
-2. DÜZELTME YASAK: Yazım hatalarını düzeltme.
-3. HARF HASSASİYETİ: 'S' ve 'Ç', 'O' ve 'Ö', 'U' ve 'Ü' ayrımlarına dikkat et. Nokta veya kuyruk görüyorsan yaz.
+        prompt_ocr = """
+ROL: Sen bir optik tarayıcısın (OCR). Görevin: GÖRDÜĞÜNÜ yazmak.
+
+KURALLAR (KESİN):
+1) TAHMİN YASAK: Görselde net görmediğin harf/kelimeyi ASLA tamamlamaya çalışma.
+2) DÜZELTME YASAK: Yazım hatası, yanlış ek, yanlış kelime varsa aynen bırak.
+3) BELİRSİZLİK İŞARETİ: Emin olmadığın tek bir harf varsa o harfi '⍰' yap.
+   - Eğer bir kelime genel olarak okunmuyorsa kelimenin tamamını '⍰⍰⍰' yap.
+4) NOKTALAMA: Görselde nokta/virgül/soru işareti görüyorsan aynen yaz. Görmüyorsan ekleme.
 
 ÇIKTI:
-Sadece metin.
-"""
+Sadece metni ver. Açıklama yazma. Markdown kullanma.
+""".strip()
 
         for model_name in MODELS_TO_TRY:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
-                    config=types.GenerateContentConfig(temperature=0, response_mime_type="text/plain"),
+                    contents=[
+                        prompt_ocr,
+                        types.Part.from_bytes(data=file_content, mime_type=safe_mime),
+                    ],
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        response_mime_type="text/plain",
+                    ),
                 )
-                extracted_text = (resp.text or "").replace("```", "").rstrip("\n")
-                if extracted_text: break
-            except: continue
+                extracted_text = (resp.text or "").replace("```", "").strip()
+                if extracted_text:
+                    break
+            except:
+                continue
 
-        if not extracted_text: return {"status": "error", "message": "OCR Başarısız"}
+        if not extracted_text:
+            return {"status": "error", "message": "OCR Başarısız"}
+
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 2. AŞAMA: GÖRSEL ŞÜPHE DENETİMİ (Genel Kurallar)
-        # HİÇBİR KELİME HARDCODE EDİLMEDİ.
+        # 2) AŞAMA: SON TEMİZLİK (SADECE GÜVENLİ TEMİZLİK) ✅
+        # - ? -> ⍰ DÖNÜŞÜMÜ KALDIRILDI  (gerçek soru işaretini bozmamak için)
+        # - TIRNAKLARI ⍰ YAPMA KALDIRILDI (belirsizlik felsefesine aykırı)
         # =======================================================
-        audited_text = ""
-
-        prompt_audit = f"""ROL: Sen bir Grafologsun (Yazı Bilimci). Kelimelerin anlamıyla değil, yazılış netliğiyle ilgilenirsin.
-GÖREV: Metni görselle kıyasla. Sadece FİZİKSEL OLARAK NET OLMAYAN harfleri işaretle.
-
-GENEL DENETİM KURALLARI (HEPSİ İÇİN GEÇERLİ):
-
-1. ÇENGEL VE NOKTA KONTROLÜ (Sok vs Çok):
-   - Eğer metinde 'S', 'O', 'U', 'I' harfleri varsa görsele zoom yap.
-   - Harfin altında silik bir çengel, üstünde silik bir nokta var mı?
-   - EVET ise ve emin olamıyorsan harfi '⍰' yap. (Örn: Sok -> ⍰ok)
-
-2. BİTİŞİK HARF KONTROLÜ (yitzden vs yüzden):
-   - Harfler birbirine girmiş, üst üste binmiş mi?
-   - Bir harfin nerede bitip diğerinin nerede başladığı belirsiz mi?
-   - EVET ise o bölgeyi '⍰' ile işaretle.
-
-3. KARALAMA VE SİLİNTİ:
-   - Öğrenci yazdığı kelimenin üstünü çizmiş veya karalamış mı?
-   - Yazı silik veya okunaksız mı?
-   - EVET ise '⍰' koy.
-
-ÖZET:
-- Yazı net ama kelime yanlışsa (Örn: Mont) -> DOKUNMA. (Bu öğrencinin hatasıdır).
-- Yazı silik, karışık veya harf belirsizse -> ⍰ KOY. (Bu OCR'ın göremediği yerdir).
-
-ÇIKTI:
-Metnin TAMAMI.
-"""
-
-        for model_name in MODELS_TO_TRY:
-            try:
-                resp_audit = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt_audit, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
-                    config=types.GenerateContentConfig(temperature=0, response_mime_type="text/plain"),
-                )
-                audited_text = (resp_audit.text or "").replace("```", "").rstrip("\n")
-                if audited_text: break
-            except: continue
-
-        final_text = audited_text if audited_text else raw_text
-
-        # =======================================================
-        # 3. AŞAMA: SON TEMİZLİK
-        # =======================================================
-        def normalize_markers(text: str) -> str:
-            if not text: return text
-            # ? -> ⍰ dönüşümü
-            return text.replace("?", "⍰").replace("??", "⍰")
-
-        # Tırnakları temizle
         def final_cleanup(text: str) -> str:
-            return text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
+            if not text:
+                return text
+            # Sadece kod blok izleri ve gereksiz uç boşluklar gibi güvenli temizlikler
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+            return text.strip()
 
-        flagged_text = normalize_markers(final_text)
-        flagged_text = final_cleanup(flagged_text)
-
-        # Cümle sonu gerçek soru işaretlerini koruma (Regex ile)
-        # Kelime içindeki ? -> ⍰, Cümle sonundaki ? -> ? kalır.
-        # Bu basit regex, kelime ortasındaki ?'leri yakalar.
-        flagged_text = re.sub(r"(\w)\?(\w)", r"\1⍰\2", flagged_text)
+        flagged_text = final_cleanup(raw_text)
 
         return {
             "status": "success",
             "ocr_text": flagged_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": "ℹ️ Turuncu işaretli (⍰) yerler net okunamamıştır.",
-             "ocr_markers": {"char": "⍰", "word": "⍰"}
+            "ocr_notice": "ℹ️ Turuncu işaretli (⍰) yerler net okunamamıştır. ⍰ kalırsa analiz engellenir.",
+            "ocr_markers": {"char": "⍰", "word": "⍰⍰⍰"},
         }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 # =======================================================
 # ANALYZE (Aynen bırakıldı)
 # =======================================================
