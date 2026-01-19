@@ -525,21 +525,18 @@ async def check_class_code(code: str):
         return {"valid": False}
 
 # =======================================================
-# OCR: GENEL AMAÇLI ŞÜPHECİ YAKLAŞIM (General Purpose Skeptic)
+# OCR: AYNA MODU (Tam Görsel Sadakat - Yorum Yok)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
-        # 1. Dosya Okuma ve Hazırlık
+        # 1. Dosya Okuma
         file_content = await read_limited(file, MAX_FILE_SIZE)
 
         filename = file.filename or "unknown.jpg"
-        file_ext = "jpg"
-        if "." in filename:
-            ext = filename.rsplit(".", 1)[-1].lower()
-            if ext in ALLOWED_EXTENSIONS:
-                file_ext = ext
-
+        file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+        if file_ext not in ALLOWED_EXTENSIONS: file_ext = "jpg"
+        
         safe_mime = file.content_type
         if not safe_mime or not safe_mime.startswith("image/"):
             safe_mime = MIME_BY_EXT.get(file_ext, "image/jpeg")
@@ -548,87 +545,63 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
 
-        # 2. Supabase Upload
         try:
             supabase.storage.from_("odevler").upload(
                 unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"}
             )
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
             image_url = res if isinstance(res, str) else res.get("publicUrl")
-        except Exception as up_err:
-            print(f"⚠️ Upload Uyarısı: {up_err}")
+        except: pass
 
         # =======================================================
-        # 3. AŞAMA 1: HAM OCR (Düzeltme Yasaklı Kâtip)
+        # 1. AŞAMA: DUYGUSUZ KATİP (Gördüğünü Yaz)
         # =======================================================
         extracted_text = ""
         
-        prompt_ocr = """ROL: Sen bir el yazısı aktarım uzmanısın.
-GÖREV: Görseldeki metni harfiyen dijitale aktar.
+        prompt_ocr = """ROL: Sen yorum yapmayan, sadece gördüğünü aktaran bir OCR robotusun.
+GÖREV: Görseldeki el yazısını birebir harf aktarımıyla dijitale çevir.
 
-KRİTİK KURALLAR:
-1. OTO-DÜZELTME YAPMA: Beynindeki "kelime düzeltme" özelliğini kapat. Öğrenci "geliyorm" yazdıysa "geliyorm" yaz. "geliyorum" yapma.
-2. HARF SADAKATİ: Harfler "yitzden" gibi görünüyorsa "yitzden" yaz. Bunu "yüzden" diye düzeltme.
-3. BELİRSİZLİK: Bir harf silikse, karalanmışsa veya üst üste binmişse o harf yerine '⍰' koy.
+KESİN KURALLAR:
+1. DÜZELTME YASAK: Metin "Kebap ve Mont" ise "Mont" olarak yaz. "Mantı" diye düzeltme.
+2. ANLAM ARAMA: Cümle anlamsız olsa bile harfler neyse onu yaz.
+3. HARF SADAKATİ: Öğrenci imla hatası yaptıysa (örn: "geliyorm"), sen de hatayı aynen yaz ("geliyorm").
 
 ÇIKTI:
-Sadece metni ver. Yorum yok.
+Sadece metin.
 """
 
         for model_name in MODELS_TO_TRY:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=[
-                        prompt_ocr,
-                        types.Part.from_bytes(data=file_content, mime_type=safe_mime)
-                    ],
-                    config=types.GenerateContentConfig(
-                        temperature=0,
-                        response_mime_type="text/plain",
-                    ),
+                    contents=[prompt_ocr, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    config=types.GenerateContentConfig(temperature=0, response_mime_type="text/plain"),
                 )
                 extracted_text = (resp.text or "").replace("```", "").rstrip("\n")
-                if extracted_text:
-                    break
-            except Exception:
-                continue
+                if extracted_text: break
+            except: continue
 
-        if not extracted_text:
-            return {"status": "error", "message": "OCR Başarısız"}
-
+        if not extracted_text: return {"status": "error", "message": "OCR Başarısız"}
+        
         raw_text = unicodedata.normalize("NFC", extracted_text)
 
         # =======================================================
-        # 4. AŞAMA 2: AUDIT (Mantık ve Görsel Çatışması Kontrolü)
-        # GÜNCELLEME: Bağlamsal saçmalıkları (halvası) ve uydurma kelimeleri (otolus) yakalamak için sertleştirildi.
+        # 2. AŞAMA: GÖRSEL NETLİK DENETÇİSİ (Mantık Yok, Sadece Piksel)
         # =======================================================
         audited_text = ""
 
-        prompt_audit = f"""ROL: Sen Türkçe dil yapısına hakim, acımasız bir OCR denetçisisin.
-GÖREV: Ham OCR çıktısını tara ve "Görsel-Mantık Uyuşmazlığı" olan yerleri ⍰ ile işaretle.
+        prompt_audit = f"""ROL: Sen bir görüntü işleme uzmanısın. Dilbilimci DEĞİLSİN.
+GÖREV: Ham metni görsele bakarak kontrol et. Sadece FİZİKSEL OLARAK OKUNAMAYAN yerleri işaretle.
 
-GİRDİ METNİ:
-\"\"\"{raw_text}\"\"\"
+YASAKLAR:
+- Kelime anlamlı mı? -> BAKMA. (Mont yemek gayet normal kabul et.)
+- Cümle düşük mü? -> BAKMA.
+- Harf hatası mı var? -> BAKMA.
 
-DENETİM ADIMLARI:
-1. UYDURMA KELİME KONTROLÜ:
-   - "otolus", "tolus", "yitzden" gibi Türkçede OLMAYAN kelimeler var mı?
-   - VARSA -> Görsele bak. Yazı kötüyse direkt kelime sonuna '⍰' ekle. (Örn: otolus⍰)
-
-2. BAĞLAM (CONTEXT) KONTROLÜ:
-   - Kelime sözlükte var ama cümlede SAÇMA mı?
-   - ÖRNEK: "Samsun'un halvası çok soğuk." -> "Halva" gerçek kelime ama "hava" kastedilmiş olabilir.
-   - ÖRNEK: "Geliyormuşsun" yerine "Geliyormuşun" -> Ek hatası mı görsel belirsizlik mi?
-   - AKSİYON: Cümle akışını bozan mantıksız kelimeler görürsen ve görselde en ufak bir belirsizlik varsa '⍰' koy. (ha⍰vası)
-
-3. HARF KARIŞIKLIĞI:
-   - Özellikle 'u/ü', 'o/ö', 'v/y' harfleri karışmış mı?
-   - Şüphe duyduğun harfi '⍰' yap.
-
-KURAL:
-- ASLA DÜZELTME YAPMA (Doğrusunu yazma). Sadece boz ve ⍰ koy.
-- "otolus" -> "otobüs" YAPMA. -> "otolus⍰" veya "oto⍰us" YAP.
+İŞARETLEME KURALI (⍰):
+1. Harfler silik, mürekkep dağılmış veya üstü karalanmış mı? -> EVET ise ⍰ koy.
+2. Yazı o kadar çirkin ki 'u' mu 'ü' mü olduğu görsel olarak imkansız mı? -> EVET ise ⍰ koy.
+3. Yazı NET ama kelime YANLIŞ mı? (Örn: Net bir şekilde 'Mont' yazılmış) -> İŞARETLEME.
 
 ÇIKTI:
 Sadece işaretlenmiş metni ver.
@@ -638,41 +611,26 @@ Sadece işaretlenmiş metni ver.
             try:
                 resp_audit = client.models.generate_content(
                     model=model_name,
-                    contents=[
-                        prompt_audit,
-                        types.Part.from_bytes(data=file_content, mime_type=safe_mime)
-                    ],
-                    config=types.GenerateContentConfig(
-                        temperature=0,
-                        response_mime_type="text/plain",
-                    ),
+                    contents=[prompt_audit, types.Part.from_bytes(data=file_content, mime_type=safe_mime)],
+                    config=types.GenerateContentConfig(temperature=0, response_mime_type="text/plain"),
                 )
                 audited_text = (resp_audit.text or "").replace("```", "").rstrip("\n")
-                if audited_text:
-                    break
-            except Exception:
-                continue
+                if audited_text: break
+            except: continue
 
-        # Denetimden geçen metni kullan, yoksa ham metne dön
-        text_for_marking = audited_text if audited_text else raw_text
+        final_text = audited_text if audited_text else raw_text
+
+        # =======================================================
+        # 3. AŞAMA: CLEANUP (Sadece Format Temizliği)
+        # =======================================================
         
-        MARK_CHAR = "⍰"
-        WORD_MARK = "⍰"
-
-        # =======================================================
-        # 5. AŞAMA: PYTHON CLEANUP (Yardımcı Fonksiyonlar)
-        # =======================================================
-
-        # A) Soru İşareti Temizliği
         def normalize_uncertainty_q(text: str) -> str:
             if not text: return text
-            # Kelime içi ? -> ⍰
             text = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
-            # Kelime başı ? -> ⍰
             text = re.sub(r"(?m)(^|[ \t])\?([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1⍰\2", text)
             return text
 
-        # B) Diakritik Karışıklığı (ü/u aynı kelimede varsa şüphelidir)
+        # Diakritik kontrolü: Sadece görsel belirsizlik yaratan çiftler
         def mark_mixed_diacritics(token: str) -> str:
             pairs = [("ü", "u"), ("Ü", "U"), ("ö", "o"), ("Ö", "O"), ("ş", "s"), ("Ş", "S"), 
                      ("ç", "c"), ("Ç", "C"), ("ğ", "g"), ("Ğ", "G"), ("ı", "i"), ("İ", "I")]
@@ -688,50 +646,23 @@ Sadece işaretlenmiş metni ver.
                 return mark_mixed_diacritics(m.group(0))
             return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
 
-        # C) Genel Güvenlik (Tırnaklar ve Türkçe olmayan tokenlar)
-        TR_VOWELS = set("aeıioöuüAEIİOÖUÜ")
-        def looks_turkish_like(token: str) -> bool:
-            letters = [c for c in token if c.isalpha() or c in "ÇĞİÖŞÜçğıöşü"]
-            if not letters: return True
-            if len(letters) == 1: return True
-            if not any(c in TR_VOWELS for c in letters): return False # Hiç sesli yoksa
-            
-            consec_cons = 0
-            for c in letters:
-                if c in TR_VOWELS: consec_cons = 0
-                else:
-                    consec_cons += 1
-                    if consec_cons >= 4: return False # 4 sessiz yan yana
-            return True
+        # Tırnakları temizle ama mantıksal kontrol YAPMA
+        def final_cleanup(text: str) -> str:
+            return text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
 
-        def final_uncertainty_pass(text: str) -> str:
-            # Akıllı tırnakları ⍰ yap
-            text = text.replace('"', "⍰").replace("“", "⍰").replace("”", "⍰")
-            
-            def repl(m) -> str:
-                tok = m.group(0)
-                if not looks_turkish_like(tok):
-                    return tok if tok.endswith("⍰") else (tok + "⍰")
-                return tok
-            return re.sub(r"[A-Za-zÇĞİÖŞÜçğıöşü'’-]+", repl, text)
-
-        # Fonksiyonları uygula
-        flagged_text = normalize_uncertainty_q(text_for_marking)
+        flagged_text = normalize_uncertainty_q(final_text)
         flagged_text = apply_mixed_diacritic_marking(flagged_text)
-        flagged_text = final_uncertainty_pass(flagged_text)
+        flagged_text = final_cleanup(flagged_text)
 
         return {
             "status": "success",
             "ocr_text": flagged_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": f"ℹ️ Turuncu işaretli ({MARK_CHAR}) yerler OCR tarafından net okunamamıştır. Lütfen metni kontrol edip düzeltiniz.",
-            "ocr_hover_text": "OCR bu kısmı net okuyamadı. Öğrenci kontrol etmelidir.",
-            "ocr_markers": {"char": MARK_CHAR, "word": WORD_MARK}
+            "ocr_notice": "ℹ️ Turuncu işaretli (⍰) yerler net okunamamıştır.",
+             "ocr_markers": {"char": "⍰", "word": "⍰"}
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 # =======================================================
