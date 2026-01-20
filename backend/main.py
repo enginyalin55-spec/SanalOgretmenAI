@@ -388,6 +388,10 @@ async def check_class_code(code: str):
 
 # =======================================================
 # OCR: GOOGLE VISION (PROD READY - SECRET FILES UYUMLU)
+#   ✅ SADECE CHAR-LEVEL MASKING
+#   ✅ OCR asla uydurmaz
+#   ✅ Emin değilse sadece ilgili HARF'i ⍰ yapar
+#   ✅ Word-level maskeleme YOK (kelimeyi komple ⍰⍰⍰ yapmaz)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
@@ -436,7 +440,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         image = vision.Image(content=file_content)
 
-        # ✅ Türkçe ipucu (genelde faydalı)
+        # (İstersen açabilirsin)
         # context = vision.ImageContext(language_hints=["tr"])
         # response = vision_client.document_text_detection(image=image, image_context=context)
 
@@ -446,31 +450,23 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
         # ---------------------------------------------------
-        # C) CONFIDENCE FILTERING (CHAR + WORD RISK)
+        # C) CONFIDENCE FILTERING (CHAR-LEVEL)
         #   - Noktalama ASLA maskelenmez
         #   - Mask sadece HARF için çalışır
-        #   - Word-level risk: kelimenin tamamını ⍰⍰⍰ yapar
+        #   - Word-level maskeleme YOK
         # ---------------------------------------------------
-        CONFIDENCE_THRESHOLD = 0.40  # tekil harf mask eşiği
+        CONFIDENCE_THRESHOLD = 0.40
 
         masked_parts: list[str] = []
         raw_parts: list[str] = []
 
         PUNCTUATION = set(".,;:!?\"'’`()-–—…")
 
-        TR_LETTERS = set(
-            "abcçdefgğhıijklmnoöprsştuüvyz"
-            "ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ"
-        )
-
         def is_letter(ch: str) -> bool:
             return bool(ch) and ch.isalpha()
 
         def is_punct(ch: str) -> bool:
             return ch in PUNCTUATION
-
-        def is_tr_letter(ch: str) -> bool:
-            return ch in TR_LETTERS
 
         def append_break(break_type_val: int) -> None:
             if not break_type_val:
@@ -484,38 +480,6 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                 masked_parts.append("\n")
                 raw_parts.append("\n")
 
-        def should_mask_word(word_text: str, symbol_confs: list[float], word_conf: Optional[float] = None) -> bool:
-            """
-            ✅ Listeye bağlı olmayan genel word-risk karar mekanizması.
-            Amaç: OCR'nin 'emin sanıp yanlış bastığı' kelimeleri de ⍰⍰⍰ yapmak.
-            """
-            # 1) Word confidence varsa ve düşükse: direkt şüpheli
-            if word_conf is not None and word_conf < 0.70:
-                return True
-
-            # 2) Sembol confidence dağılımı
-            if symbol_confs:
-                mn = min(symbol_confs)
-                avg = sum(symbol_confs) / len(symbol_confs)
-                # tek bir harf bile belirgin düşükse ya da ortalama düşükse
-                if mn < 0.55 or avg < 0.75:
-                    return True
-
-            # 3) Karma büyük-küçük: OCR anomali göstergesi (iStadyum gibi)
-            upp = sum(1 for c in word_text if c.isupper())
-            low = sum(1 for c in word_text if c.islower())
-            if upp >= 2 and low >= 1:
-                return True
-
-            # 4) Türkçe harf seti dışına taşan kelime oranı (tamamen genel)
-            letters = [c for c in word_text if c.isalpha()]
-            if letters:
-                non_tr = sum(1 for c in letters if not is_tr_letter(c))
-                if non_tr / len(letters) > 0.4:
-                    return True
-
-            return False
-
         # ---------------------------------------------------
         # D) OCR parse (raw + masked)
         # ---------------------------------------------------
@@ -523,38 +487,22 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             for block in page.blocks:
                 for paragraph in block.paragraphs:
                     for word in paragraph.words:
-
-                        # word_text ve confidence sinyalleri
-                        word_chars: list[str] = []
-                        word_symbol_confs: list[float] = []
-                        for symbol in word.symbols:
-                            ch = symbol.text or ""
-                            word_chars.append(ch)
-                            if ch and ch.isalpha():
-                                word_symbol_confs.append(getattr(symbol, "confidence", 1.0))
-
-                        word_text = "".join(word_chars)
-                        word_conf = getattr(word, "confidence", None)
-
-                        risky = should_mask_word(word_text, word_symbol_confs, word_conf)
-
-                        # kelimenin sembollerini bas
                         for symbol in word.symbols:
                             char = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
 
+                            # RAW: kağıtta ne gördüyse (Vision'ın verdiği)
                             raw_parts.append(char)
 
+                            # MASKED: sadece harf confidence düşükse ⍰
                             if is_punct(char):
                                 masked_parts.append(char)
                             elif is_letter(char):
-                                if risky:
-                                    masked_parts.append("⍰")  # ✅ kelimenin tamamı ⍰⍰⍰ etkisi
-                                else:
-                                    masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else char)
+                                masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else char)
                             else:
                                 masked_parts.append(char)
 
+                            # break (boşluk / satır)
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db:
@@ -566,13 +514,12 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         return {
             "status": "success",
-            "ocr_text": masked_text,
-            "raw_ocr_text": raw_text,
+            "ocr_text": masked_text,        # öğrenciye gösterilecek (⍰’li)
+            "raw_ocr_text": raw_text,       # debug / öğretmen / log için (maskesiz)
             "image_url": image_url,
             "ocr_notice": (
-                f"ℹ️ HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. "
-                f"Ayrıca word-level risk varsa kelimenin tamamı ⍰⍰⍰ olarak maskelenir. "
-                f"Noktalama asla maskelenmez."
+                f"ℹ️ Sadece HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. "
+                f"Noktalama asla maskelenmez. Word-level maskeleme yoktur."
             ),
             "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
