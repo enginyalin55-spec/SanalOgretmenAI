@@ -387,9 +387,7 @@ async def check_class_code(code: str):
 
 
 # =======================================================
-# OCR: GOOGLE CLOUD VISION API (CONFIDENCE-BASED)
-# -------------------------------------------------------
-# LLM (Gemini) kaldırıldı. Deterministik OCR eklendi.
+# OCR: GOOGLE VISION (PROD READY - SECRET FILES UYUMLU)
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
@@ -417,62 +415,71 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except: pass
 
         # ---------------------------------------------------
-        # B) VISION API - GÜVEN SKORLU OKUMA
+        # B) VISION API - BAĞLANTI (Secret Files Otomatik Tanır)
         # ---------------------------------------------------
         
-        # 1. Kimlik Ayarla (Render uyumlu)
-        ensure_gcp_credentials()
+        # Render'da Secret File tanımlıysa Google otomatik görür.
+        # Ekstra bir şey yapmaya gerek yok.
+        
+        try:
+            vision_client = vision.ImageAnnotatorClient()
+        except Exception as e:
+            print(f"Vision Client Hatası: {e}")
+            return {"status": "error", "message": "Google Vision Yetkilendirme Hatası. Secret Files ayarlı mı?"}
 
-        # 2. İstemciyi başlat
-        vision_client = vision.ImageAnnotatorClient()
         image = vision.Image(content=file_content)
 
-        # 3. OCR İsteği (Document Text Detection - El yazısı için en iyisi)
+        # OCR İsteği
         response = vision_client.document_text_detection(image=image)
         
         if response.error.message:
             return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
         # ---------------------------------------------------
-        # C) CONFIDENCE FILTERING (Maskeleme Algoritması)
+        # C) CONFIDENCE FILTERING (EŞİK: 0.40)
         # ---------------------------------------------------
-        CONFIDENCE_THRESHOLD = 0.50  # %75 altı maskelenir
+        # 'Ç' harfleri %45-50 arası gelebiliyor, onları kurtarmak için 0.40 yaptık.
+        CONFIDENCE_THRESHOLD = 0.40  
         
         masked_parts = []
         raw_parts = []
 
-        def append_break(break_type):
+        def append_break(break_type_val):
             """Google Vision break türlerine göre boşluk/newline ekler"""
-            if not break_type: return
+            if not break_type_val: return
             # SPACE(1) veya SURE_SPACE(2)
-            if break_type == 1 or break_type == 2:
+            if break_type_val == 1 or break_type_val == 2:
                 masked_parts.append(" ")
                 raw_parts.append(" ")
             # EOL_SURE_SPACE(3) veya LINE_BREAK(5)
-            elif break_type == 3 or break_type == 5:
+            elif break_type_val == 3 or break_type_val == 5:
                 masked_parts.append("\n")
                 raw_parts.append("\n")
 
-        # Hiyerarşik döngü: Page > Block > Paragraph > Word > Symbol
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
                 for paragraph in block.paragraphs:
                     for word in paragraph.words:
                         for symbol in word.symbols:
                             char = symbol.text
-                            # Güven skoru kontrolü
-                            conf = getattr(symbol, "confidence", 1.0) # Yoksa 1.0 varsay
+                            conf = getattr(symbol, "confidence", 1.0)
 
                             raw_parts.append(char)
 
+                            # Güven Eşiği Kontrolü
                             if conf < CONFIDENCE_THRESHOLD:
                                 masked_parts.append("⍰")
                             else:
                                 masked_parts.append(char)
                             
-                            # Boşluk yönetimi
-                            if symbol.property.detected_break:
-                                append_break(symbol.property.detected_break.type_)
+                            # --- GPT FIX: DETECTED BREAK SAĞLAMLAŞTIRMA ---
+                            # Versiyon farkını önlemek için hem 'type' hem 'type_' kontrolü
+                            prop = symbol.property
+                            if prop and prop.detected_break:
+                                db = prop.detected_break
+                                # type_ yoksa type'a bak, o da yoksa 0 döndür
+                                b_type = getattr(db, "type_", getattr(db, "type", 0))
+                                append_break(b_type)
 
         raw_text = "".join(raw_parts).strip()
         masked_text = "".join(masked_parts).strip()
@@ -493,7 +500,6 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
     except Exception as e:
         print(f"Sistem Hatası: {e}")
         return {"status": "error", "message": f"Sunucu Hatası: {str(e)}"}
-
 
 # =======================================================
 # ANALYZE: GEMINI (ANALİZ VE PUANLAMA) - DEĞİŞMEDİ
