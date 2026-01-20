@@ -498,8 +498,24 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                                 b_type = getattr(db, "type_", getattr(db, "type", 0))
                                 append_break(int(b_type) if b_type else 0)
 
-        raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
+                raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
         masked_text = unicodedata.normalize("NFC", "".join(masked_parts).strip())
+
+        # ---------------------------------------------------
+        # D) OCR ŞÜPHELİ TOKEN'ları (yüksek confidence olsa bile) ⍰ ile işaretle
+        #    NOT: Asla düzeltme yapmaz, sadece belirsizleştirir.
+        # ---------------------------------------------------
+        def force_suspect_tokens_to_mask(t: str) -> str:
+            def repl(m):
+                word = m.group(0)
+                return "⍰" + word[1:]
+
+            # Tipik OCR hataları (ör: Çok->Gok, Çay->Gay)
+            t = re.sub(r"\b[gG]ok\b", repl, t)
+            t = re.sub(r"\b[gG]ay\b", repl, t)
+            return t
+
+        masked_text = force_suspect_tokens_to_mask(masked_text)
 
         return {
             "status": "success",
@@ -513,6 +529,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             ),
             "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
+
 
     except Exception as e:
         print(f"Sistem Hatası: {e}")
