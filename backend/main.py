@@ -390,7 +390,10 @@ async def check_class_code(code: str):
 # OCR: GOOGLE VISION (PROD READY - SECRET FILES UYUMLU)
 # =======================================================
 @app.post("/ocr")
-async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
+async def ocr_image(
+    file: UploadFile = File(...),
+    classroom_code: str = Form(...),
+):
     try:
         file_content = await read_limited(file, MAX_FILE_SIZE)
 
@@ -399,7 +402,9 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         # ---------------------------------------------------
         filename = file.filename or "unknown.jpg"
         file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-        if file_ext not in ALLOWED_EXTENSIONS: file_ext = "jpg"
+        if file_ext not in ALLOWED_EXTENSIONS:
+            file_ext = "jpg"
+
         safe_mime = file.content_type or MIME_BY_EXT.get(file_ext, "image/jpeg")
 
         safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", classroom_code)[:20]
@@ -408,54 +413,69 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         try:
             supabase.storage.from_("odevler").upload(
-                unique_filename, file_content, {"content-type": safe_mime, "upsert": "false"}
+                unique_filename,
+                file_content,
+                {"content-type": safe_mime, "upsert": "false"},
             )
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
-            image_url = res if isinstance(res, str) else res.get("publicUrl")
-        except: pass
+            image_url = res if isinstance(res, str) else (res.get("publicUrl") or "")
+        except Exception:
+            # Upload hatası OCR'yi durdurmasın
+            pass
 
         # ---------------------------------------------------
         # B) VISION API - BAĞLANTI (Secret Files Otomatik Tanır)
         # ---------------------------------------------------
-        
         # Render'da Secret File tanımlıysa Google otomatik görür.
         # Ekstra bir şey yapmaya gerek yok.
-        
+
         try:
             vision_client = vision.ImageAnnotatorClient()
         except Exception as e:
             print(f"Vision Client Hatası: {e}")
-            return {"status": "error", "message": "Google Vision Yetkilendirme Hatası. Secret Files ayarlı mı?"}
+            return {
+                "status": "error",
+                "message": "Google Vision Yetkilendirme Hatası. Secret Files ayarlı mı?",
+            }
 
         image = vision.Image(content=file_content)
 
         # OCR İsteği
         response = vision_client.document_text_detection(image=image)
-        
+
         if response.error.message:
-            return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
+            return {
+                "status": "error",
+                "message": f"Vision API Hatası: {response.error.message}",
+            }
 
         # ---------------------------------------------------
         # C) CONFIDENCE FILTERING (EŞİK: 0.40)
         # ---------------------------------------------------
         # 'Ç' harfleri %45-50 arası gelebiliyor, onları kurtarmak için 0.40 yaptık.
-        CONFIDENCE_THRESHOLD = 0.40  
-        
-        masked_parts = []
-        raw_parts = []
+        CONFIDENCE_THRESHOLD = 0.40
 
-        def append_break(break_type_val):
-            """Google Vision break türlerine göre boşluk/newline ekler"""
-            if not break_type_val: return
+        masked_parts: List[str] = []
+        raw_parts: List[str] = []
+
+        def append_break(break_type_val: int) -> None:
+            """Google Vision break türlerine göre boşluk/newline ekler."""
+            if not break_type_val:
+                return
+
             # SPACE(1) veya SURE_SPACE(2)
-            if break_type_val == 1 or break_type_val == 2:
+            if break_type_val in (1, 2):
                 masked_parts.append(" ")
                 raw_parts.append(" ")
+                return
+
             # EOL_SURE_SPACE(3) veya LINE_BREAK(5)
-            elif break_type_val == 3 or break_type_val == 5:
+            if break_type_val in (3, 5):
                 masked_parts.append("\n")
                 raw_parts.append("\n")
+                return
 
+        # Hiyerarşik döngü: Page > Block > Paragraph > Word > Symbol
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
                 for paragraph in block.paragraphs:
@@ -466,25 +486,23 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
                             raw_parts.append(char)
 
-                            # Güven Eşiği Kontrolü
+                            # Güven eşiği kontrolü
                             if conf < CONFIDENCE_THRESHOLD:
                                 masked_parts.append("⍰")
                             else:
                                 masked_parts.append(char)
-                            
-                            # --- GPT FIX: DETECTED BREAK SAĞLAMLAŞTIRMA ---
-                            # Versiyon farkını önlemek için hem 'type' hem 'type_' kontrolü
-                            prop = symbol.property
-                            if prop and prop.detected_break:
-                                db = prop.detected_break
-                                # type_ yoksa type'a bak, o da yoksa 0 döndür
+
+                            # Detected break (versiyon farklarına dayanıklı)
+                            prop = getattr(symbol, "property", None)
+                            db = getattr(prop, "detected_break", None) if prop else None
+                            if db:
                                 b_type = getattr(db, "type_", getattr(db, "type", 0))
                                 append_break(b_type)
 
         raw_text = "".join(raw_parts).strip()
         masked_text = "".join(masked_parts).strip()
-        
-        # Unicode Normalizasyonu
+
+        # Unicode normalizasyonu (harfleri DEĞİŞTİRMEZ, sadece NFC yapar)
         raw_text = unicodedata.normalize("NFC", raw_text)
         masked_text = unicodedata.normalize("NFC", masked_text)
 
@@ -493,8 +511,11 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             "ocr_text": masked_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": f"ℹ️ Güven skoru %{int(CONFIDENCE_THRESHOLD*100)} altındaki harfler '⍰' ile maskelenmiştir.",
-            "ocr_markers": {"char": "⍰", "word": "⍰"}
+            "ocr_notice": (
+                f"ℹ️ Güven skoru %{int(CONFIDENCE_THRESHOLD * 100)} altındaki "
+                "harfler '⍰' ile maskelenmiştir."
+            ),
+            "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
 
     except Exception as e:
