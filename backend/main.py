@@ -390,10 +390,7 @@ async def check_class_code(code: str):
 # OCR: GOOGLE VISION (PROD READY - SECRET FILES UYUMLU)
 # =======================================================
 @app.post("/ocr")
-async def ocr_image(
-    file: UploadFile = File(...),
-    classroom_code: str = Form(...),
-):
+async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
         file_content = await read_limited(file, MAX_FILE_SIZE)
 
@@ -418,17 +415,13 @@ async def ocr_image(
                 {"content-type": safe_mime, "upsert": "false"},
             )
             res = supabase.storage.from_("odevler").get_public_url(unique_filename)
-            image_url = res if isinstance(res, str) else (res.get("publicUrl") or "")
+            image_url = res if isinstance(res, str) else res.get("publicUrl")
         except Exception:
-            # Upload hatası OCR'yi durdurmasın
             pass
 
         # ---------------------------------------------------
-        # B) VISION API - BAĞLANTI (Secret Files Otomatik Tanır)
+        # B) VISION API - BAĞLANTI
         # ---------------------------------------------------
-        # Render'da Secret File tanımlıysa Google otomatik görür.
-        # Ekstra bir şey yapmaya gerek yok.
-
         try:
             vision_client = vision.ImageAnnotatorClient()
         except Exception as e:
@@ -439,82 +432,82 @@ async def ocr_image(
             }
 
         image = vision.Image(content=file_content)
-
-        # OCR İsteği
         response = vision_client.document_text_detection(image=image)
 
         if response.error.message:
-            return {
-                "status": "error",
-                "message": f"Vision API Hatası: {response.error.message}",
-            }
+            return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
         # ---------------------------------------------------
-        # C) CONFIDENCE FILTERING (EŞİK: 0.40)
+        # C) CONFIDENCE FILTERING
+        #   - Noktalama ASLA maskelenmez
+        #   - Mask sadece HARF için çalışır
         # ---------------------------------------------------
-        # 'Ç' harfleri %45-50 arası gelebiliyor, onları kurtarmak için 0.40 yaptık.
         CONFIDENCE_THRESHOLD = 0.40
 
-        masked_parts: List[str] = []
-        raw_parts: List[str] = []
+        masked_parts: list[str] = []
+        raw_parts: list[str] = []
+
+        PUNCTUATION = set(".,;:!?\"'’`()-–—…")
+        # Harf mi? (Türkçe dahil) -> isalpha() yeterli
+        def is_letter(ch: str) -> bool:
+            return bool(ch) and ch.isalpha()
+
+        def is_punct(ch: str) -> bool:
+            return ch in PUNCTUATION
 
         def append_break(break_type_val: int) -> None:
-            """Google Vision break türlerine göre boşluk/newline ekler."""
             if not break_type_val:
                 return
-
-            # SPACE(1) veya SURE_SPACE(2)
+            # SPACE(1) / SURE_SPACE(2)
             if break_type_val in (1, 2):
                 masked_parts.append(" ")
                 raw_parts.append(" ")
-                return
-
-            # EOL_SURE_SPACE(3) veya LINE_BREAK(5)
-            if break_type_val in (3, 5):
+            # EOL_SURE_SPACE(3) / LINE_BREAK(5)
+            elif break_type_val in (3, 5):
                 masked_parts.append("\n")
                 raw_parts.append("\n")
-                return
 
-        # Hiyerarşik döngü: Page > Block > Paragraph > Word > Symbol
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
                 for paragraph in block.paragraphs:
                     for word in paragraph.words:
                         for symbol in word.symbols:
-                            char = symbol.text
+                            char = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
 
                             raw_parts.append(char)
 
-                            # Güven eşiği kontrolü
-                            if conf < CONFIDENCE_THRESHOLD:
-                                masked_parts.append("⍰")
+                            # 1) Noktalama: asla maskelenmez
+                            if is_punct(char):
+                                masked_parts.append(char)
+
+                            # 2) Harf: confidence düşükse maskelenir
+                            elif is_letter(char):
+                                if conf < CONFIDENCE_THRESHOLD:
+                                    masked_parts.append("⍰")
+                                else:
+                                    masked_parts.append(char)
+
+                            # 3) Diğerleri (rakam, boşluk vb.): aynen
                             else:
                                 masked_parts.append(char)
 
-                            # Detected break (versiyon farklarına dayanıklı)
+                            # detected_break (type_/type uyumlu)
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db:
                                 b_type = getattr(db, "type_", getattr(db, "type", 0))
-                                append_break(b_type)
+                                append_break(int(b_type) if b_type else 0)
 
-        raw_text = "".join(raw_parts).strip()
-        masked_text = "".join(masked_parts).strip()
-
-        # Unicode normalizasyonu (harfleri DEĞİŞTİRMEZ, sadece NFC yapar)
-        raw_text = unicodedata.normalize("NFC", raw_text)
-        masked_text = unicodedata.normalize("NFC", masked_text)
+        raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
+        masked_text = unicodedata.normalize("NFC", "".join(masked_parts).strip())
 
         return {
             "status": "success",
             "ocr_text": masked_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": (
-                f"ℹ️ Güven skoru %{int(CONFIDENCE_THRESHOLD * 100)} altındaki "
-                "harfler '⍰' ile maskelenmiştir."
-            ),
+            "ocr_notice": f"ℹ️ Yalnızca HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. Noktalama asla maskelenmez.",
             "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
 
