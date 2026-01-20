@@ -387,16 +387,14 @@ async def check_class_code(code: str):
 
 
 # =======================================================
-# OCR: GOOGLE VISION (PROD READY - SECRET FILES UYUMLU)
-#   ✅ SADECE CHAR-LEVEL MASKING
-#   ✅ OCR asla uydurmaz
-#   ✅ Emin değilse sadece ilgili HARF'i ⍰ yapar
-#   ✅ Word-level maskeleme YOK (kelimeyi komple ⍰⍰⍰ yapmaz)
+# OCR: GOOGLE VISION (CHAR-LEVEL MASK ONLY)
+#   - Noktalama ASLA maskelenmez
+#   - Sadece HARF confidence < threshold ise "⍰"
+#   - Word-level (kelimeyi komple ⍰⍰⍰ yapma) YOK
 # =======================================================
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
-        # ✅ Render ortamı için credential ayarla (varsa dokunmaz)
         ensure_gcp_credentials()
 
         file_content = await read_limited(file, MAX_FILE_SIZE)
@@ -440,20 +438,15 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         image = vision.Image(content=file_content)
 
-        # (İstersen açabilirsin)
-        # context = vision.ImageContext(language_hints=["tr"])
-        # response = vision_client.document_text_detection(image=image, image_context=context)
-
-        response = vision_client.document_text_detection(image=image)
+        # İstersen bunu AÇ (genelde Türkçe için daha iyi):
+        context = vision.ImageContext(language_hints=["tr"])
+        response = vision_client.document_text_detection(image=image, image_context=context)
 
         if response.error.message:
             return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
         # ---------------------------------------------------
-        # C) CONFIDENCE FILTERING (CHAR-LEVEL)
-        #   - Noktalama ASLA maskelenmez
-        #   - Mask sadece HARF için çalışır
-        #   - Word-level maskeleme YOK
+        # C) CHAR-LEVEL CONFIDENCE MASKING
         # ---------------------------------------------------
         CONFIDENCE_THRESHOLD = 0.40
 
@@ -480,29 +473,25 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                 masked_parts.append("\n")
                 raw_parts.append("\n")
 
-        # ---------------------------------------------------
-        # D) OCR parse (raw + masked)
-        # ---------------------------------------------------
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
                 for paragraph in block.paragraphs:
                     for word in paragraph.words:
                         for symbol in word.symbols:
-                            char = symbol.text or ""
+                            ch = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
 
-                            # RAW: kağıtta ne gördüyse (Vision'ın verdiği)
-                            raw_parts.append(char)
+                            # raw her zaman gerçek çıktı
+                            raw_parts.append(ch)
 
-                            # MASKED: sadece harf confidence düşükse ⍰
-                            if is_punct(char):
-                                masked_parts.append(char)
-                            elif is_letter(char):
-                                masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else char)
+                            # masked mantığı
+                            if is_punct(ch):
+                                masked_parts.append(ch)
+                            elif is_letter(ch):
+                                masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
                             else:
-                                masked_parts.append(char)
+                                masked_parts.append(ch)
 
-                            # break (boşluk / satır)
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db:
@@ -514,12 +503,13 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         return {
             "status": "success",
-            "ocr_text": masked_text,        # öğrenciye gösterilecek (⍰’li)
-            "raw_ocr_text": raw_text,       # debug / öğretmen / log için (maskesiz)
+            "ocr_text": masked_text,
+            "raw_ocr_text": raw_text,
             "image_url": image_url,
             "ocr_notice": (
-                f"ℹ️ Sadece HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. "
-                f"Noktalama asla maskelenmez. Word-level maskeleme yoktur."
+                f"ℹ️ Yalnızca HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. "
+                f"Word-level (kelimeyi komple ⍰⍰⍰ yapma) KAPALIDIR. "
+                f"Noktalama asla maskelenmez."
             ),
             "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
