@@ -437,18 +437,19 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         if response.error.message:
             return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
-        # ---------------------------------------------------
-        # C) CONFIDENCE FILTERING
-        #   - Noktalama ASLA maskelenmez
-        #   - Mask sadece HARF için çalışır
+                # ---------------------------------------------------
+        # C) CONFIDENCE: METNE DOKUNMA, SADECE SPAN DÖN
+        #   - Noktalama zaten aynen kalır
+        #   - Harf düşük confidence ise metni bozma
+        #   - UI için spans döndür
         # ---------------------------------------------------
         CONFIDENCE_THRESHOLD = 0.40
 
-        masked_parts: list[str] = []
-        raw_parts: list[str] = []
+        parts: list[str] = []
+        uncertainty_spans: list[dict] = []
 
         PUNCTUATION = set(".,;:!?\"'’`()-–—…")
-        # Harf mi? (Türkçe dahil) -> isalpha() yeterli
+
         def is_letter(ch: str) -> bool:
             return bool(ch) and ch.isalpha()
 
@@ -458,14 +459,19 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         def append_break(break_type_val: int) -> None:
             if not break_type_val:
                 return
-            # SPACE(1) / SURE_SPACE(2)
             if break_type_val in (1, 2):
-                masked_parts.append(" ")
-                raw_parts.append(" ")
-            # EOL_SURE_SPACE(3) / LINE_BREAK(5)
+                parts.append(" ")
             elif break_type_val in (3, 5):
-                masked_parts.append("\n")
-                raw_parts.append("\n")
+                parts.append("\n")
+
+        def add_span(start: int, end: int, ch: str, conf: float) -> None:
+            # küçük span biriktir, sonra merge edeceğiz
+            uncertainty_spans.append({
+                "start": start,
+                "end": end,
+                "char": ch,
+                "confidence": float(conf),
+            })
 
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
@@ -475,41 +481,45 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                             char = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
 
-                            raw_parts.append(char)
+                            start = len("".join(parts))
+                            parts.append(char)
+                            end = start + len(char)
 
-                            # 1) Noktalama: asla maskelenmez
-                            if is_punct(char):
-                                masked_parts.append(char)
+                            # Noktalama: asla işaretleme (istersen açabiliriz)
+                            if (not is_punct(char)) and is_letter(char) and conf < CONFIDENCE_THRESHOLD:
+                                add_span(start, end, char, conf)
 
-                            # 2) Harf: confidence düşükse maskelenir
-                            elif is_letter(char):
-                                if conf < CONFIDENCE_THRESHOLD:
-                                    masked_parts.append("⍰")
-                                else:
-                                    masked_parts.append(char)
-
-                            # 3) Diğerleri (rakam, boşluk vb.): aynen
-                            else:
-                                masked_parts.append(char)
-
-                            # detected_break (type_/type uyumlu)
+                            # detected_break
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db:
                                 b_type = getattr(db, "type_", getattr(db, "type", 0))
                                 append_break(int(b_type) if b_type else 0)
 
-        raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
-        masked_text = unicodedata.normalize("NFC", "".join(masked_parts).strip())
+        text = unicodedata.normalize("NFC", "".join(parts).strip())
+
+        # Span'ları birleştir (yan yana/çakışanları merge)
+        merged = []
+        for sp in sorted(uncertainty_spans, key=lambda x: (x["start"], x["end"])):
+            if not merged:
+                merged.append(sp)
+                continue
+            last = merged[-1]
+            if sp["start"] <= last["end"]:
+                last["end"] = max(last["end"], sp["end"])
+            else:
+                merged.append(sp)
 
         return {
             "status": "success",
-            "ocr_text": masked_text,
-            "raw_ocr_text": raw_text,
+            "ocr_text": text,          # ARTIK ASLA ⍰ YOK
+            "raw_ocr_text": text,
             "image_url": image_url,
-            "ocr_notice": f"ℹ️ Yalnızca HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. Noktalama asla maskelenmez.",
+            "ocr_notice": f"ℹ️ %{int(CONFIDENCE_THRESHOLD*100)} altı harfler metne dokunulmadan işaretlendi.",
             "ocr_markers": {"char": "⍰", "word": "⍰"},
+            "ocr_uncertainty_spans": merged
         }
+
 
     except Exception as e:
         print(f"Sistem Hatası: {e}")
