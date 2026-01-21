@@ -391,7 +391,7 @@ export default function MainScreen({ user, setUser }) {
     // Eğer metinde ⍰ varsa, kesinlikle uyarı ver ve durdur.
     if (ocrText.includes('⍰')) {
       Alert.alert(
-        "⚠️ ?Düzeltme Gerekli",
+        "⚠️ Düzeltme Gerekli",
         "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt.",
         [{ text: "Tamam" }]
       );
@@ -493,7 +493,7 @@ export default function MainScreen({ user, setUser }) {
                   {showOcrBanner && (
                     <View style={styles.ocrBanner}>
                       <Text style={styles.ocrBannerText}>
-                        <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
+                        <Text style={{ fontWeight: 'bold' }}>⚠️ ?ÖNEMLİ KONTROL:</Text>{"\n"}
                         Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
                         1. Turuncu <Text style={{ fontWeight: 'bold', color: '#d35400' }}>'⍰'</Text> işaretli yerleri tıkla ve doldur.{"\n"}
                         2. Kağıdınla uyuşmayan veya yanlış okunan kelimeler varsa onları da <Text style={{ fontWeight: 'bold' }}>elle düzelt.</Text>
