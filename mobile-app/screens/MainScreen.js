@@ -49,72 +49,27 @@ const TDK_LOOKUP = {
 // =======================================================
 // OCR BELİRSİZLİK SPAN’LARI (SADECE ? ve (?) için)
 // =======================================================
-const LETTERS = "A-Za-zÇĞİÖŞÜçğıöşü";
-
-const RE_INWORD_Q = new RegExp(
-  `([${LETTERS}])\\?([${LETTERS}])`,
-  "g"
-); // arka?ım, Sun?a, i?tadyum
-
-const RE_WORD_UNKNOWN = /\(\?\)/g; // tolus(?)
-
-// ✅ Kelime sonu belirsiz ? (So?, Samsun'da?) ama gerçek soru işareti (nasılsın?) değil
-const RE_END_Q_TOKEN = new RegExp(
-  `(^|\\s|[\\(\\[\\{\\\"\\'])((?:[${LETTERS}]{1,4})|(?:[${LETTERS}]+\\'[${LETTERS}]+))\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`,
-  "g"
-);
-
-// ✅ görüşürü?.  ?!, ?, gibi → OCR belirsizliği (gerçek soru değil)
-const RE_Q_BEFORE_PUNCT = /\?(?=[\.,;:!\)\]\}])/g;
-
-
-
-// (Opsiyonel ama tavsiye: kelime sonu So? gibi yakalamak istersen aç)
-// const RE_END_Q = new RegExp(`([${LETTERS}])\\?(?=\\s|$|[\\.,;:!\\)\\]\\}])`, "g");
+// Backend'den gelen '⍰' karakterini kullanıyoruz.
+// Eğer backend hala '?' gönderiyorsa burayı güncellemek gerekebilir.
+// Ancak backend kodunuzda '⍰' kullanıldığı için burada da onu hedefliyoruz.
+const UNCERTAINTY_CHAR = '⍰'; 
 
 function buildOcrUncertaintySpans(text) {
   if (!text) return [];
   const spans = [];
 
-  // 1) (?)
-  let m1;
-  while ((m1 = RE_WORD_UNKNOWN.exec(text)) !== null) {
-    spans.push({ start: m1.index, end: m1.index + m1[0].length, kind: "word" });
+  // Metin içindeki tüm ⍰ karakterlerini bul
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === UNCERTAINTY_CHAR) {
+      spans.push({ start: i, end: i + 1, kind: "char" });
+    }
   }
 
-  // 2) harf?harf (tek karakter ?)
-  let m2;
-  while ((m2 = RE_INWORD_Q.exec(text)) !== null) {
-    const qIndex = m2.index + 1; // ilk harften sonra gelen ?
-    spans.push({ start: qIndex, end: qIndex + 1, kind: "char" });
-  }
-  // 3) Kelime sonu belirsiz ? (So?, Samsun'da?) → sadece ? işaretini turuncu yap
-  let m3;
-  while ((m3 = RE_END_Q_TOKEN.exec(text)) !== null) {
-  // m3[1] = baştaki boşluk/prefix (veya boş string)
-  // m3[2] = token (So / Samsun'da gibi)
-  const qIndex = m3.index + (m3[1]?.length || 0) + (m3[2]?.length || 0);
-  spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
-}
-// 4) "?." "?,", "?!" gibi anormal kombinasyonlar -> OCR belirsizliği (gerçek soru değil)
-  let m4;
-  while ((m4 = RE_Q_BEFORE_PUNCT.exec(text)) !== null) {
-    spans.push({ start: m4.index, end: m4.index + 1, kind: "char_punct" });
-  }
-
-  // 3) kelime sonu ? (istersen aç)
-  // let m3;
-  // while ((m3 = RE_END_Q.exec(text)) !== null) {
-  //   const qIndex = m3.index + 1;
-  //   spans.push({ start: qIndex, end: qIndex + 1, kind: "char_end" });
-  // }
-
-  spans.sort((a, b) => a.start - b.start);
   return spans;
 }
 
 function hasOcrUncertainty(text) {
-  return buildOcrUncertaintySpans(text).length > 0;
+  return text && text.includes(UNCERTAINTY_CHAR);
 }
 
 // =======================================================
@@ -318,7 +273,7 @@ const OcrHintPopover = ({ data, onClose }) => {
         </View>
 
         <Text style={{ fontSize: 13, color: '#34495e', lineHeight: 18 }}>
-          OCR bu harfi net okuyamadı. Öğrenci kontrol etmelidir.
+          OCR bu harfi net okuyamadı. Lütfen kağıdınıza bakarak bu alanı düzeltin.
         </Text>
       </View>
     </View>
@@ -451,6 +406,23 @@ export default function MainScreen({ user, setUser }) {
   };
 
   const startAnalysis = async () => {
+    // 1. ÖNCE LOKAL KONTROL (Sunucuya gitmeden durdur)
+    // Eğer metin boşsa
+    if (!ocrText || ocrText.trim() === "") {
+      Alert.alert("Hata", "Lütfen önce bir resim taratın.");
+      return;
+    }
+
+    // 2. ⍰ İşareti Var mı? (Varsa DURDUR)
+    if (hasOcrUncertainty(ocrText)) {
+      Alert.alert(
+        "Düzeltme Gerekli", // Başlık
+        "Metinde hala okunamayan (⍰) kısımlar var.\n\nLütfen turuncu işaretli yerlere tıklayıp kağıdına bakarak doğrusunu yaz, sonra tekrar dene.", // Mesaj
+        [{ text: "Tamam" }]
+      );
+      return; // <--- BU SATIR ÇOK ÖNEMLİ (İşlemi burada bitirir)
+    }
+
     setLoading(true);
     try {
       const payload = {
@@ -470,7 +442,12 @@ export default function MainScreen({ user, setUser }) {
         setStep(3);
       }
     } catch (error) {
-      Alert.alert("Hata", "Analiz yapılamadı.");
+       // Sunucudan dönen hata mesajını göster
+       if (error.response && error.response.data && error.response.data.detail) {
+        Alert.alert("Uyarı", error.response.data.detail);
+      } else {
+        Alert.alert("Hata", "Analiz yapılamadı. İnternet bağlantınızı kontrol edin.");
+      }
     } finally {
       setLoading(false);
     }
@@ -490,8 +467,8 @@ export default function MainScreen({ user, setUser }) {
 
   // ✅ artık banner da ocrText’e bakıyor
   const showOcrBanner = useMemo(() => {
-    return step === 2 && hasOcrUncertainty(ocrText);
-  }, [step, ocrText]);
+    return step === 2; // Her zaman gösterelim ki uyarıyı görsünler
+  }, [step]);
 
   return (
     <View style={styles.container}>
@@ -547,11 +524,14 @@ export default function MainScreen({ user, setUser }) {
 
               {step === 2 && (
                 <View style={{ width: '100%' }}>
-                  {/* ✅ OCR BELİRSİZLİK BANDI */}
+                  {/* ✅ GÜNCELLENMİŞ SARI UYARI KUTUSU */}
                   {showOcrBanner && (
-                    <View style={styles.ocrBanner}>
+                   <View style={styles.ocrBanner}>
                       <Text style={styles.ocrBannerText}>
-                        OCR bazı harflerden emin olamadı. Turuncu işaretli yerleri kontrol edip düzelt.
+                        <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
+                        Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
+                        1. Turuncu <Text style={{ fontWeight: 'bold', color: '#d35400' }}>'⍰'</Text> işaretli yerleri tıkla ve doldur.{"\n"}
+                        2. Kağıdınla uyuşmayan veya yanlış okunan kelimeler varsa onları da <Text style={{ fontWeight: 'bold' }}>elle düzelt.</Text>
                       </Text>
                     </View>
                   )}
