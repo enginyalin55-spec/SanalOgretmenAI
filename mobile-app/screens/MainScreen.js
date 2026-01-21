@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 // --- AYARLAR ---
+// Eğer render.com adresin değişirse burayı güncelle
 const BASE_URL = 'https://sanalogretmenai.onrender.com';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -47,24 +48,19 @@ const TDK_LOOKUP = {
 };
 
 // =======================================================
-// OCR BELİRSİZLİK SPAN’LARI (SADECE ? ve (?) için)
+// OCR BELİRSİZLİK MANTIĞI
 // =======================================================
-// Backend'den gelen '⍰' karakterini kullanıyoruz.
-// Eğer backend hala '?' gönderiyorsa burayı güncellemek gerekebilir.
-// Ancak backend kodunuzda '⍰' kullanıldığı için burada da onu hedefliyoruz.
-const UNCERTAINTY_CHAR = '⍰'; 
+// Backend '⍰' yolluyor. Biz de onu arıyoruz.
+const UNCERTAINTY_CHAR = '⍰';
 
 function buildOcrUncertaintySpans(text) {
   if (!text) return [];
   const spans = [];
-
-  // Metin içindeki tüm ⍰ karakterlerini bul
   for (let i = 0; i < text.length; i++) {
     if (text[i] === UNCERTAINTY_CHAR) {
       spans.push({ start: i, end: i + 1, kind: "char" });
     }
   }
-
   return spans;
 }
 
@@ -73,7 +69,7 @@ function hasOcrUncertainty(text) {
 }
 
 // =======================================================
-// OCR BELİRSİZLİK HIGHLIGHT (TURUNCU)
+// BİLEŞEN: OCR BELİRSİZLİK HIGHLIGHT (TURUNCU)
 // =======================================================
 const OcrUncertaintyText = ({ text, onPressHint }) => {
   const spans = useMemo(() => buildOcrUncertaintySpans(text), [text]);
@@ -91,10 +87,12 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
     const end = Math.min(text.length, sp.end);
     if (start >= end || start < cursor) return;
 
+    // Normal metin
     if (start > cursor) {
       parts.push({ type: "text", key: `t-${cursor}`, content: text.slice(cursor, start) });
     }
 
+    // Belirsiz harf (⍰)
     parts.push({
       type: "hint",
       key: `h-${idx}`,
@@ -114,12 +112,10 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
       {parts.map((p) => {
         if (p.type === "text") {
           return (
-            <Text key={p.key} style={styles.ocrText}>
-              {p.content}
-            </Text>
+            <Text key={p.key} style={styles.ocrText}>{p.content}</Text>
           );
         }
-
+        // Turuncu, tıklanabilir alan
         return (
           <Text
             key={p.key}
@@ -136,7 +132,7 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
 };
 
 // =======================================================
-// ANALİZ HIGHLIGHT (KIRMIZI)
+// BİLEŞEN: ANALİZ SONUCU HIGHLIGHT (KIRMIZI/YEŞİL)
 // =======================================================
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
@@ -175,12 +171,9 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
       {parts.map((p) => {
         if (p.type === "text") {
           return (
-            <Text key={p.key} style={styles.ocrText}>
-              {p.content}
-            </Text>
+            <Text key={p.key} style={styles.ocrText}>{p.content}</Text>
           );
         }
-
         return (
           <Text
             key={p.key}
@@ -197,17 +190,15 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
 };
 
 // =======================================================
-// POPOVER: ANALİZ HATA DETAYI
+// POPOVER: HATA DETAYI
 // =======================================================
 const ErrorPopover = ({ data, onClose }) => {
   if (!data?.err) return null;
-
   const { err, x, y } = data;
   const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
 
   let left = x - 150;
   let top = y + 35;
-
   if (left < 10) left = 10;
   if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
   if (top + 250 > SCREEN_HEIGHT) top = y - 260;
@@ -222,7 +213,6 @@ const ErrorPopover = ({ data, onClose }) => {
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
-
         <View style={styles.compareBox}>
           <View style={styles.compareItem}>
             <Text style={styles.compareLabel}>YANLIŞ</Text>
@@ -234,12 +224,10 @@ const ErrorPopover = ({ data, onClose }) => {
             <Text style={styles.correctText}>{err.correct}</Text>
           </View>
         </View>
-
         <View style={styles.ruleInfoBox}>
           <Text style={styles.ruleInfoLabel}>KURAL:</Text>
           <Text style={styles.ruleInfoText}>{ruleTitle}</Text>
         </View>
-
         <Text style={styles.explanationText}>{err.explanation}</Text>
       </View>
     </View>
@@ -247,16 +235,13 @@ const ErrorPopover = ({ data, onClose }) => {
 };
 
 // =======================================================
-// POPOVER: OCR BELİRSİZLİK BİLGİSİ (TURUNCU)
+// POPOVER: OCR İPUCU
 // =======================================================
 const OcrHintPopover = ({ data, onClose }) => {
   if (!data?.span) return null;
-
   const { x, y } = data;
-
   let left = x - 150;
   let top = y + 35;
-
   if (left < 10) left = 10;
   if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
   if (top + 180 > SCREEN_HEIGHT) top = y - 190;
@@ -271,15 +256,17 @@ const OcrHintPopover = ({ data, onClose }) => {
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
-
         <Text style={{ fontSize: 13, color: '#34495e', lineHeight: 18 }}>
-          OCR bu harfi net okuyamadı. Lütfen kağıdınıza bakarak bu alanı düzeltin.
+          Yapay zeka bu harfi net okuyamadı. Lütfen kağıdınıza bakarak bu alanı düzeltin.
         </Text>
       </View>
     </View>
   );
 };
 
+// =======================================================
+// ANA EKRAN
+// =======================================================
 export default function MainScreen({ user, setUser }) {
   const [activeTab, setActiveTab] = useState('new');
   const [historyData, setHistoryData] = useState([]);
@@ -295,12 +282,9 @@ export default function MainScreen({ user, setUser }) {
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ TEK METİN STATE’İ
   const [ocrText, setOcrText] = useState("");
-
   const [result, setResult] = useState(null);
 
-  // BOŞ EKRAN KONTROLÜ
   if (!user) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -348,11 +332,7 @@ export default function MainScreen({ user, setUser }) {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) return Alert.alert("İzin", "Kamera izni gerekli.");
     const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.7,
-      base64: true
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
     });
     if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
@@ -361,11 +341,7 @@ export default function MainScreen({ user, setUser }) {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return Alert.alert("İzin", "Galeri izni gerekli.");
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.7,
-      base64: true
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
     });
     if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
@@ -388,12 +364,10 @@ export default function MainScreen({ user, setUser }) {
       } else {
         formData.append('file', { uri: localUri, name: filename, type: type });
       }
-
       formData.append('classroom_code', classCode);
 
       const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (response.data.status === "success") {
-        // ✅ OCR çıktısı tek state’e
         setOcrText(response.data.ocr_text || "");
         setImageUrl(response.data.image_url || "");
         setStep(2);
@@ -405,28 +379,29 @@ export default function MainScreen({ user, setUser }) {
     }
   };
 
+  // ✅✅✅ DÜZELTİLEN FONKSİYON BURADA ✅✅✅
   const startAnalysis = async () => {
-    // 1. ÖNCE LOKAL KONTROL (Sunucuya gitmeden durdur)
-    // Eğer metin boşsa
+    // 1. Metin Boş Kontrolü
     if (!ocrText || ocrText.trim() === "") {
       Alert.alert("Hata", "Lütfen önce bir resim taratın.");
       return;
     }
 
-    // 2. ⍰ İşareti Var mı? (Varsa DURDUR)
-    if (hasOcrUncertainty(ocrText)) {
+    // 2. ⍰ KONTROLÜ (GARANTİLİ YÖNTEM)
+    // Eğer metinde ⍰ varsa, kesinlikle uyarı ver ve durdur.
+    if (ocrText.includes('⍰')) {
       Alert.alert(
-        "Düzeltme Gerekli", // Başlık
-        "Metinde hala okunamayan (⍰) kısımlar var.\n\nLütfen turuncu işaretli yerlere tıklayıp kağıdına bakarak doğrusunu yaz, sonra tekrar dene.", // Mesaj
+        "⚠️ ?Düzeltme Gerekli",
+        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt.",
         [{ text: "Tamam" }]
       );
-      return; // <--- BU SATIR ÇOK ÖNEMLİ (İşlemi burada bitirir)
+      return; // <--- İŞLEMİ BURADA KESİYORUZ
     }
 
+    // 3. Her şey temizse sunucuya git
     setLoading(true);
     try {
       const payload = {
-        // ✅ her zaman en güncel metin
         ocr_text: ocrText,
         image_url: imageUrl,
         student_name: studentName,
@@ -442,11 +417,11 @@ export default function MainScreen({ user, setUser }) {
         setStep(3);
       }
     } catch (error) {
-       // Sunucudan dönen hata mesajını göster
-       if (error.response && error.response.data && error.response.data.detail) {
+      // Backend'den 400 hatası gelirse (örn: Backend de yakaladıysa) onu göster
+      if (error.response && error.response.data && error.response.data.detail) {
         Alert.alert("Uyarı", error.response.data.detail);
       } else {
-        Alert.alert("Hata", "Analiz yapılamadı. İnternet bağlantınızı kontrol edin.");
+        Alert.alert("Hata", "Analiz yapılamadı. İnternet bağlantını kontrol et.");
       }
     } finally {
       setLoading(false);
@@ -454,21 +429,11 @@ export default function MainScreen({ user, setUser }) {
   };
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
+  const handleOpenPopover = (err, coords) => { setActiveErrorData({ err, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
+  const handleOpenOcrHint = (span, coords) => { setActiveOcrHintData({ span, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
 
-  const handleOpenPopover = (err, coords) => {
-    const safeCoords = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
-    setActiveErrorData({ err, ...safeCoords });
-  };
-
-  const handleOpenOcrHint = (span, coords) => {
-    const safeCoords = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
-    setActiveOcrHintData({ span, ...safeCoords });
-  };
-
-  // ✅ artık banner da ocrText’e bakıyor
-  const showOcrBanner = useMemo(() => {
-    return step === 2; // Her zaman gösterelim ki uyarıyı görsünler
-  }, [step]);
+  // Banner Step 2'de hep görünsün (Talimat olarak)
+  const showOcrBanner = (step === 2);
 
   return (
     <View style={styles.container}>
@@ -486,7 +451,7 @@ export default function MainScreen({ user, setUser }) {
           <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
         </View>
 
-        {/* SEKMELER */}
+        {/* TABS */}
         <View style={styles.tabsContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}>
             <Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text>
@@ -496,7 +461,7 @@ export default function MainScreen({ user, setUser }) {
           </TouchableOpacity>
         </View>
 
-        {/* YENİ ÖDEV */}
+        {/* YENİ ÖDEV EKRANI */}
         {activeTab === 'new' && (
           <View style={styles.contentArea}>
             <View style={styles.card}>
@@ -524,9 +489,9 @@ export default function MainScreen({ user, setUser }) {
 
               {step === 2 && (
                 <View style={{ width: '100%' }}>
-                  {/* ✅ GÜNCELLENMİŞ SARI UYARI KUTUSU */}
+                  {/* UYARI KUTUSU */}
                   {showOcrBanner && (
-                   <View style={styles.ocrBanner}>
+                    <View style={styles.ocrBanner}>
                       <Text style={styles.ocrBannerText}>
                         <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
                         Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
@@ -536,14 +501,13 @@ export default function MainScreen({ user, setUser }) {
                     </View>
                   )}
 
-                  {/* ✅ OCR ÖNİZLEME (TURUNCU İŞARETLİ) */}
+                  {/* OCR TEXT VİEW */}
                   <View style={styles.ocrPreviewCard}>
                     <Text style={styles.ocrPreviewTitle}>OCR Önizleme (belirsiz yerler işaretli)</Text>
-                    {/* ✅ artık ocrText */}
                     <OcrUncertaintyText text={ocrText} onPressHint={handleOpenOcrHint} />
                   </View>
 
-                  {/* ✅ TEK METİN: TEXTAREA ocrText’i edit eder */}
+                  {/* EDITABLE TEXT INPUT */}
                   <TextInput
                     style={styles.ocrInput}
                     multiline={true}
@@ -565,23 +529,17 @@ export default function MainScreen({ user, setUser }) {
               )}
             </View>
 
+            {/* SONUÇ EKRANI */}
             {step === 3 && result && (
               <View style={styles.resultContainer}>
                 <View style={styles.successBox}>
                   <Text style={styles.successText}>Ödevin Başarıyla Gönderildi! ✅</Text>
-                  <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir. Notun öğretmen kontrolünden sonra açıklanacaktır.</Text>
+                  <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir.</Text>
                 </View>
-
                 <View style={styles.analysisCard}>
                   <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
-                  <HighlightedText
-                    // ✅ artık ocrText
-                    text={ocrText}
-                    errors={result.errors}
-                    onErrorPress={handleOpenPopover}
-                  />
+                  <HighlightedText text={ocrText} errors={result.errors} onErrorPress={handleOpenPopover} />
                 </View>
-
                 {result.errors && result.errors.map((err, index) => (
                   <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                     <Text style={styles.errorText}>
@@ -593,7 +551,6 @@ export default function MainScreen({ user, setUser }) {
                     <Text style={{ fontSize: 10, color: '#3498db', marginTop: 5, textAlign: 'right' }}>Detay 👉</Text>
                   </TouchableOpacity>
                 ))}
-
                 <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, { backgroundColor: '#34495e', marginTop: 20 }]}>
                   <Text style={styles.sendButtonText}>Yeni Ödev Yükle</Text>
                 </TouchableOpacity>
@@ -602,7 +559,7 @@ export default function MainScreen({ user, setUser }) {
           </View>
         )}
 
-        {/* GEÇMİŞ EKRANI */}
+        {/* GEÇMİŞ TAB */}
         {activeTab === 'history' && (
           <View style={styles.contentArea}>
             {loadingHistory ? (
@@ -617,9 +574,7 @@ export default function MainScreen({ user, setUser }) {
                 renderItem={({ item }) => (
                   <View style={styles.historyCard}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <Text style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: 16 }}>
-                        {new Date(item.created_at).toLocaleDateString('tr-TR')}
-                      </Text>
+                      <Text style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: 16 }}>{new Date(item.created_at).toLocaleDateString('tr-TR')}</Text>
                       <View style={{ backgroundColor: '#ecf0f1', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
                         <Text style={{ fontWeight: 'bold', color: '#7f8c8d' }}>{item.score_total ? `${item.score_total} Puan` : 'İncelendi'}</Text>
                       </View>
@@ -635,52 +590,37 @@ export default function MainScreen({ user, setUser }) {
         )}
       </ScrollView>
 
-      {/* GEÇMİŞ DETAY OVERLAY */}
+      {/* OVERLAY & POPOVERS */}
       {showDetailOverlay && selectedHistoryItem && (
         <View style={styles.fullScreenOverlay}>
           <View style={styles.detailContainer}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Ödev Raporu</Text>
-              <TouchableOpacity onPress={() => setShowDetailOverlay(false)} style={styles.closeBtn}>
-                <Text style={styles.closeBtnText}>✕</Text>
-              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowDetailOverlay(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>✕</Text></TouchableOpacity>
             </View>
-
             <ScrollView contentContainerStyle={{ padding: 20 }}>
               <View style={styles.analysisCard}>
-                <HighlightedText
-                  text={selectedHistoryItem.ocr_text}
-                  errors={selectedHistoryItem.analysis_json?.errors}
-                  onErrorPress={handleOpenPopover}
-                />
+                <HighlightedText text={selectedHistoryItem.ocr_text} errors={selectedHistoryItem.analysis_json?.errors} onErrorPress={handleOpenPopover} />
               </View>
-
               {selectedHistoryItem.analysis_json?.errors?.map((err, index) => (
                 <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                   <Text style={styles.errorText}>
-                    <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>{err.wrong}</Text>
-                    {' ➜ '}
-                    <Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>{err.correct}</Text>
+                    <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>{err.wrong}</Text>{' ➜ '}<Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>{err.correct}</Text>
                   </Text>
                   <Text style={styles.errorDesc}>{err.explanation}</Text>
-                  <Text style={{ fontSize: 10, color: '#3498db', marginTop: 5, textAlign: 'right' }}>Detay 👉</Text>
                 </TouchableOpacity>
               ))}
-
               {selectedHistoryItem.human_note && (
                 <View style={styles.noteCard}>
                   <Text style={styles.noteTitle}>👨‍🏫 Öğretmeninizin Notu:</Text>
                   <Text style={styles.noteText}>{selectedHistoryItem.human_note}</Text>
                 </View>
               )}
-
               <View style={{ height: 50 }} />
             </ScrollView>
           </View>
         </View>
       )}
-
-      {/* POPOVER’LAR (EN ÜST) */}
       {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
       {activeOcrHintData && <OcrHintPopover data={activeOcrHintData} onClose={() => setActiveOcrHintData(null)} />}
     </View>
@@ -690,154 +630,68 @@ export default function MainScreen({ user, setUser }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa', paddingTop: Platform.OS === 'android' ? 40 : 0 },
   scrollContent: { paddingBottom: 50 },
-
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 25, backgroundColor: 'white',
-    borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
-    marginBottom: 15,
-    ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } })
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 25, backgroundColor: 'white', borderBottomLeftRadius: 20, borderBottomRightRadius: 20, marginBottom: 15, elevation: 3 },
   greeting: { fontSize: 14, color: '#7f8c8d' },
   name: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
   badgeContainer: { backgroundColor: '#e8f0fe', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, alignSelf: 'flex-start' },
   badgeText: { color: '#3498db', fontWeight: 'bold', fontSize: 12 },
   logoutButton: { backgroundColor: '#fff0f0', padding: 10, borderRadius: 10 },
   logoutText: { color: '#e74c3c', fontWeight: 'bold', fontSize: 12 },
-
-  tabsContainer: {
-    flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 20,
-    borderRadius: 12, overflow: 'hidden', marginBottom: 15,
-    ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 2 } })
-  },
+  tabsContainer: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 20, borderRadius: 12, overflow: 'hidden', marginBottom: 15, elevation: 2 },
   tab: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
   activeTab: { borderBottomColor: '#3498db', backgroundColor: '#fcfcfc' },
   tabText: { fontSize: 14, fontWeight: '600', color: '#95a5a6' },
   activeTabText: { color: '#3498db' },
-
   contentArea: { paddingHorizontal: 20 },
-  card: {
-    backgroundColor: 'white', borderRadius: 20, padding: 20,
-    alignItems: 'center', marginBottom: 20,
-    ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.05)' }, default: { elevation: 3 } })
-  },
+  card: { backgroundColor: 'white', borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20, elevation: 3 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#34495e', marginBottom: 15 },
-
-  placeholder: {
-    width: '100%', height: 200, backgroundColor: '#f1f2f6',
-    borderRadius: 15, justifyContent: 'center', alignItems: 'center',
-    marginBottom: 20, borderWidth: 2, borderColor: '#e1e1e1', borderStyle: 'dashed'
-  },
-
+  placeholder: { width: '100%', height: 200, backgroundColor: '#f1f2f6', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: '#e1e1e1', borderStyle: 'dashed' },
   previewContainer: { width: '100%', height: 250, marginBottom: 20, borderRadius: 15, overflow: 'hidden', position: 'relative' },
   previewImage: { width: '100%', height: '100%', resizeMode: 'contain' },
   removeButton: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   removeButtonText: { color: 'white', fontWeight: 'bold' },
-
   buttonRow: { flexDirection: 'row', gap: 15, width: '100%', marginBottom: 15 },
   actionButton: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   btnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-
   sendButton: { backgroundColor: '#2ecc71', width: '100%', padding: 18, borderRadius: 12, alignItems: 'center' },
   sendButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-
-  // OCR BANDI
-  ocrBanner: {
-    backgroundColor: '#fff7ed',
-    borderWidth: 1,
-    borderColor: '#fdba74',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12
-  },
+  ocrBanner: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fdba74', padding: 12, borderRadius: 10, marginBottom: 12 },
   ocrBannerText: { color: '#92400e', fontSize: 13, lineHeight: 18, fontWeight: '600' },
-
-  // OCR ÖNİZLEME
-  ocrPreviewCard: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12
-  },
+  ocrPreviewCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, marginBottom: 12 },
   ocrPreviewTitle: { fontWeight: 'bold', color: '#6b7280', marginBottom: 8, fontSize: 12 },
-
-  // tek metin akışı
-  ocrText: {
-    fontSize: 16,
-    lineHeight: 28,
-    color: '#2c3e50',
-  },
-
-  // OCR belirsiz (turuncu)
-  ocrHintInline: {
-    color: '#d97706',
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-    textDecorationColor: '#f59e0b',
-  },
-
-  // Analiz hatası (kırmızı)
-  errorInline: {
-    color: '#c0392b',
-    fontWeight: 'bold',
-    backgroundColor: '#fff0f0',
-    textDecorationLine: 'underline',
-    textDecorationColor: '#e74c3c',
-  },
-
-  ocrInput: {
-    backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50',
-    borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width: '100%'
-  },
-
-  historyCard: {
-    backgroundColor: 'white', padding: 15, borderRadius: 12, marginBottom: 15,
-    ...Platform.select({ web: { boxShadow: '0px 2px 5px rgba(0,0,0,0.03)' }, default: { elevation: 2 } })
-  },
-
+  ocrText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
+  ocrHintInline: { color: '#d97706', fontWeight: '700', textDecorationLine: 'underline', textDecorationColor: '#f59e0b' },
+  errorInline: { color: '#c0392b', fontWeight: 'bold', backgroundColor: '#fff0f0', textDecorationLine: 'underline', textDecorationColor: '#e74c3c' },
+  ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width: '100%' },
+  historyCard: { backgroundColor: 'white', padding: 15, borderRadius: 12, marginBottom: 15, elevation: 2 },
   resultContainer: { width: '100%', paddingBottom: 30 },
   successBox: { backgroundColor: '#e8f8f5', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#2ecc71' },
   successText: { color: '#27ae60', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
   successSubText: { textAlign: 'center', color: '#555', marginTop: 5, fontSize: 13 },
-
   analysisCard: { backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#eee' },
   analysisTitle: { fontWeight: 'bold', color: '#34495e', marginBottom: 10, fontSize: 14 },
-
   errorItem: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   errorText: { fontSize: 16, marginBottom: 5 },
   errorDesc: { fontSize: 13, color: '#7f8c8d' },
-
   noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
   noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
   noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
-
-  // Popover katman
   popoverContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999 },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-
-  popover: {
-    position: 'absolute', width: 300, backgroundColor: 'white', borderRadius: 12, padding: 15,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5
-  },
+  popover: { position: 'absolute', width: 300, backgroundColor: 'white', borderRadius: 12, padding: 15, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
   popoverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   popoverTitle: { fontSize: 14, fontWeight: 'bold', color: '#e74c3c' },
   closeBtnText: { fontSize: 18, color: '#95a5a6', fontWeight: 'bold' },
-
   compareBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8 },
   compareItem: { flex: 1, alignItems: 'center' },
   compareLabel: { fontSize: 10, color: '#e74c3c', fontWeight: 'bold', marginBottom: 2 },
   wrongText: { color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 14 },
   correctText: { color: '#27ae60', fontWeight: 'bold', fontSize: 14 },
   arrow: { fontSize: 18, color: '#bdc3c7', marginHorizontal: 5 },
-
   ruleInfoBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, backgroundColor: '#e8f4fd', padding: 8, borderRadius: 6, borderLeftWidth: 3, borderLeftColor: '#3498db' },
   ruleInfoLabel: { fontSize: 10, color: '#3498db', fontWeight: 'bold', marginRight: 5 },
   ruleInfoText: { fontSize: 12, fontWeight: 'bold', color: '#2c3e50' },
   explanationText: { fontSize: 13, color: '#34495e', lineHeight: 18 },
-
-  // Geçmiş overlay
   fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
   detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
