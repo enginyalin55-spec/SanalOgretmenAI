@@ -379,26 +379,31 @@ export default function MainScreen({ user, setUser }) {
     }
   };
 
-  // ✅✅✅ DÜZELTİLEN FONKSİYON BURADA ✅✅✅
+  // ✅ DEBUG VERSİYONU: Sorunu bulmak için konuşturuyoruz
   const startAnalysis = async () => {
-    // 1. Metin Boş Kontrolü
+    
+    // 1. TEST UYARISI: Bu uyarı çıkmıyorsa KODUN GÜNCELLENMEMİŞTİR.
+    // Ekranda '⍰' var mı yok mu bize söyleyecek.
+    const varMi = ocrText.includes('⍰');
+    Alert.alert("DEBUG KONTROL", `Şu an çalışan kod YENİ KOD.\nMetinde '⍰' işareti bulundu mu?: ${varMi ? "EVET" : "HAYIR"}`);
+
+    // 2. Metin Boş mu?
     if (!ocrText || ocrText.trim() === "") {
       Alert.alert("Hata", "Lütfen önce bir resim taratın.");
       return;
     }
 
-    // 2. ⍰ KONTROLÜ (GARANTİLİ YÖNTEM)
-    // Eğer metinde ⍰ varsa, kesinlikle uyarı ver ve durdur.
+    // 3. ⍰ KONTROLÜ
     if (ocrText.includes('⍰')) {
       Alert.alert(
-        "⚠️ Düzeltme Gerekli",
+        "⚠️ DÜZELTME GEREKLİ",
         "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt.",
-        [{ text: "Tamam" }]
+        [{ text: "Tamam, Düzelteyim" }]
       );
-      return; // <--- İŞLEMİ BURADA KESİYORUZ
+      return; // <--- DURDURMA NOKTASI
     }
 
-    // 3. Her şey temizse sunucuya git
+    // 4. Her şey temizse sunucuya git
     setLoading(true);
     try {
       const payload = {
@@ -417,7 +422,6 @@ export default function MainScreen({ user, setUser }) {
         setStep(3);
       }
     } catch (error) {
-      // Backend'den 400 hatası gelirse (örn: Backend de yakaladıysa) onu göster
       if (error.response && error.response.data && error.response.data.detail) {
         Alert.alert("Uyarı", error.response.data.detail);
       } else {
