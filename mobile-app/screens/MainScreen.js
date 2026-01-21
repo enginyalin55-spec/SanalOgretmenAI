@@ -8,7 +8,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 // --- AYARLAR ---
-// Eğer render.com adresin değişirse burayı güncelle
 const BASE_URL = 'https://sanalogretmenai.onrender.com';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -50,7 +49,6 @@ const TDK_LOOKUP = {
 // =======================================================
 // OCR BELİRSİZLİK MANTIĞI
 // =======================================================
-// Backend '⍰' yolluyor. Biz de onu arıyoruz.
 const UNCERTAINTY_CHAR = '⍰';
 
 function buildOcrUncertaintySpans(text) {
@@ -69,8 +67,22 @@ function hasOcrUncertainty(text) {
 }
 
 // =======================================================
-// BİLEŞEN: OCR BELİRSİZLİK HIGHLIGHT (TURUNCU)
+// WEB VE MOBİL İÇİN ORTAK UYARI FONKSİYONU
 // =======================================================
+const showAlert = (title, message) => {
+  if (Platform.OS === 'web') {
+    // Web tarayıcısında native alert kullan
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    // Mobilde React Native alert kullan
+    Alert.alert(title, message);
+  }
+};
+
+// =======================================================
+// BİLEŞENLER (OCR Highlight, Error Highlight, Popovers)
+// =======================================================
+
 const OcrUncertaintyText = ({ text, onPressHint }) => {
   const spans = useMemo(() => buildOcrUncertaintySpans(text), [text]);
 
@@ -87,12 +99,10 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
     const end = Math.min(text.length, sp.end);
     if (start >= end || start < cursor) return;
 
-    // Normal metin
     if (start > cursor) {
       parts.push({ type: "text", key: `t-${cursor}`, content: text.slice(cursor, start) });
     }
 
-    // Belirsiz harf (⍰)
     parts.push({
       type: "hint",
       key: `h-${idx}`,
@@ -115,7 +125,6 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
             <Text key={p.key} style={styles.ocrText}>{p.content}</Text>
           );
         }
-        // Turuncu, tıklanabilir alan
         return (
           <Text
             key={p.key}
@@ -131,9 +140,6 @@ const OcrUncertaintyText = ({ text, onPressHint }) => {
   );
 };
 
-// =======================================================
-// BİLEŞEN: ANALİZ SONUCU HIGHLIGHT (KIRMIZI/YEŞİL)
-// =======================================================
 const HighlightedText = ({ text, errors, onErrorPress }) => {
   if (!text) return null;
 
@@ -189,14 +195,10 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// =======================================================
-// POPOVER: HATA DETAYI
-// =======================================================
 const ErrorPopover = ({ data, onClose }) => {
   if (!data?.err) return null;
   const { err, x, y } = data;
   const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
-
   let left = x - 150;
   let top = y + 35;
   if (left < 10) left = 10;
@@ -234,9 +236,6 @@ const ErrorPopover = ({ data, onClose }) => {
   );
 };
 
-// =======================================================
-// POPOVER: OCR İPUCU
-// =======================================================
 const OcrHintPopover = ({ data, onClose }) => {
   if (!data?.span) return null;
   const { x, y } = data;
@@ -330,7 +329,7 @@ export default function MainScreen({ user, setUser }) {
 
   const takePhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return Alert.alert("İzin", "Kamera izni gerekli.");
+    if (!permission.granted) return showAlert("İzin", "Kamera izni gerekli.");
     const res = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
     });
@@ -339,7 +338,7 @@ export default function MainScreen({ user, setUser }) {
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return Alert.alert("İzin", "Galeri izni gerekli.");
+    if (!permission.granted) return showAlert("İzin", "Galeri izni gerekli.");
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
     });
@@ -347,7 +346,7 @@ export default function MainScreen({ user, setUser }) {
   };
 
   const startOCR = async () => {
-    if (!image) return Alert.alert("Uyarı", "Lütfen fotoğraf seçin.");
+    if (!image) return showAlert("Uyarı", "Lütfen fotoğraf seçin.");
     setLoading(true);
     try {
       const formData = new FormData();
@@ -373,37 +372,34 @@ export default function MainScreen({ user, setUser }) {
         setStep(2);
       }
     } catch (error) {
-      Alert.alert("Hata", "Metin okunamadı.");
+      showAlert("Hata", "Metin okunamadı.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ DEBUG VERSİYONU: Sorunu bulmak için konuşturuyoruz
+  // ✅✅✅ WEB UYUMLU DÜZELTİLMİŞ ANALİZ FONKSİYONU ✅✅✅
   const startAnalysis = async () => {
-    
-    // 1. TEST UYARISI: Bu uyarı çıkmıyorsa KODUN GÜNCELLENMEMİŞTİR.
-    // Ekranda '⍰' var mı yok mu bize söyleyecek.
-    const varMi = ocrText.includes('⍰');
-    Alert.alert("DEBUG KONTROL", `Şu an çalışan kod YENİ KOD.\nMetinde '⍰' işareti bulundu mu?: ${varMi ? "EVET" : "HAYIR"}`);
+    // Konsola bilgi bas (F12 ile bakabilirsin)
+    console.log("Analiz başlatılıyor... Metin:", ocrText);
 
-    // 2. Metin Boş mu?
+    // 1. Metin Boş Kontrolü
     if (!ocrText || ocrText.trim() === "") {
-      Alert.alert("Hata", "Lütfen önce bir resim taratın.");
+      showAlert("Hata", "Lütfen önce bir resim taratın.");
       return;
     }
 
-    // 3. ⍰ KONTROLÜ
+    // 2. ⍰ KONTROLÜ (Garantili Çalışır)
     if (ocrText.includes('⍰')) {
-      Alert.alert(
+      console.log("Belirsiz karakter (⍰) bulundu, işlem durduruluyor.");
+      showAlert(
         "⚠️ DÜZELTME GEREKLİ",
-        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt.",
-        [{ text: "Tamam, Düzelteyim" }]
+        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt."
       );
       return; // <--- DURDURMA NOKTASI
     }
 
-    // 4. Her şey temizse sunucuya git
+    // 3. Her şey temizse sunucuya git
     setLoading(true);
     try {
       const payload = {
@@ -416,16 +412,19 @@ export default function MainScreen({ user, setUser }) {
         country: studentCountry,
         native_language: studentLanguage
       };
+      
       const response = await axios.post(`${BASE_URL}/analyze`, payload);
+      
       if (response.data.status === "success") {
         setResult(response.data.data);
         setStep(3);
       }
     } catch (error) {
+      console.log("Hata oluştu:", error);
       if (error.response && error.response.data && error.response.data.detail) {
-        Alert.alert("Uyarı", error.response.data.detail);
+        showAlert("Uyarı", error.response.data.detail);
       } else {
-        Alert.alert("Hata", "Analiz yapılamadı. İnternet bağlantını kontrol et.");
+        showAlert("Hata", "Analiz yapılamadı. İnternet bağlantını kontrol et.");
       }
     } finally {
       setLoading(false);
@@ -436,7 +435,6 @@ export default function MainScreen({ user, setUser }) {
   const handleOpenPopover = (err, coords) => { setActiveErrorData({ err, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
   const handleOpenOcrHint = (span, coords) => { setActiveOcrHintData({ span, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
 
-  // Banner Step 2'de hep görünsün (Talimat olarak)
   const showOcrBanner = (step === 2);
 
   return (
@@ -497,7 +495,7 @@ export default function MainScreen({ user, setUser }) {
                   {showOcrBanner && (
                     <View style={styles.ocrBanner}>
                       <Text style={styles.ocrBannerText}>
-                        <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
+                        <Text style={{ fontWeight: 'bold' }}>⚠️ ?ÖNEMLİ KONTROL:</Text>{"\n"}
                         Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
                         1. Turuncu <Text style={{ fontWeight: 'bold', color: '#d35400' }}>'⍰'</Text> işaretli yerleri tıkla ve doldur.{"\n"}
                         2. Kağıdınla uyuşmayan veya yanlış okunan kelimeler varsa onları da <Text style={{ fontWeight: 'bold' }}>elle düzelt.</Text>
