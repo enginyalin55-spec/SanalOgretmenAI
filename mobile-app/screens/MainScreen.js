@@ -427,9 +427,9 @@ export default function MainScreen({ user, setUser }) {
         country: studentCountry,
         native_language: studentLanguage
       };
-      
+
       const response = await axios.post(`${BASE_URL}/analyze`, payload);
-      
+
       if (response.data.status === "success") {
         setResult(response.data.data);
         setStep(3);
@@ -447,8 +447,8 @@ export default function MainScreen({ user, setUser }) {
   };
 
   const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
-  const handleOpenPopover = (err, coords) => { setActiveErrorData({ err, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
-  const handleOpenOcrHint = (span, coords) => { setActiveOcrHintData({ span, ...coords || { x: SCREEN_WIDTH/2, y: SCREEN_HEIGHT/2 } }); };
+  const handleOpenPopover = (err, coords) => { setActiveErrorData({ err, ...coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 } }); };
+  const handleOpenOcrHint = (span, coords) => { setActiveOcrHintData({ span, ...coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 } }); };
 
   const showOcrBanner = (step === 2);
 
@@ -524,13 +524,22 @@ export default function MainScreen({ user, setUser }) {
                     <OcrUncertaintyText text={ocrText} onPressHint={handleOpenOcrHint} />
                   </View>
 
-                  {/* EDITABLE TEXT INPUT */}
+                  {/* ✅ GÜNCELLENDİ: ⍰ VARSA KUTU TURUNCU OLUYOR */}
                   <TextInput
-                    style={styles.ocrInput}
+                    style={[
+                      styles.ocrInput,
+                      // Eğer metinde ⍰ varsa stili değiştir
+                      ocrText.includes('⍰') && {
+                        borderColor: '#d35400', // Turuncu Çerçeve
+                        borderWidth: 2,
+                        backgroundColor: '#fff7ed', // Hafif Turuncu Arka Plan
+                        color: '#d35400' // Yazıyı da turuncu yapar (Tümünü boyar ama uyarı hissi verir)
+                      }
+                    ]}
                     multiline={true}
                     value={ocrText}
                     onChangeText={(t) => {
-                      // ✅ GÜNCELLEME: Yazarken de normalize et
+                      // Normalizasyon ile kaydet ki ⍰ karakteri bozulmasın
                       setOcrText(normalizeNFC(t));
                       if (activeOcrHintData) setActiveOcrHintData(null);
                     }}
