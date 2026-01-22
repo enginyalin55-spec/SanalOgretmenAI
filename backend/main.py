@@ -30,7 +30,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="3.6.0 (Stable Fix)")
+app = FastAPI(title="Sanal Ogretmen AI API", version="3.5.0 (Full Logic + New Rubric)")
 
 # CORS Ayarları
 app.add_middleware(
@@ -41,11 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ DÜZELTME 1: 404 Hatasını önlemek için sadece kararlı modeli bıraktım
+# Gemini Modelleri
 MODELS_TO_TRY = [
-    "gemini-2.0-flash",      # Öncelik: En yeni ve güçlü model
-    "gemini-2.0-flash-exp",  # Alternatif: Deneysel sürüm
-    "gemini-1.5-flash",      # Yedek: En kararlı/garanti model
+    "gemini-2.0-flash-exp",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
 ]
 
 MAX_FILE_SIZE = 6 * 1024 * 1024
@@ -57,10 +57,6 @@ MIME_BY_EXT = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "w
 # 2) HELPER: GOOGLE CLOUD AUTH (RENDER İÇİN)
 # =======================================================
 def ensure_gcp_credentials():
-    """
-    Render ortamında Environment Variable'dan JSON key'i alır
-    ve geçici bir dosyaya yazarak Google Vision'ın kullanmasını sağlar.
-    """
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
         return
 
@@ -86,7 +82,7 @@ def ensure_gcp_credentials():
 @app.get("/")
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "Sanal Ogretmen AI Backend (Stable Fix)"}
+    return {"status": "ok", "service": "Sanal Ogretmen AI Backend (Updated)"}
 
 
 # =======================================================
@@ -109,27 +105,56 @@ class UpdateScoreRequest(BaseModel):
 
 
 # =======================================================
-# 5) TDK & UTILS (Mevcut logic korundu + İyileştirildi)
+# 5) TDK & UTILS (GÜNCELLENMİŞ KURALLAR + ESKİ MANTIK)
 # =======================================================
 def load_tdk_rules() -> List[Dict[str, Any]]:
-    # ✅ GÜNCELLEME: Senin istediğin standart kural seti
+    """
+    Standartlaştırılmış TDK Kural Listesi.
+    Eski listeyi, yeni proje standardına göre güncelledik.
+    """
     return [
+        # A) YAZIM
         {"rule_id": "TDK_01_BAGLAC_DE", "text": "Bağlaç olan 'da/de' ayrı yazılır."},
         {"rule_id": "TDK_02_BAGLAC_KI", "text": "Bağlaç olan 'ki' ayrı yazılır."},
-        {"rule_id": "TDK_03_SORU_EKI", "text": "Soru eki 'mı/mi' ayrı yazılır."},
-        {"rule_id": "TDK_04_SEY_SOZ", "text": "'Şey' sözcüğü daima ayrı yazılır."},
-        {"rule_id": "TDK_05_BUYUK_CUMLE", "text": "Cümleler büyük harfle başlar."},
-        {"rule_id": "TDK_06_BUYUK_OZEL", "text": "Özel isimler büyük harfle başlar."},
-        {"rule_id": "TDK_08_BUYUK_GEREKSIZ", "text": "Özel isim olmayan sözcükler cümle içinde büyük harfle yazılamaz."},
-        {"rule_id": "TDK_09_KESME_OZEL", "text": "Özel isimlere gelen ekler kesme ile ayrılır."},
-        {"rule_id": "TDK_13_KESME_GENEL", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz."},
-        {"rule_id": "TDK_12_SAYILAR", "text": "Sayıların yazımı."},
-        {"rule_id": "TDK_20_NOKTA", "text": "Cümle sonuna nokta konur."},
-        {"rule_id": "TDK_21_VIRGUL", "text": "Sıralı kelimelere virgül konur."},
-        {"rule_id": "TDK_23_YANLIS_YALNIZ", "text": "Yanlış (yanılmak), Yalnız (yalın)."},
-        {"rule_id": "TDK_24_HERKES", "text": "Herkes (s ile)."},
-        {"rule_id": "TDK_25_SERTLESME", "text": "Sertleşme kuralı."},
-        {"rule_id": "TDK_28_YABANCI", "text": "Yabancı kelimeler."}
+        {"rule_id": "TDK_03_SORU_EKI_MI", "text": "Soru eki 'mı/mi' ayrı yazılır."},
+        {"rule_id": "TDK_04_SEY_AYRI", "text": "'Şey' sözcüğü daima ayrı yazılır."},
+        {"rule_id": "TDK_05_DA_DE_EK", "text": "Bulunma eki '-da/-de' bitişik yazılır."},
+        {"rule_id": "TDK_06_YA_DA", "text": "'Ya da' bağlacı ayrı yazılır."},
+        {"rule_id": "TDK_07_HER_SEY", "text": "'Her şey' ayrı yazılır."},
+        
+        # B) BÜYÜK HARF
+        {"rule_id": "TDK_10_CUMLE_BASI_BUYUK", "text": "Cümleler büyük harfle başlar."},
+        {"rule_id": "TDK_11_OZEL_AD_BUYUK", "text": "Özel isimler büyük harfle başlar."},
+        {"rule_id": "TDK_12_GEREKSIZ_BUYUK", "text": "Cümle içinde gereksiz büyük harf kullanılmaz."},
+        {"rule_id": "TDK_13_GUN_AY_BUYUK", "text": "Belirli bir tarih bildirmeyen ay ve gün adları küçük yazılır."},
+
+        # C) KESME İŞARETİ
+        {"rule_id": "TDK_20_KESME_OZEL_AD", "text": "Özel isimlere gelen ekler kesme ile ayrılır."},
+        {"rule_id": "TDK_21_KESME_KURUM", "text": "Kurum ekleri kesme ile ayrılır (Okul bağlamında)."},
+        {"rule_id": "TDK_22_KESME_SAYI", "text": "Sayılara gelen ekler kesme ile ayrılır."},
+        {"rule_id": "TDK_23_KESME_GENEL_YOK", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz."},
+
+        # D) NOKTALAMA
+        {"rule_id": "TDK_30_NOKTA_CUMLE_SONU", "text": "Tamamlanmış cümlenin sonuna nokta konur."},
+        {"rule_id": "TDK_31_SORU_ISARETI", "text": "Soru bildiren cümleler soru işareti ile biter."},
+        {"rule_id": "TDK_32_VIRGUL_SIRALAMA", "text": "Sıralı kelimeler arasına virgül konur."},
+        {"rule_id": "TDK_33_TIRNAK_ALINTI", "text": "Alıntı sözler tırnak içinde yazılır."},
+        {"rule_id": "TDK_34_APOSTROF_TIRNAK_KARISMA", "text": "Kesme işareti ile tırnak karıştırılmamalıdır."},
+
+        # E) SIK YANLIŞLAR
+        {"rule_id": "TDK_40_COK", "text": "'Çok' kelimesinin yazımı."},
+        {"rule_id": "TDK_41_HERKES", "text": "'Herkes' (s ile yazılır)."},
+        {"rule_id": "TDK_42_YALNIZ", "text": "'Yalnız' (yalın kökünden)."},
+        {"rule_id": "TDK_43_YANLIS", "text": "'Yanlış' (yanılmak kökünden)."},
+        {"rule_id": "TDK_44_BIRKAC", "text": "'Birkaç' bitişik yazılır."},
+        {"rule_id": "TDK_45_HICBIR", "text": "'Hiçbir' bitişik yazılır."},
+        {"rule_id": "TDK_46_PEKCOK", "text": "'Pek çok' ayrı yazılır."},
+        {"rule_id": "TDK_47_INSALLAH", "text": "'İnşallah' kelimesinin yazımı."},
+        {"rule_id": "TDK_48_KARADENIZ", "text": "'Karadeniz' özel isimdir, büyük başlar."},
+        
+        # F) SAYILAR
+        {"rule_id": "TDK_50_SAYI_YAZIMI", "text": "Sayıların yazımı (yazı/rakam kuralı)."},
+        {"rule_id": "TDK_51_SAYI_BIRIM", "text": "Sayı ile birim arasında boşluk bırakılır."}
     ]
 
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
@@ -186,10 +211,7 @@ def sentence_starts(text: str) -> set:
         if idx < len(text): starts.add(idx)
     return starts
 
-# ✅ DÜZELTME 2: City, Piazza, Meydan, Sahil gibi kelimeleri buraya ekledim.
-# Artık bunları "HATA" olarak algılamayacak.
-PROPER_ROOTS = {"samsun", "karadeniz", "türkiye", "piazza", "city", "mall", "meydan", "sahil", "avm"}
-
+PROPER_ROOTS = {"samsun", "karadeniz", "türkiye", "piazza", "city", "mall"} # Piazza ve City Mall eklendi
 def norm_token(token: str) -> str:
     if not token: return ""
     t = token.strip().replace("’", "'")
@@ -300,10 +322,10 @@ def find_unnecessary_capitals(full_text: str) -> list:
         upp = sum(1 for ch in word if ch.isupper())
         low = sum(1 for ch in word if ch.islower())
         if (upp >= 2 and low >= 1):
-            errors.append({"wrong": word, "correct": word, "type": "OCR_ŞÜPHELİ", "rule_id": "TDK_08_BUYUK_GEREKSIZ", "explanation": "Büyük/küçük harf karışıklığı OCR kaynaklı olabilir.", "span": {"start": s, "end": e}, "ocr_suspect": True})
+            errors.append({"wrong": word, "correct": word, "type": "OCR_ŞÜPHELİ", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Büyük/küçük harf karışıklığı OCR kaynaklı olabilir.", "span": {"start": s, "end": e}, "ocr_suspect": True})
             continue
         if word and word[0].isupper():
-            errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_08_BUYUK_GEREKSIZ", "explanation": "Cümle ortasında gereksiz büyük harf kullanımı.", "span": {"start": s, "end": e}, "ocr_suspect": False})
+            errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Cümle ortasında gereksiz büyük harf kullanımı.", "span": {"start": s, "end": e}, "ocr_suspect": False})
     return errors
 
 POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
@@ -320,17 +342,17 @@ def find_conjunction_dade_joined(full_text: str) -> list:
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
-        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_28_YABANCI", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True})
+        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_40_COK", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True})
     for m in re.finditer(r"\b([^\W\d_]{2,})(mi|mı|mu|mü)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         word = m.group(0)
         if tr_lower(word) in {"kimi", "bimi"}: continue
-        errs.append({"wrong": word, "correct": m.group(1) + " " + m.group(2), "type": "Yazım", "rule_id": "TDK_03_SORU_EKI", "explanation": "Soru eki ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False})
+        errs.append({"wrong": word, "correct": m.group(1) + " " + m.group(2), "type": "Yazım", "rule_id": "TDK_03_SORU_EKI_MI", "explanation": "Soru eki ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False})
     return errs
 
 RULE_PRIORITY = {
-    "TDK_28_YABANCI": 100, "TDK_03_SORU_EKI": 90, "TDK_09_KESME_OZEL": 80, "TDK_13_KESME_GENEL": 80,
-    "TDK_25_SERTLESME": 70, "TDK_01_BAGLAC_DE": 60, "TDK_08_BUYUK_GEREKSIZ": 30, "TDK_05_BUYUK_CUMLE": 20,
-    "TDK_20_NOKTA": 20, "TDK_21_VIRGUL": 20, "TDK_23_YANLIS_YALNIZ": 10
+    "TDK_40_COK": 100, "TDK_03_SORU_EKI_MI": 90, "TDK_20_KESME_OZEL_AD": 80, "TDK_23_KESME_GENEL_YOK": 80,
+    "TDK_25_SERTLESME": 70, "TDK_01_BAGLAC_DE": 60, "TDK_12_GEREKSIZ_BUYUK": 30, "TDK_10_CUMLE_BASI_BUYUK": 20,
+    "TDK_30_NOKTA_CUMLE_SONU": 20, "TDK_32_VIRGUL_SIRALAMA": 20, "TDK_43_YANLIS": 10
 }
 def pick_best_per_span(errors: list) -> list:
     buckets = {}
@@ -349,25 +371,6 @@ def pick_best_per_span(errors: list) -> list:
         chosen.append(max(items, key=score))
     chosen.sort(key=lambda x: x["span"]["start"])
     return chosen
-
-def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
-    t = normalize_text(text).replace("\n", " ")
-    if not t: return {"uzunluk": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0}
-    words = re.findall(r"\b[^\W\d_]+\b", t, flags=re.UNICODE)
-    sentences = [s for s in re.split(r"[.!?]+", t) if s.strip()]
-    has_connectors = bool(re.search(r"\b(ve|ama|çünkü|bu yüzden|sonra|fakat)\b", tr_lower(t)))
-    uniq = len(set([tr_lower(w) for w in words])) if words else 0
-    uzunluk = min(16, max(4, int(len(words) / 10) + 6))
-    kelime = min(14, max(5, int(uniq / 8) + 6))
-    soz = 8
-    if len(sentences) >= 3: soz += 4
-    if has_connectors: soz += 4
-    soz_dizimi = min(20, max(6, soz))
-    icerik = 8
-    if len(sentences) >= 3: icerik += 4
-    if len(words) >= 40: icerik += 4
-    icerik = min(20, max(6, icerik))
-    return {"uzunluk": int(uzunluk), "soz_dizimi": int(soz_dizimi), "kelime": int(kelime), "icerik": int(icerik)}
 
 
 # =======================================================
@@ -394,16 +397,13 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         file_content = await read_limited(file, MAX_FILE_SIZE)
 
-        # ---------------------------------------------------
-        # A) Dosya Hazırlığı ve Supabase Upload
-        # ---------------------------------------------------
+        # Dosya Upload
         filename = file.filename or "unknown.jpg"
         file_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
         if file_ext not in ALLOWED_EXTENSIONS:
             file_ext = "jpg"
 
         safe_mime = file.content_type or MIME_BY_EXT.get(file_ext, "image/jpeg")
-
         safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", classroom_code)[:20]
         unique_filename = f"{safe_code}_{uuid.uuid4()}.{file_ext}"
         image_url = ""
@@ -419,51 +419,35 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         except Exception:
             pass
 
-        # ---------------------------------------------------
-        # B) VISION API - BAĞLANTI
-        # ---------------------------------------------------
+        # Vision API
         try:
             vision_client = vision.ImageAnnotatorClient()
         except Exception as e:
-            print(f"Vision Client Hatası: {e}")
             return {
                 "status": "error",
                 "message": "Google Vision Yetkilendirme Hatası. Secret Files ayarlı mı?",
             }
 
         image = vision.Image(content=file_content)
-
-        # İstersen bunu AÇ (genelde Türkçe için daha iyi):
         context = vision.ImageContext(language_hints=["tr"])
         response = vision_client.document_text_detection(image=image, image_context=context)
 
         if response.error.message:
             return {"status": "error", "message": f"Vision API Hatası: {response.error.message}"}
 
-        # ---------------------------------------------------
-        # C) CHAR-LEVEL CONFIDENCE MASKING
-        # ---------------------------------------------------
+        # Maskeleme Mantığı
         CONFIDENCE_THRESHOLD = 0.40
-
         masked_parts: list[str] = []
         raw_parts: list[str] = []
-
         PUNCTUATION = set(".,;:!?\"'’`()-–—…")
 
-        def is_letter(ch: str) -> bool:
-            return bool(ch) and ch.isalpha()
-
-        def is_punct(ch: str) -> bool:
-            return ch in PUNCTUATION
-
+        def is_letter(ch: str) -> bool: return bool(ch) and ch.isalpha()
+        def is_punct(ch: str) -> bool: return ch in PUNCTUATION
         def append_break(break_type_val: int) -> None:
-            if not break_type_val:
-                return
-            # SPACE(1) / SURE_SPACE(2)
+            if not break_type_val: return
             if break_type_val in (1, 2):
                 masked_parts.append(" ")
                 raw_parts.append(" ")
-            # EOL_SURE_SPACE(3) / LINE_BREAK(5)
             elif break_type_val in (3, 5):
                 masked_parts.append("\n")
                 raw_parts.append("\n")
@@ -475,18 +459,10 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                         for symbol in word.symbols:
                             ch = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
-
-                            # raw her zaman gerçek çıktı
                             raw_parts.append(ch)
-
-                            # masked mantığı
-                            if is_punct(ch):
-                                masked_parts.append(ch)
-                            elif is_letter(ch):
-                                masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
-                            else:
-                                masked_parts.append(ch)
-
+                            if is_punct(ch): masked_parts.append(ch)
+                            elif is_letter(ch): masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
+                            else: masked_parts.append(ch)
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db:
@@ -496,16 +472,8 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
         masked_text = unicodedata.normalize("NFC", "".join(masked_parts).strip())
 
-        # ---------------------------------------------------
-        # D) OCR ŞÜPHELİ TOKEN'ları (yüksek confidence olsa bile) ⍰ ile işaretle
-        #    NOT: Asla düzeltme yapmaz, sadece belirsizleştirir.
-        # ---------------------------------------------------
         def force_suspect_tokens_to_mask(t: str) -> str:
-            def repl(m):
-                word = m.group(0)
-                return "⍰" + word[1:]
-
-            # Tipik OCR hataları (ör: Çok->Gok, Çay->Gay)
+            def repl(m): return "⍰" + m.group(0)[1:]
             t = re.sub(r"\b[gG]ok\b", repl, t)
             t = re.sub(r"\b[gG]ay\b", repl, t)
             return t
@@ -517,21 +485,17 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             "ocr_text": masked_text,
             "raw_ocr_text": raw_text,
             "image_url": image_url,
-            "ocr_notice": (
-                f"ℹ️ Yalnızca HARF confidence %{int(CONFIDENCE_THRESHOLD*100)} altındaysa '⍰' basılır. "
-                f"Word-level (kelimeyi komple ⍰⍰⍰ yapma) KAPALIDIR. "
-                f"Noktalama asla maskelenmez."
-            ),
+            "ocr_notice": "OCR işlemi tamamlandı.",
             "ocr_markers": {"char": "⍰", "word": "⍰"},
         }
-
 
     except Exception as e:
         print(f"Sistem Hatası: {e}")
         return {"status": "error", "message": f"Sunucu Hatası: {str(e)}"}
 
+
 # =======================================================
-# ANALYZE: GÜNCELLENMİŞ 2 AŞAMALI (TDK + 6 KRİTER)
+# ANALYZE: GÜNCELLENMİŞ 2 AŞAMALI (TDK STD + 6 KRİTER)
 # =======================================================
 @app.post("/analyze")
 async def analyze_submission(data: AnalyzeRequest):
@@ -550,7 +514,7 @@ async def analyze_submission(data: AnalyzeRequest):
 
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
-    # --- 1. AŞAMA: TDK ANALİZİ (ESKİSİ GİBİ KALIYOR) ---
+    # --- 1. AŞAMA: TDK ANALİZİ (GÜNCELLENMİŞ KURAL LİSTESİ İLE) ---
     tdk_rules = load_tdk_rules()
     allowed_ids = {r["rule_id"] for r in tdk_rules}
     rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
@@ -559,66 +523,70 @@ async def analyze_submission(data: AnalyzeRequest):
 ROL: Sen nesnel ve kuralcı bir TDK denetçisisin.
 GÖREV: Metindeki yazım / noktalama / büyük-küçük harf / kesme işareti / ek yazımı hatalarını bul.
 METİN: \"\"\"{display_text}\"\"\"
-REFERANS KURALLAR:
+
+REFERANS KURALLAR (SADECE BUNLARA BAK):
 {rules_text}
-ÇIKTI (SADECE JSON): {{ "errors": [ {{ "wrong": "...", "correct": "...", "rule_id": "...", "explanation": "..." }} ] }}
+
+ÇIKTI (SADECE JSON):
+{{ "errors": [ {{ "wrong": "...", "correct": "...", "rule_id": "...", "explanation": "..." }} ] }}
 """
 
-    # --- 2. AŞAMA: PUANLAMA (SENİN PANELİNDEKİ 6 KRİTERE GÖRE GÜNCELLENDİ) ---
-    # Öğretmen Paneli Kriterleri:
-    # Uzunluk (16), Noktalama (14), Dil Bilgisi (16), Söz Dizimi (20), Kelime (14), İçerik (20)
+    # --- 2. AŞAMA: CEFR VE 6 KRİTER PUANLAMA ---
     
-    # Seviyeye göre beklentiyi dinamikleştiriyoruz (CEFR)
+    # Seviye Beklentileri (Dinamik)
     level_expectations = ""
     if data.level == "A1":
         level_expectations = """
-        - Uzunluk: 2-4 basit cümle yeterli. Çok kısa ise puan düşer.
-        - Söz Dizimi: Özne+Yüklem basit yapılar.
-        - Kelime: Temel kelimeler (ben, sen, gitmek, var/yok).
-        - İçerik: 1-2 temel bilgi aktarımı varsa tam puan.
+        - Uzunluk (16): 2-4 basit cümle yeterli. Çok kısa (1 cümle) ise puan kır.
+        - Söz Dizimi (20): Özne + Yüklem basit yapılar.
+        - Kelime (14): Temel kelimeler (ben, sen, gitmek, var/yok).
+        - İçerik (20): 1-2 temel bilgi aktarımı varsa tam puan.
         """
     elif data.level == "A2":
         level_expectations = """
-        - Uzunluk: 4-6 cümle, basit paragraf hissi.
-        - Söz Dizimi: ve/ama/çünkü bağlaçları.
-        - Kelime: Günlük hayat kelimeleri.
-        - İçerik: İstek/plan anlatımı, basit sıralama.
+        - Uzunluk (16): 4-6 cümle, basit paragraf hissi.
+        - Söz Dizimi (20): ve/ama/çünkü bağlaçları ile bağlı cümleler.
+        - Kelime (14): Günlük hayat kelimeleri. Aynı kelime tekrarı az olmalı.
+        - İçerik (20): İstek/plan anlatımı, basit sıralama.
         """
     elif data.level == "B1":
         level_expectations = """
-        - Uzunluk: 8-12 cümle, 2 paragraf.
-        - Söz Dizimi: Neden-sonuç, karşılaştırma.
-        - Kelime: Çeşitlilik artmalı.
-        - İçerik: Giriş-gelişme-sonuç.
+        - Uzunluk (16): 8-12 cümle, 2 kısa paragraf.
+        - Söz Dizimi (20): Neden-sonuç, karşılaştırma.
+        - Kelime (14): Çeşitlilik artmalı, eş anlamlılar kullanılmalı.
+        - İçerik (20): Giriş-gelişme-sonuç bütünlüğü.
         """
     elif data.level == "B2":
         level_expectations = """
-        - Uzunluk: 2-3 paragraf, gelişmiş anlatım.
-        - Söz Dizimi: Karmaşık cümleler, yan cümleler.
-        - İçerik: Fikir geliştirme, argüman.
+        - Uzunluk (16): 2-3 paragraf, gelişmiş anlatım.
+        - Söz Dizimi (20): Karmaşık cümleler, yan cümleler, bağ-fiiller.
+        - Kelime (14): Soyut kelimeler, görüş bildirme.
+        - İçerik (20): Fikir geliştirme, argüman sunma.
         """
-    else: # C1
+    else: # C1 ve üstü
         level_expectations = """
-        - Uzunluk: Derinlikli, yoğun metin.
-        - Söz Dizimi: Akıcı, retorik.
-        - İçerik: İkna edici, tutarlı.
+        - Uzunluk (16): Derinlikli, yoğun metin.
+        - Söz Dizimi (20): Akıcı, retorik olarak etkili, devrik cümle kontrolü.
+        - Kelime (14): Zengin, yerinde ve doğal seçim.
+        - İçerik (20): İkna edici, tutarlı perspektif.
         """
 
     prompt_rubric = f"""
 ROL: Sen {data.level} seviyesindeki bir öğrenciyi değerlendiren öğretmensin.
-GÖREV: Aşağıdaki metni belirtilen 6 kriter üzerinden puanla.
+GÖREV: Aşağıdaki metni puanla. Puanları kırma konusunda seviyeye uygun davran.
+
 METİN: \"\"\"{display_text}\"\"\"
 
 SEVİYE BEKLENTİLERİ ({data.level}):
 {level_expectations}
 
-PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
+PUANLAMA KRİTERLERİ (TOPLAM 100):
 1. UZUNLUK (0-16 Puan): Metin uzunluğu ve yoğunluğu seviyeye uygun mu?
-2. NOKTALAMA (0-14 Puan): Noktalama işaretleri doğru kullanılmış mı?
-3. DİL BİLGİSİ (0-16 Puan): Ekler, zaman uyumu ve gramer kuralları.
-4. SÖZ DİZİMİ (0-20 Puan): Cümle yapısı düzgün mü, akış nasıl?
-5. KELİME (0-14 Puan): Kelime çeşitliliği seviyeye uygun mu?
-6. İÇERİK (0-20 Puan): Konu bütünlüğü, kendini ifade etme becerisi.
+2. NOKTALAMA (0-14 Puan): Temel işaretler (nokta, virgül, büyük harf) doğru mu?
+3. DİL BİLGİSİ (0-16 Puan): Ekler ve zaman uyumu seviyeye uygun mu?
+4. SÖZ DİZİMİ (0-20 Puan): Cümle yapıları ve akış düzgün mü?
+5. KELİME (0-14 Puan): Kelime seçimi doğru ve çeşitli mi?
+6. İÇERİK (0-20 Puan): Anlatılmak istenen net mi, konu bütünlüğü var mı?
 
 ÇIKTI (SADECE JSON):
 {{
@@ -639,7 +607,7 @@ PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
 
     for model_name in MODELS_TO_TRY:
         try:
-            # 1. İstek: TDK Hataları
+            # 1. AŞAMA: TDK İstek
             resp_tdk = client.models.generate_content(
                 model=model_name, contents=prompt_tdk,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
@@ -647,16 +615,17 @@ PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
             raw_tdk = (resp_tdk.text or "").strip()
             json_tdk = json.loads(raw_tdk.replace("```json", "").replace("```", "")) if raw_tdk else {}
 
-            # 2. İstek: Puanlama ve Not
+            # 2. AŞAMA: CEFR/Rubric İstek
             resp_rubric = client.models.generate_content(
                 model=model_name, contents=prompt_rubric,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
             )
             raw_rubric = (resp_rubric.text or "").strip()
-            json_rubric = json.loads(raw_rubric.text.replace("```json", "").replace("```", "")) if raw_rubric else {}
+            json_rubric = json.loads(raw_rubric.text.strip().replace("```json", "").replace("```", "")) if raw_rubric else {}
 
-            # Puanları Birleştir (Panelindeki 6 Kriter)
+            # Puanları Birleştir
             p = json_rubric.get("rubric_part", {})
+            
             combined_rubric = {
                 "uzunluk": min(16, max(0, to_int(p.get("uzunluk")))),
                 "noktalama": min(14, max(0, to_int(p.get("noktalama")))),
@@ -667,7 +636,7 @@ PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
             }
             total_score = sum(combined_rubric.values())
 
-            # Hata İşleme (Eski kodunun aynısı - Span bulma vb.)
+            # Hata İşleme (Yardımcı fonksiyonlar çalışıyor)
             cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids)
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
@@ -692,14 +661,13 @@ PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
             errors_student.sort(key=lambda x: x["span"]["start"])
             errors_ocr.sort(key=lambda x: x["span"]["start"])
 
-            # Öğretmen Notu
             raw_note = (json_rubric.get("teacher_note") or "").strip()
             if not raw_note: raw_note = f"[SEVİYE: {data.level}] Değerlendirme tamamlandı."
 
             final_result = {
                 "rubric": combined_rubric,
-                "errors": errors_student,          # Frontend'de kırmızı çizilecekler
-                "errors_student": errors_student,  
+                "errors": errors_student,
+                "errors_student": errors_student,
                 "errors_ocr": errors_ocr,
                 "teacher_note": raw_note,
                 "score_total": total_score
@@ -730,6 +698,7 @@ PUANLAMA KRİTERLERİ (TOPLAM 100 PUAN):
         print(f"DB Kayıt Hatası: {e}")
         return {"status": "success", "data": final_result, "warning": "Veritabanı hatası"}
 
+
 @app.post("/student-history")
 async def get_student_history(student_name: str = Form(...), student_surname: str = Form(...), classroom_code: str = Form(...)):
     try:
@@ -741,6 +710,7 @@ async def get_student_history(student_name: str = Form(...), student_surname: st
         return {"status": "success", "data": response.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/update-score")
 async def update_score(data: UpdateScoreRequest):
