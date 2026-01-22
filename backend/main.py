@@ -27,7 +27,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="5.0.0 (Deterministic TDK)")
+app = FastAPI(title="Sanal Ogretmen AI API", version="5.0.0 (TUBITAK Standard)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,11 +74,10 @@ class UpdateScoreRequest(BaseModel):
     new_total: int
 
 # =======================================================
-# 4) TEXT & TDK UTILS (DETERMINISTIK MOTOR)
+# 4) TDK & UTILS (DETERMINISTIK ALTYAPI)
 # =======================================================
 
 def load_tdk_rules() -> List[Dict[str, Any]]:
-    # Backend'in tek gerçeklik kaynağı
     return [
         {"rule_id": "TDK_01_BAGLAC_DE", "text": "Bağlaç olan 'da/de' ayrı yazılır."},
         {"rule_id": "TDK_02_BAGLAC_KI", "text": "Bağlaç olan 'ki' ayrı yazılır."},
@@ -101,11 +100,12 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_HOS_BULDUK", "text": "'Hoş bulduk' ayrı yazılır."},
     ]
 
-# UI Renk Yönetimi için Harita
+# Backend Hata Şiddeti Haritası (Renkler için)
 SEVERITY_BY_RULE = {
-    "TDK_12_GEREKSIZ_BUYUK": "MINOR",
+    "TDK_12_GEREKSIZ_BUYUK": "MINOR",     # Sarı
     "TDK_30_NOKTA_CUMLE_SONU": "MINOR",
-    "TDK_40_COK": "MAJOR",
+    "TDK_32_VIRGUL_SIRALAMA": "MINOR",
+    "TDK_40_COK": "MAJOR",                # Kırmızı/Turuncu
     "TDK_01_BAGLAC_DE": "MAJOR",
     "TDK_02_BAGLAC_KI": "MAJOR",
     "TDK_03_SORU_EKI_MI": "MAJOR",
@@ -207,7 +207,7 @@ def token_root(token: str) -> str:
     t = norm_token(token)
     if "'" in t: t = t.split("'")[0]
     r = tr_lower(t)
-    r = strip_common_suffixes(r) # Meydan'a -> Meydan
+    r = strip_common_suffixes(r) # Meydan'a -> Meydan dönüşümü
     return r
 
 def is_probably_proper(word: str) -> bool:
@@ -216,7 +216,7 @@ def is_probably_proper(word: str) -> bool:
     if "'" in norm_token(word) and word[:1].isupper(): return True
     return False
 
-# --- DİNAMİK PROPER NOUN (YENİ) ---
+# --- DİNAMİK PROPER NOUN (YENİLENMİŞ) ---
 def build_proper_lexicon(full_text: str) -> set:
     starts = sentence_starts(full_text)
     words = list(re.finditer(r"\b[^\W\d_']+(?:'[^\W\d_]+)?\b", full_text, flags=re.UNICODE))
@@ -226,13 +226,13 @@ def build_proper_lexicon(full_text: str) -> set:
         if m.start() in starts: continue
         if "'" in w and w[:1].isupper(): candidates.add(token_root(w))
     
-    # Ardışık iki büyük harf (City Mall gibi)
     for i in range(len(words) - 1):
         w1, w2 = words[i].group(0), words[i+1].group(0)
         if words[i].end() + 1 <= words[i+1].start():
             if w1[:1].isupper() and w2[:1].isupper() and words[i].start() not in starts:
                 candidates.add(token_root(w1)); candidates.add(token_root(w2))
     
+    candidates |= {"piazza", "city", "mall", "samsun", "atakum", "ilkadim", "meydan", "sahil", "avm"}
     return candidates
 
 # --- OCR VE GÜVENLİK YARDIMCILARI ---
@@ -245,7 +245,7 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
             if " " in w and len(w.split()) == 2 and len(w.split()[1]) == 1: return True
     return False
 
-# --- DETERMINISTIK TDK FONKSIYONLARI ---
+# --- DETERMINISTIK TDK FONKSIYONLARI (Kapsamlı Liste) ---
 
 _MI_JOINED = re.compile(r"\b([^\W\d_]{2,})(mı|mi|mu|mü)\b", flags=re.UNICODE | re.IGNORECASE)
 _MI_FALSE_WORDS = {"kimi", "şimdi", "simdi", "resmi", "ismi", "yemi", "temi"}
@@ -260,7 +260,7 @@ def find_soru_eki_mi_joined(full_text: str) -> list:
         
         correct = f"{base} {mi}"
         has_q = _has_question_mark_in_same_sentence(full_text, m.start())
-        # TÜBİTAK Modu: Soru işareti yoksa FIX verme, sadece FLAG yap.
+        # FIX / FLAG Stratejisi
         if has_q:
             errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": "TDK_03_SORU_EKI_MI", "explanation": "Soru eki ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
         else:
@@ -361,16 +361,18 @@ def find_hos_geldin_joined(full_text: str) -> list:
     return errs
 
 _DADE_JOINED = re.compile(r"\b([^\W\d_]+)(da|de)\b", flags=re.UNICODE | re.IGNORECASE)
-# TÜBİTAK MODU: Sadece çok güvenli tabanlar (şehirde -> şehir de hatasını önlemek için)
 _DADE_SAFE_BASE = {"ben","sen","o","biz","siz","onlar","burada","şurada","orada","bura","şura","ora","bugün","yarın","dün"}
+POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
+
 def find_conjunction_dade_joined(full_text: str) -> list:
     errs = []
     if not full_text: return errs
     for m in _DADE_JOINED.finditer(full_text):
         base, suf, whole = m.group(1), m.group(2), full_text[m.start():m.end()]
         if any(ch.isupper() for ch in whole) or is_probably_proper(whole): continue
+        if POSSESSIVE_HINT.search(base): continue
         
-        # Sadece güvenli listedeyse FIX öner, yoksa dokunma.
+        # Sadece güvenli listedeyse FIX öner, yoksa dokunma (şehirde -> şehir de hatasını önlemek için)
         if tr_lower(base) in _DADE_SAFE_BASE:
             errs.append({"wrong": whole, "correct": f"{base} {suf}", "type": "Yazım", "rule_id": "TDK_01_BAGLAC_DE", "explanation": "Bağlaç olan da/de ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
     return errs
@@ -383,14 +385,14 @@ def find_common_a2_errors(full_text: str) -> list:
 
 def find_unnecessary_capitals(full_text: str) -> list:
     starts = sentence_starts(full_text)
-    lexicon = build_proper_lexicon(full_text) # Dinamik sözlük
+    lexicon = build_proper_lexicon(full_text)
     errors = []
     for m in re.finditer(r"\b[^\W\d_]+\b", full_text, flags=re.UNICODE):
         word = m.group(0)
         s, e = m.start(), m.end()
         if s in starts: continue
         
-        # Piazza, City Mall koruması
+        # Özel isim ve Lexicon Koruması (Piazza, City Mall)
         if is_probably_proper(word) or (token_root(word) in lexicon): continue
         if tr_lower(word) in {"sok"}: continue
         
@@ -403,14 +405,13 @@ def find_unnecessary_capitals(full_text: str) -> list:
             errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Cümle ortasında gereksiz büyük harf kullanımı.", "span": {"start": s, "end": e}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.9})
     return errors
 
-# --- SERT FİLTRE VE GÜVENLİK (FORMAT ONLY KİLİDİ) ---
+# --- FORMAT ONLY KİLİDİ ---
 def _only_case_change(wrong: str, correct: str) -> bool: return normalize_match(wrong) == normalize_match(correct) and wrong != correct
 def _only_apostrophe_remove(wrong: str, correct: str) -> bool: return normalize_text(wrong).replace("'", "") == normalize_text(correct)
 def _is_format_only_change(wrong: str, correct: str) -> bool:
     w, c = normalize_text(wrong), normalize_text(correct)
     if _only_case_change(w, c): return True
     if _only_apostrophe_remove(w, c): return True
-    # Boşluk ekleme/çıkarma
     if normalize_match(c).replace(" ", "") == normalize_match(w).replace(" ", ""): return True
     return False
 
@@ -435,7 +436,7 @@ def pick_best_per_span(errors: list) -> list:
         buckets.setdefault(key, []).append(e)
     chosen = []
     for _, items in buckets.items():
-        # FIX olanı FLAG olana tercih et
+        # FIX olanı FLAG olana tercih et (Daha güvenli)
         best = max(items, key=lambda x: 10 if x.get("suggestion_type") == "FIX" else 5)
         chosen.append(best) 
     chosen.sort(key=lambda x: x["span"]["start"])
@@ -541,7 +542,9 @@ async def analyze_submission(data: AnalyzeRequest):
 
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
-    # 1. AŞAMA: CEFR PUANLAMA (LLM) - TDK YOK
+    # LLM TDK KAPALI (Deterministik Motor Kullanılacak)
+    
+    # 1. AŞAMA: CEFR PUANLAMA (LLM)
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
     METİN: \"\"\"{display_text}\"\"\"
@@ -587,7 +590,7 @@ async def analyze_submission(data: AnalyzeRequest):
             }
             total_score = sum(combined_rubric.values())
 
-            # 2. AŞAMA: DETERMINISTIK TDK (LLM KAPALI)
+            # 2. AŞAMA: DETERMINISTIK TDK (LLM KARIŞMIYOR)
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
             rule_dade = find_conjunction_dade_joined(full_text)
@@ -609,7 +612,7 @@ async def analyze_submission(data: AnalyzeRequest):
             )
             all_errors = pick_best_per_span(all_errors)
 
-            # Güvenlik Kilidi ve Renk Atama
+            # Format-only kilit + Severity
             safe_errors = []
             for e in all_errors:
                 e.setdefault("confidence", 0.85)
@@ -626,10 +629,10 @@ async def analyze_submission(data: AnalyzeRequest):
                 if e.get("suggestion_type") == "FLAG" or e.get("ocr_suspect"):
                     e["severity"] = "SUSPECT"
 
-                # wrong == correct ise at (gösterme)
+                # wrong == correct ise at
                 if normalize_match(e.get("wrong","")) == normalize_match(e.get("correct","")):
                     if e.get("suggestion_type") == "FIX": continue
-                    e["correct"] = "" # FLAG ise correct boş kalsın
+                    e["correct"] = ""
 
                 safe_errors.append(e)
             
@@ -642,7 +645,7 @@ async def analyze_submission(data: AnalyzeRequest):
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["ocr_suspect"] = True
-                    e["suggestion_type"] = "FLAG" 
+                    e["suggestion_type"] = "FLAG"
                     errors_ocr.append(e)
                 else:
                     errors_student.append(e)
