@@ -47,15 +47,23 @@ const TDK_LOOKUP = {
 };
 
 // =======================================================
-// OCR BELİRSİZLİK MANTIĞI
+// OCR BELİRSİZLİK MANTIĞI (GÜNCELLENDİ)
+//   - SADECE ⍰ bloklayacak
+//   - Unicode normalize ile sağlam kontrol
 // =======================================================
 const UNCERTAINTY_CHAR = '⍰';
 
+function normalizeNFC(text) {
+  if (!text) return "";
+  try { return text.normalize('NFC'); } catch { return text; }
+}
+
 function buildOcrUncertaintySpans(text) {
-  if (!text) return [];
+  const t = normalizeNFC(text);
+  if (!t) return [];
   const spans = [];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === UNCERTAINTY_CHAR) {
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === UNCERTAINTY_CHAR) {
       spans.push({ start: i, end: i + 1, kind: "char" });
     }
   }
@@ -63,18 +71,25 @@ function buildOcrUncertaintySpans(text) {
 }
 
 function hasOcrUncertainty(text) {
-  return text && text.includes(UNCERTAINTY_CHAR);
+  const t = normalizeNFC(text);
+  return !!t && t.includes(UNCERTAINTY_CHAR);
 }
 
 // =======================================================
-// WEB VE MOBİL İÇİN ORTAK UYARI FONKSİYONU
+// WEB VE MOBİL İÇİN ORTAK UYARI FONKSİYONU (GARANTİLİ)
 // =======================================================
 const showAlert = (title, message) => {
   if (Platform.OS === 'web') {
-    // Web tarayıcısında native alert kullan
-    window.alert(`${title}\n\n${message}`);
+    // Expo Web’de bazen alert senkron çağrıda görünmeyebiliyor
+    // setTimeout ile bir sonraki döngüye atarak garantiye alıyoruz
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.alert) {
+        window.alert(`${title}\n\n${message}`);
+      } else {
+        Alert.alert(title, message);
+      }
+    }, 0);
   } else {
-    // Mobilde React Native alert kullan
     Alert.alert(title, message);
   }
 };
@@ -367,7 +382,8 @@ export default function MainScreen({ user, setUser }) {
 
       const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (response.data.status === "success") {
-        setOcrText(response.data.ocr_text || "");
+        // ✅ GÜNCELLEME: Gelen metni normalize et
+        setOcrText(normalizeNFC(response.data.ocr_text || ""));
         setImageUrl(response.data.image_url || "");
         setStep(2);
       }
@@ -378,9 +394,8 @@ export default function MainScreen({ user, setUser }) {
     }
   };
 
-  // ✅✅✅ WEB UYUMLU DÜZELTİLMİŞ ANALİZ FONKSİYONU ✅✅✅
+  // ✅✅✅ ANALİZ FONKSİYONU (Web Uyumlu, ⍰ Bloklamalı) ✅✅✅
   const startAnalysis = async () => {
-    // Konsola bilgi bas (F12 ile bakabilirsin)
     console.log("Analiz başlatılıyor... Metin:", ocrText);
 
     // 1. Metin Boş Kontrolü
@@ -389,14 +404,14 @@ export default function MainScreen({ user, setUser }) {
       return;
     }
 
-    // 2. ⍰ KONTROLÜ (Garantili Çalışır)
-    if (ocrText.includes('⍰')) {
+    // 2. ⍰ KONTROLÜ (Garantili Yöntem)
+    if (hasOcrUncertainty(ocrText)) {
       console.log("Belirsiz karakter (⍰) bulundu, işlem durduruluyor.");
       showAlert(
         "⚠️ DÜZELTME GEREKLİ",
-        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu kısımlara tıkla ve düzelt."
+        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu ⍰ işaretli yerleri düzelt."
       );
-      return; // <--- DURDURMA NOKTASI
+      return; // <--- İŞLEMİ BURADA KESİYORUZ
     }
 
     // 3. Her şey temizse sunucuya git
@@ -495,7 +510,7 @@ export default function MainScreen({ user, setUser }) {
                   {showOcrBanner && (
                     <View style={styles.ocrBanner}>
                       <Text style={styles.ocrBannerText}>
-                        <Text style={{ fontWeight: 'bold' }}>⚠️ ?ÖNEMLİ KONTROL:</Text>{"\n"}
+                        <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
                         Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
                         1. Turuncu <Text style={{ fontWeight: 'bold', color: '#d35400' }}>'⍰'</Text> işaretli yerleri tıkla ve doldur.{"\n"}
                         2. Kağıdınla uyuşmayan veya yanlış okunan kelimeler varsa onları da <Text style={{ fontWeight: 'bold' }}>elle düzelt.</Text>
@@ -515,7 +530,8 @@ export default function MainScreen({ user, setUser }) {
                     multiline={true}
                     value={ocrText}
                     onChangeText={(t) => {
-                      setOcrText(t);
+                      // ✅ GÜNCELLEME: Yazarken de normalize et
+                      setOcrText(normalizeNFC(t));
                       if (activeOcrHintData) setActiveOcrHintData(null);
                     }}
                   />
