@@ -27,7 +27,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="4.2.0 (Bug Fixes)")
+app = FastAPI(title="Sanal Ogretmen AI API", version="4.5.0 (TDK Deterministic)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,7 +74,7 @@ class UpdateScoreRequest(BaseModel):
     new_total: int
 
 # =======================================================
-# 4) TEXT & TDK UTILS
+# 4) TEXT & TDK UTILS (DETERMINISTIK VE GÜVENLİ)
 # =======================================================
 
 def load_tdk_rules() -> List[Dict[str, Any]]:
@@ -96,6 +96,8 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_45_HICBIR", "text": "'Hiçbir' bitişik yazılır."},
         {"rule_id": "TDK_46_PEKCOK", "text": "'Pek çok' ayrı yazılır."},
         {"rule_id": "TDK_47_INSALLAH", "text": "'İnşallah' kelimesinin yazımı."},
+        {"rule_id": "TDK_HOS_GELDIN", "text": "'Hoş geldin' ayrı yazılır."},
+        {"rule_id": "TDK_HOS_BULDUK", "text": "'Hoş bulduk' ayrı yazılır."},
     ]
 
 SEVERITY_BY_RULE = {
@@ -115,7 +117,9 @@ SEVERITY_BY_RULE = {
     "TDK_44_BIRKAC": "MAJOR",
     "TDK_45_HICBIR": "MAJOR",
     "TDK_46_PEKCOK": "MAJOR",
-    "TDK_47_INSALLAH": "MAJOR"
+    "TDK_47_INSALLAH": "MAJOR",
+    "TDK_HOS_GELDIN": "MAJOR",
+    "TDK_HOS_BULDUK": "MAJOR",
 }
 
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
@@ -226,7 +230,6 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
     return (best, best + len(wrong_n))
 
 # --- OCR VE GÜVENLİK YARDIMCILARI ---
-# EKSİK OLAN FONKSİYON BURAYA EKLENDİ:
 OCR_NOISE_PATTERNS = [re.compile(r".*\b[a-zA-ZğüşöçıİĞÜŞÖÇ]+['’][a-zA-Z]\b"), re.compile(r"^[a-zA-Z]\b")]
 def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
     w = (wrong or "").strip()
@@ -338,17 +341,28 @@ def find_common_misspellings(full_text: str) -> list:
             errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
-# EKSİK OLAN POSSESSIVE_HINT BURAYA EKLENDİ:
-POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
+_HOSGELDIN = re.compile(r"\b(hoşgeldin|hosgeldin)\b", flags=re.UNICODE | re.IGNORECASE)
+_HOSBULDUK = re.compile(r"\b(hoşbulduk|hosbulduk)\b", flags=re.UNICODE | re.IGNORECASE)
+def find_hos_geldin_joined(full_text: str) -> list:
+    errs = []
+    for m in _HOSGELDIN.finditer(full_text or ""):
+        whole = full_text[m.start():m.end()]
+        errs.append({"wrong": whole, "correct": "hoş geldin", "type": "Yazım", "rule_id": "TDK_HOS_GELDIN", "explanation": "'Hoş geldin' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+    for m in _HOSBULDUK.finditer(full_text or ""):
+        whole = full_text[m.start():m.end()]
+        errs.append({"wrong": whole, "correct": "hoş bulduk", "type": "Yazım", "rule_id": "TDK_HOS_BULDUK", "explanation": "'Hoş bulduk' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+    return errs
 
+_DADE_JOINED = re.compile(r"\b([^\W\d_]+)(da|de)\b", flags=re.UNICODE | re.IGNORECASE)
+_DADE_SAFE_BASE = {"ben","sen","o","biz","siz","onlar","burada","şurada","orada","bura","şura","ora"}
 def find_conjunction_dade_joined(full_text: str) -> list:
     errs = []
-    for m in re.finditer(r"\b([^\W\d_]+)(da|de)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
-        base, suf = m.group(1), m.group(2)
-        whole = full_text[m.start():m.end()]
-        if POSSESSIVE_HINT.search(base): continue
+    if not full_text: return errs
+    for m in _DADE_JOINED.finditer(full_text):
+        base, suf, whole = m.group(1), m.group(2), full_text[m.start():m.end()]
         if any(ch.isupper() for ch in whole) or is_probably_proper(whole): continue
-        errs.append({"wrong": whole, "correct": f"{base} {suf}", "type": "Yazım", "rule_id": "TDK_01_BAGLAC_DE", "explanation": "Bağlaç olan da/de ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.85})
+        if tr_lower(base) in _DADE_SAFE_BASE:
+            errs.append({"wrong": whole, "correct": f"{base} {suf}", "type": "Yazım", "rule_id": "TDK_01_BAGLAC_DE", "explanation": "Bağlaç olan da/de ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
     return errs
 
 def find_common_a2_errors(full_text: str) -> list:
@@ -376,56 +390,15 @@ def find_unnecessary_capitals(full_text: str) -> list:
             errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Cümle ortasında gereksiz büyük harf kullanımı.", "span": {"start": s, "end": e}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.9})
     return errors
 
-# --- LLM SERT FİLTRE ---
+# --- SERT FİLTRE VE GÜVENLİK ---
 def _only_case_change(wrong: str, correct: str) -> bool: return normalize_match(wrong) == normalize_match(correct) and wrong != correct
 def _only_apostrophe_remove(wrong: str, correct: str) -> bool: return normalize_text(wrong).replace("'", "") == normalize_text(correct)
-def _only_adds_space_for_mi(wrong: str, correct: str) -> bool:
-    w, c = normalize_match(wrong), normalize_match(correct)
-    return w and c and c.replace(" ", "") == w and (" " in c)
-
-def _is_safe_tdk_pair(rule_id: str, wrong: str, correct: str, full_text: str, span: dict) -> bool:
-    w = normalize_text(wrong)
-    c = normalize_text(correct)
-    s, e = to_int((span or {}).get("start"), None), to_int((span or {}).get("end"), None)
-
-    if rule_id == "TDK_03_SORU_EKI_MI":
-        if not _only_adds_space_for_mi(w, c): return False
-        if s is not None and e is not None and not _has_question_mark_in_same_sentence(full_text, s): return False
-        return True
-    if rule_id == "TDK_12_GEREKSIZ_BUYUK": return _only_case_change(w, c)
-    if rule_id == "TDK_01_BAGLAC_DE": return normalize_match(c).replace(" ", "") == normalize_match(w) and (" " in c)
-    if rule_id == "TDK_23_KESME_GENEL_YOK": return _only_apostrophe_remove(w, c)
-    if rule_id == "TDK_40_COK": return normalize_match(c) == "çok"
+def _is_format_only_change(wrong: str, correct: str) -> bool:
+    w, c = normalize_text(wrong), normalize_text(correct)
+    if _only_case_change(w, c): return True
+    if _only_apostrophe_remove(w, c): return True
+    if normalize_match(c).replace(" ", "") == normalize_match(w) and (" " in c): return True
     return False
-
-def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
-    if not isinstance(result, dict): return {"errors": []}
-    clean_errors = []
-    for err in result.get("errors", []):
-        if not isinstance(err, dict): continue
-        rid = err.get("rule_id")
-        if rid not in allowed_ids: continue
-        wrong, correct = err.get("wrong", "") or "", err.get("correct", "") or ""
-        if not wrong or not correct: continue
-        
-        hint = None
-        if isinstance(err.get("span"), dict): hint = to_int(err["span"].get("start"), None)
-        fixed = _find_best_span(full_text, wrong, hint)
-        
-        if fixed:
-            start, end = fixed
-            temp_span = {"start": start, "end": end}
-            # LLM HATALARI İÇİN SERT FİLTRE
-            if not _is_safe_tdk_pair(rid, wrong, correct, full_text, temp_span): continue
-            
-            clean_errors.append({
-                "wrong": wrong, "correct": correct, "type": "Yazım",
-                "rule_id": rid, "explanation": err.get("explanation", ""),
-                "span": temp_span, "ocr_suspect": bool(err.get("ocr_suspect", False)),
-                "suggestion_type": "FIX", "confidence": 0.85, "severity": SEVERITY_BY_RULE.get(rid, "MINOR")
-            })
-    clean_errors.sort(key=lambda x: x["span"]["start"])
-    return {"errors": clean_errors}
 
 def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     seen, merged = set(), []
@@ -448,8 +421,6 @@ def pick_best_per_span(errors: list) -> list:
         buckets.setdefault(key, []).append(e)
     chosen = []
     for _, items in buckets.items():
-        # Öncelik sırası eklenebilir, şimdilik basitçe ilki
-        # FLAG vs FIX durumunda FIX öncelikli olabilir
         best = max(items, key=lambda x: 10 if x.get("suggestion_type") == "FIX" else 5)
         chosen.append(best) 
     chosen.sort(key=lambda x: x["span"]["start"])
@@ -490,7 +461,6 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
     try:
         ensure_gcp_credentials()
         file_content = await read_limited(file, MAX_FILE_SIZE)
-        
         filename = f"{uuid.uuid4()}.jpg"
         image_url = ""
         try:
@@ -556,25 +526,8 @@ async def analyze_submission(data: AnalyzeRequest):
 
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
-    # 1. AŞAMA: TDK ANALİZİ (İzinli Rule ID Listesi)
-    tdk_rules = load_tdk_rules()
-    allowed_ids = {r["rule_id"] for r in tdk_rules}
-    rules_text = "\n".join([f"- {r['rule_id']}: {r['text']}" for r in tdk_rules])
-
-    # Kısıtlı LLM Prompt: Sadece izinli hataları bul, uydurma.
-    prompt_tdk = f"""
-    ROL: Sen TDK denetçisisin.
-    GÖREV: Metindeki yazım hatalarını SADECE aşağıdaki kural setine göre bul.
-    ASLA metinde olmayan kelimeleri uydurma (Hallucination yapma).
-    ASLA kelimenin kökünü değiştirme (Örn: mont -> mantı YAPMA).
+    # 1. AŞAMA: TDK ANALİZİ (SADECE DETERMINISTIK, LLM KAPALI)
     
-    REFERANS KURALLAR (SADECE BUNLARA BAK):
-    {rules_text}
-
-    METİN: \"\"\"{display_text}\"\"\"
-    ÇIKTI (JSON): {{ "errors": [ {{ "wrong": "...", "correct": "...", "rule_id": "...", "explanation": "..." }} ] }}
-    """
-
     # 2. AŞAMA: CEFR PUANLAMA
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
@@ -595,27 +548,20 @@ async def analyze_submission(data: AnalyzeRequest):
     
     for model_name in MODELS_TO_TRY:
         try:
-            # TDK
-            resp_tdk = client.models.generate_content(
-                model=model_name, contents=prompt_tdk,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
-            )
-            json_tdk = json.loads(resp_tdk.text.strip().replace("```json", "").replace("```", "")) if resp_tdk.text else {}
-
-            # Rubric
+            # Rubric (Sadece Puanlama için LLM)
             resp_rubric = client.models.generate_content(
                 model=model_name, contents=prompt_rubric,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
             )
             json_rubric = json.loads(resp_rubric.text.strip().replace("```json", "").replace("```", "")) if resp_rubric.text else {}
 
-            # Puanlar (Fallback ile güvenli hale getirildi)
+            # Puanlar
             p = json_rubric.get("rubric_part", {})
             fb = cefr_fallback_scores(data.level, full_text)
             
             def safe_score(key, max_val):
                 val = to_int(p.get(key))
-                if val == 0: val = fb.get(key, 0) # Fallback kullan
+                if val == 0: val = fb.get(key, 0)
                 return min(max_val, max(0, val))
 
             combined_rubric = {
@@ -628,10 +574,7 @@ async def analyze_submission(data: AnalyzeRequest):
             }
             total_score = sum(combined_rubric.values())
 
-            # Hata İşleme (LLM + Deterministik Regex Birleşimi)
-            cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids) # LLM hataları (filtrelenmiş)
-            
-            # Deterministik TDK fonksiyonları
+            # Hata İşleme (SADECE DETERMINISTIK)
             rule_caps = find_unnecessary_capitals(full_text)
             rule_common = find_common_a2_errors(full_text)
             rule_dade = find_conjunction_dade_joined(full_text)
@@ -642,33 +585,52 @@ async def analyze_submission(data: AnalyzeRequest):
             rule_birkac = find_bir_kac_separated(full_text)
             rule_hicbir = find_hic_bir_separated(full_text)
             rule_pekcok = find_pekcok_joined(full_text)
-            rule_mi = find_soru_eki_mi_joined(full_text) # FIX + FLAG stratejisi
+            rule_mi = find_soru_eki_mi_joined(full_text)
             rule_miss = find_common_misspellings(full_text)
+            rule_hos = find_hos_geldin_joined(full_text) # YENİ
 
             all_errors = merge_and_dedupe_errors(
-                cleaned_tdk.get("errors", []),
                 rule_caps, rule_common, rule_dade,
                 rule_ki, rule_sey, rule_hersey, rule_yada,
-                rule_birkac, rule_hicbir, rule_pekcok, rule_mi, rule_miss
+                rule_birkac, rule_hicbir, rule_pekcok, rule_mi, rule_miss, rule_hos
             )
             all_errors = pick_best_per_span(all_errors)
 
-            # Severity ekle (backend'den renk yönetimi için)
+            # Format ve Güvenlik Kilidi
+            safe_errors = []
             for e in all_errors:
-                e.setdefault("severity", SEVERITY_BY_RULE.get(e.get("rule_id"), "MINOR"))
                 e.setdefault("confidence", 0.85)
                 e.setdefault("suggestion_type", "FIX")
+                e.setdefault("severity", SEVERITY_BY_RULE.get(e.get("rule_id"), "MINOR"))
 
+                if e.get("suggestion_type") == "FIX":
+                    # Format dışı değişiklik (örn: mont->mantı) varsa FLAG yap
+                    if not _is_format_only_change(e.get("wrong",""), e.get("correct","")):
+                        e["suggestion_type"] = "FLAG"
+                        e["severity"] = "SUSPECT"
+                        e["confidence"] = 0.55
+
+                if e.get("suggestion_type") == "FLAG" or e.get("ocr_suspect"):
+                    e["severity"] = "SUSPECT"
+
+                # wrong == correct ise at (gösterme)
+                if normalize_match(e.get("wrong","")) == normalize_match(e.get("correct","")):
+                    if e.get("suggestion_type") == "FIX": continue
+                    e["correct"] = "" # FLAG ise correct boş kalsın
+
+                safe_errors.append(e)
+            
             # OCR vs Öğrenci Ayrımı
             errors_student, errors_ocr = [], []
-            for e in all_errors:
+            for e in safe_errors:
                 span = e.get("span") or {}
                 if "start" not in span: continue
                 ocr_flag = bool(e.get("ocr_suspect", False)) or looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["ocr_suspect"] = True
-                    e["suggestion_type"] = "FLAG" # Şüpheliyse kesin düzeltme verme
+                    # OCR şüpheliyse otomatik FLAG yap (TÜBİTAK güvenliği)
+                    e["suggestion_type"] = "FLAG" 
                     errors_ocr.append(e)
                 else:
                     errors_student.append(e)
