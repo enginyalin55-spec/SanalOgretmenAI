@@ -27,7 +27,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="5.1.0 (Stable Fix)")
+app = FastAPI(title="Sanal Ogretmen AI API", version="5.0.0 (TUBITAK Standard)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,9 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Sadece Kararlı Modeller (404 Hatası Almamak İçin)
 MODELS_TO_TRY = ["gemini-2.0-flash", "gemini-1.5-flash"]
-
 MAX_FILE_SIZE = 6 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MIME_BY_EXT = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
@@ -76,7 +74,7 @@ class UpdateScoreRequest(BaseModel):
     new_total: int
 
 # =======================================================
-# 4) TEXT & TDK UTILS (DETERMINISTIK ALTYAPI)
+# 4) TDK & UTILS (DETERMINISTIK ALTYAPI)
 # =======================================================
 
 def load_tdk_rules() -> List[Dict[str, Any]]:
@@ -102,12 +100,12 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_HOS_BULDUK", "text": "'Hoş bulduk' ayrı yazılır."},
     ]
 
-# Renkler için Hata Şiddeti
+# Backend Hata Şiddeti Haritası (Renkler için)
 SEVERITY_BY_RULE = {
-    "TDK_12_GEREKSIZ_BUYUK": "MINOR",
+    "TDK_12_GEREKSIZ_BUYUK": "MINOR",     # Sarı
     "TDK_30_NOKTA_CUMLE_SONU": "MINOR",
     "TDK_32_VIRGUL_SIRALAMA": "MINOR",
-    "TDK_40_COK": "MAJOR",
+    "TDK_40_COK": "MAJOR",                # Kırmızı/Turuncu
     "TDK_01_BAGLAC_DE": "MAJOR",
     "TDK_02_BAGLAC_KI": "MAJOR",
     "TDK_03_SORU_EKI_MI": "MAJOR",
@@ -209,7 +207,7 @@ def token_root(token: str) -> str:
     t = norm_token(token)
     if "'" in t: t = t.split("'")[0]
     r = tr_lower(t)
-    r = strip_common_suffixes(r) 
+    r = strip_common_suffixes(r) # Meydan'a -> Meydan dönüşümü
     return r
 
 def is_probably_proper(word: str) -> bool:
@@ -218,7 +216,7 @@ def is_probably_proper(word: str) -> bool:
     if "'" in norm_token(word) and word[:1].isupper(): return True
     return False
 
-# --- DİNAMİK PROPER NOUN ---
+# --- DİNAMİK PROPER NOUN (YENİLENMİŞ) ---
 def build_proper_lexicon(full_text: str) -> set:
     starts = sentence_starts(full_text)
     words = list(re.finditer(r"\b[^\W\d_']+(?:'[^\W\d_]+)?\b", full_text, flags=re.UNICODE))
@@ -247,7 +245,7 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
             if " " in w and len(w.split()) == 2 and len(w.split()[1]) == 1: return True
     return False
 
-# --- DETERMINISTIK TDK FONKSIYONLARI ---
+# --- DETERMINISTIK TDK FONKSIYONLARI (Kapsamlı Liste) ---
 
 _MI_JOINED = re.compile(r"\b([^\W\d_]{2,})(mı|mi|mu|mü)\b", flags=re.UNICODE | re.IGNORECASE)
 _MI_FALSE_WORDS = {"kimi", "şimdi", "simdi", "resmi", "ismi", "yemi", "temi"}
@@ -262,6 +260,7 @@ def find_soru_eki_mi_joined(full_text: str) -> list:
         
         correct = f"{base} {mi}"
         has_q = _has_question_mark_in_same_sentence(full_text, m.start())
+        # FIX / FLAG Stratejisi
         if has_q:
             errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": "TDK_03_SORU_EKI_MI", "explanation": "Soru eki ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
         else:
@@ -373,7 +372,7 @@ def find_conjunction_dade_joined(full_text: str) -> list:
         if any(ch.isupper() for ch in whole) or is_probably_proper(whole): continue
         if POSSESSIVE_HINT.search(base): continue
         
-        # Sadece güvenli listedeyse FIX öner, yoksa dokunma
+        # Sadece güvenli listedeyse FIX öner, yoksa dokunma (şehirde -> şehir de hatasını önlemek için)
         if tr_lower(base) in _DADE_SAFE_BASE:
             errs.append({"wrong": whole, "correct": f"{base} {suf}", "type": "Yazım", "rule_id": "TDK_01_BAGLAC_DE", "explanation": "Bağlaç olan da/de ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
     return errs
@@ -393,17 +392,17 @@ def find_unnecessary_capitals(full_text: str) -> list:
         s, e = m.start(), m.end()
         if s in starts: continue
         
-        # Özel İsim Koruması
+        # Özel isim ve Lexicon Koruması (Piazza, City Mall)
         if is_probably_proper(word) or (token_root(word) in lexicon): continue
         if tr_lower(word) in {"sok"}: continue
         
         upp = sum(1 for ch in word if ch.isupper())
         low = sum(1 for ch in word if ch.islower())
         if (upp >= 2 and low >= 1):
-            errors.append({"wrong": word, "correct": word, "type": "OCR_ŞÜPHELİ", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Büyük/küçük harf karışıklığı.", "span": {"start": s, "end": e}, "ocr_suspect": True, "suggestion_type": "FLAG", "confidence": 0.5})
+            errors.append({"wrong": word, "correct": word, "type": "OCR_ŞÜPHELİ", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Büyük/küçük harf karışıklığı OCR kaynaklı olabilir.", "span": {"start": s, "end": e}, "ocr_suspect": True, "suggestion_type": "FLAG", "confidence": 0.5})
             continue
         if word and word[0].isupper():
-            errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Cümle içinde gereksiz büyük harf.", "span": {"start": s, "end": e}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.9})
+            errors.append({"wrong": word, "correct": tr_lower_first(word), "type": "Büyük Harf", "rule_id": "TDK_12_GEREKSIZ_BUYUK", "explanation": "Cümle ortasında gereksiz büyük harf kullanımı.", "span": {"start": s, "end": e}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.9})
     return errors
 
 # --- FORMAT ONLY KİLİDİ ---
@@ -437,6 +436,7 @@ def pick_best_per_span(errors: list) -> list:
         buckets.setdefault(key, []).append(e)
     chosen = []
     for _, items in buckets.items():
+        # FIX olanı FLAG olana tercih et (Daha güvenli)
         best = max(items, key=lambda x: 10 if x.get("suggestion_type") == "FIX" else 5)
         chosen.append(best) 
     chosen.sort(key=lambda x: x["span"]["start"])
@@ -447,12 +447,18 @@ def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
     if not t: return {"uzunluk": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0}
     words = re.findall(r"\b[^\W\d_]+\b", t, flags=re.UNICODE)
     sentences = [s for s in re.split(r"[.!?]+", t) if s.strip()]
-    
+    has_connectors = bool(re.search(r"\b(ve|ama|çünkü|bu yüzden|sonra|fakat)\b", tr_lower(t)))
+    uniq = len(set([tr_lower(w) for w in words])) if words else 0
     uzunluk = min(16, max(4, int(len(words) / 10) + 6))
-    kelime = min(14, max(5, int(len(set(words)) / 8) + 6))
-    soz = 8 + (4 if len(sentences) >= 3 else 0)
+    kelime = min(14, max(5, int(uniq / 8) + 6))
+    soz = 8
+    if len(sentences) >= 3: soz += 4
+    if has_connectors: soz += 4
     soz_dizimi = min(20, max(6, soz))
-    icerik = min(20, max(6, soz + 2))
+    icerik = 8
+    if len(sentences) >= 3: icerik += 4
+    if len(words) >= 40: icerik += 4
+    icerik = min(20, max(6, icerik))
     return {"uzunluk": int(uzunluk), "soz_dizimi": int(soz_dizimi), "kelime": int(kelime), "icerik": int(icerik)}
 
 # =======================================================
@@ -492,8 +498,10 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
 
         def append_break(break_type_val: int):
             if not break_type_val: return
-            if break_type_val in (1, 2): masked_parts.append(" "); raw_parts.append(" ")
-            elif break_type_val in (3, 5): masked_parts.append("\n"); raw_parts.append("\n")
+            if break_type_val in (1, 2):
+                masked_parts.append(" "); raw_parts.append(" ")
+            elif break_type_val in (3, 5):
+                masked_parts.append("\n"); raw_parts.append("\n")
 
         for page in response.full_text_annotation.pages:
             for block in page.blocks:
@@ -534,7 +542,9 @@ async def analyze_submission(data: AnalyzeRequest):
 
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
-    # 1. AŞAMA: CEFR PUANLAMA (LLM) - TDK YOK
+    # LLM TDK KAPALI (Deterministik Motor Kullanılacak)
+    
+    # 1. AŞAMA: CEFR PUANLAMA (LLM)
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
     METİN: \"\"\"{display_text}\"\"\"
@@ -554,12 +564,14 @@ async def analyze_submission(data: AnalyzeRequest):
     
     for model_name in MODELS_TO_TRY:
         try:
+            # Rubric
             resp_rubric = client.models.generate_content(
                 model=model_name, contents=prompt_rubric,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
             )
             json_rubric = json.loads(resp_rubric.text.strip().replace("```json", "").replace("```", "")) if resp_rubric.text else {}
 
+            # Puanlar
             p = json_rubric.get("rubric_part", {})
             fb = cefr_fallback_scores(data.level, full_text)
             
@@ -600,7 +612,7 @@ async def analyze_submission(data: AnalyzeRequest):
             )
             all_errors = pick_best_per_span(all_errors)
 
-            # Güvenlik Kilidi ve Renk
+            # Format-only kilit + Severity
             safe_errors = []
             for e in all_errors:
                 e.setdefault("confidence", 0.85)
@@ -608,6 +620,7 @@ async def analyze_submission(data: AnalyzeRequest):
                 e.setdefault("severity", SEVERITY_BY_RULE.get(e.get("rule_id"), "MINOR"))
 
                 if e.get("suggestion_type") == "FIX":
+                    # Format dışı (kök değişimi) varsa FLAG yap
                     if not _is_format_only_change(e.get("wrong",""), e.get("correct","")):
                         e["suggestion_type"] = "FLAG"
                         e["severity"] = "SUSPECT"
@@ -616,12 +629,14 @@ async def analyze_submission(data: AnalyzeRequest):
                 if e.get("suggestion_type") == "FLAG" or e.get("ocr_suspect"):
                     e["severity"] = "SUSPECT"
 
+                # wrong == correct ise at
                 if normalize_match(e.get("wrong","")) == normalize_match(e.get("correct","")):
                     if e.get("suggestion_type") == "FIX": continue
                     e["correct"] = ""
 
                 safe_errors.append(e)
             
+            # OCR vs Öğrenci Ayrımı
             errors_student, errors_ocr = [], []
             for e in safe_errors:
                 span = e.get("span") or {}
@@ -630,7 +645,7 @@ async def analyze_submission(data: AnalyzeRequest):
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["ocr_suspect"] = True
-                    e["suggestion_type"] = "FLAG" 
+                    e["suggestion_type"] = "FLAG"
                     errors_ocr.append(e)
                 else:
                     errors_student.append(e)
