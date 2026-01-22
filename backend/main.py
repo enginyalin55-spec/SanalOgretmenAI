@@ -27,7 +27,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API", version="3.9.0 (Hard TDK Lock)")
+app = FastAPI(title="Sanal Ogretmen AI API", version="4.0.0 (Full Features)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,7 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Modeller
+# Sadece kararlı modeller
 MODELS_TO_TRY = [
     "gemini-2.0-flash", 
     "gemini-1.5-flash",
@@ -85,17 +85,49 @@ class UpdateScoreRequest(BaseModel):
 
 
 # =======================================================
-# 4) TEXT & TDK UTILS (YENİ GÜVENLİK KATMANI EKLENDİ)
+# 4) TEXT & TDK UTILS (TAM LİSTE)
 # =======================================================
 
 def load_tdk_rules() -> List[Dict[str, Any]]:
-    # Sadece LLM'in kullanmasına izin verdiğimiz deterministik kurallar
+    """TDK Kurallarının Tam Listesi"""
     return [
+        # A) YAZIM
         {"rule_id": "TDK_01_BAGLAC_DE", "text": "Bağlaç olan 'da/de' ayrı yazılır."},
+        {"rule_id": "TDK_02_BAGLAC_KI", "text": "Bağlaç olan 'ki' ayrı yazılır."},
         {"rule_id": "TDK_03_SORU_EKI_MI", "text": "Soru eki 'mı/mi' ayrı yazılır."},
+        {"rule_id": "TDK_04_SEY_AYRI", "text": "'Şey' sözcüğü daima ayrı yazılır."},
+        {"rule_id": "TDK_05_DA_DE_EK", "text": "Bulunma eki '-da/-de' bitişik yazılır."},
+        {"rule_id": "TDK_06_YA_DA", "text": "'Ya da' ayrı yazılır."},
+        {"rule_id": "TDK_07_HER_SEY", "text": "'Her şey' ayrı yazılır."},
+        # B) BÜYÜK HARF
+        {"rule_id": "TDK_10_CUMLE_BASI_BUYUK", "text": "Cümleler büyük harfle başlar."},
+        {"rule_id": "TDK_11_OZEL_AD_BUYUK", "text": "Özel isimler büyük harfle başlar."},
         {"rule_id": "TDK_12_GEREKSIZ_BUYUK", "text": "Cümle içinde gereksiz büyük harf kullanılmaz."},
+        {"rule_id": "TDK_13_GUN_AY_BUYUK", "text": "Belirli tarih bildirmeyen ay/gün adları küçük yazılır."},
+        # C) KESME İŞARETİ
+        {"rule_id": "TDK_20_KESME_OZEL_AD", "text": "Özel isimlere gelen ekler kesme ile ayrılır."},
+        {"rule_id": "TDK_21_KESME_KURUM", "text": "Kurum ekleri kesme ile ayrılır."},
+        {"rule_id": "TDK_22_KESME_SAYI", "text": "Sayılara gelen ekler kesme ile ayrılır."},
         {"rule_id": "TDK_23_KESME_GENEL_YOK", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz."},
-        {"rule_id": "TDK_40_COK", "text": "'Çok' kelimesinin yazımı."}
+        # D) NOKTALAMA
+        {"rule_id": "TDK_30_NOKTA_CUMLE_SONU", "text": "Cümle sonuna nokta konur."},
+        {"rule_id": "TDK_31_SORU_ISARETI", "text": "Soru cümleleri soru işareti ile biter."},
+        {"rule_id": "TDK_32_VIRGUL_SIRALAMA", "text": "Sıralı kelimeler arasına virgül konur."},
+        {"rule_id": "TDK_33_TIRNAK_ALINTI", "text": "Alıntı sözler tırnak içinde yazılır."},
+        {"rule_id": "TDK_34_APOSTROF_TIRNAK_KARISMA", "text": "Kesme işareti ile tırnak karıştırılmamalıdır."},
+        # E) SIK YANLIŞLAR
+        {"rule_id": "TDK_40_COK", "text": "'Çok' kelimesinin yazımı."},
+        {"rule_id": "TDK_41_HERKES", "text": "'Herkes' (s ile yazılır)."},
+        {"rule_id": "TDK_42_YALNIZ", "text": "'Yalnız' (yalın kökünden)."},
+        {"rule_id": "TDK_43_YANLIS", "text": "'Yanlış' (yanılmak kökünden)."},
+        {"rule_id": "TDK_44_BIRKAC", "text": "'Birkaç' bitişik yazılır."},
+        {"rule_id": "TDK_45_HICBIR", "text": "'Hiçbir' bitişik yazılır."},
+        {"rule_id": "TDK_46_PEKCOK", "text": "'Pek çok' ayrı yazılır."},
+        {"rule_id": "TDK_47_INSALLAH", "text": "'İnşallah' kelimesinin yazımı."},
+        {"rule_id": "TDK_48_KARADENIZ", "text": "'Karadeniz' özel isimdir, büyük başlar."},
+        # F) SAYILAR
+        {"rule_id": "TDK_50_SAYI_YAZIMI", "text": "Sayıların yazımı."},
+        {"rule_id": "TDK_51_SAYI_BIRIM", "text": "Sayı ile birim arasında boşluk bırakılır."}
     ]
 
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
@@ -151,7 +183,7 @@ def sentence_starts(text: str) -> set:
         if idx < len(text): starts.add(idx)
     return starts
 
-# GÜNCEL PROPER NOUN KONTROLÜ
+# GÜNCEL PROPER NOUN KONTROLÜ (PIAZZA, CITY MALL DAHİL)
 PROPER_ROOTS = {"samsun", "karadeniz", "türkiye", "piazza", "city", "mall", "meydan", "sahil", "avm", "tramvay"}
 
 def norm_token(token: str) -> str:
@@ -186,7 +218,7 @@ def _find_best_span(full_text: str, wrong: str, hint_start: int = None):
     best = min(matches, key=lambda x: abs(x - hint_start)) if hint_start is not None else matches[0]
     return (best, best + len(wrong_n))
 
-# --- YENİ EKLENEN GÜVENLİK FONKSİYONLARI ---
+# --- YENİ EKLENEN GÜVENLİK (KİLİT) FONKSİYONLARI ---
 def _has_question_mark_near(full_text: str, start: int, end: int, window: int = 80) -> bool:
     a = max(0, start - window)
     b = min(len(full_text), end + window)
@@ -196,7 +228,6 @@ def _only_adds_space_for_mi(wrong: str, correct: str) -> bool:
     w = normalize_match(wrong)
     c = normalize_match(correct)
     if not w or not c: return False
-    # correct, wrong'un sadece bir boşluk eklenmiş hali olmalı (mevsimi -> mevsimi mi YANLIŞ)
     return c.replace(" ", "") == w and (" " in c)
 
 def _only_case_change(wrong: str, correct: str) -> bool:
@@ -206,7 +237,7 @@ def _only_apostrophe_remove(wrong: str, correct: str) -> bool:
     return normalize_text(wrong).replace("'", "") == normalize_text(correct)
 
 def _is_safe_tdk_pair(rule_id: str, wrong: str, correct: str, full_text: str, span: dict) -> bool:
-    """GPT'nin önerdiği sert filtreleme mantığı."""
+    """GPT'nin önerdiği sert filtreleme mantığı (Saçmalamayı Önler)."""
     w = normalize_text(wrong)
     c = normalize_text(correct)
     s = to_int((span or {}).get("start"), None)
@@ -243,8 +274,7 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
     for err in result.get("errors", []):
         if not isinstance(err, dict): continue
         rid = err.get("rule_id")
-        # İzinli listede değilse at
-        if rid not in allowed_ids: continue
+        if not rid or rid not in allowed_ids: continue
         
         wrong = err.get("wrong", "") or ""
         correct = err.get("correct", "") or ""
@@ -258,7 +288,7 @@ def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) 
             start, end = fixed
             temp_span = {"start": start, "end": end}
             
-            # ✅ YENİ: Kural bazlı sert filtre
+            # ✅ KURAL BAZLI SERT FİLTRE (YENİ)
             if not _is_safe_tdk_pair(rid, wrong, correct, full_text, temp_span):
                 continue
 
@@ -352,12 +382,14 @@ def pick_best_per_span(errors: list) -> list:
     return chosen
 
 def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
+    # Basit bir puanlama mantığı (Yapay zeka yanıt vermezse devreye girer)
     t = normalize_text(text).replace("\n", " ")
     if not t: return {"uzunluk": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0}
     words = re.findall(r"\b[^\W\d_]+\b", t, flags=re.UNICODE)
     sentences = [s for s in re.split(r"[.!?]+", t) if s.strip()]
     has_connectors = bool(re.search(r"\b(ve|ama|çünkü|bu yüzden|sonra|fakat)\b", tr_lower(t)))
     uniq = len(set([tr_lower(w) for w in words])) if words else 0
+    
     uzunluk = min(16, max(4, int(len(words) / 10) + 6))
     kelime = min(14, max(5, int(uniq / 8) + 6))
     soz = 8
@@ -368,6 +400,7 @@ def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
     if len(sentences) >= 3: icerik += 4
     if len(words) >= 40: icerik += 4
     icerik = min(20, max(6, icerik))
+    
     return {"uzunluk": int(uzunluk), "soz_dizimi": int(soz_dizimi), "kelime": int(kelime), "icerik": int(icerik)}
 
 
@@ -406,8 +439,6 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         masked_parts, raw_parts = [], []
         PUNCTUATION = set(".,;:!?\"'’`()-–—…")
 
-        def is_letter(ch: str) -> bool: return bool(ch) and ch.isalpha()
-        def is_punct(ch: str) -> bool: return ch in PUNCTUATION
         def append_break(break_type_val: int):
             if not break_type_val: return
             if break_type_val in (1, 2):
@@ -423,9 +454,10 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
                             ch = symbol.text or ""
                             conf = getattr(symbol, "confidence", 1.0)
                             raw_parts.append(ch)
-                            if is_punct(ch): masked_parts.append(ch)
-                            elif is_letter(ch): masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
+                            if ch in PUNCTUATION: masked_parts.append(ch)
+                            elif ch.isalpha(): masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
                             else: masked_parts.append(ch)
+                            
                             prop = getattr(symbol, "property", None)
                             db = getattr(prop, "detected_break", None) if prop else None
                             if db: append_break(int(getattr(db, "type_", getattr(db, "type", 0))))
