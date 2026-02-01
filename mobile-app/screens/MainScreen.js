@@ -11,40 +11,28 @@ import axios from 'axios';
 const BASE_URL = 'https://sanalogretmenai.onrender.com';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// --- TDK KURAL SÖZLÜĞÜ ---
+// --- TDK KURAL SÖZLÜĞÜ (BACKEND İLE UYUMLU) ---
 const TDK_LOOKUP = {
-  "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'",
-  "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'",
-  "TDK_03_SORU_EKI": "Soru Eki 'mı/mi'",
-  "TDK_04_SEY_SOZ": "'Şey' Sözcüğü",
-  "TDK_05_BUYUK_CUMLE": "Cümle Başı Büyük Harf",
-  "TDK_06_BUYUK_OZEL": "Özel İsimler",
-  "TDK_07_BUYUK_KURUM": "Kurum Adları",
-  "TDK_08_TARIH_GUN_AY": "Tarihlerin Yazımı",
-  "TDK_09_KESME_OZEL": "Kesme İşareti (Özel)",
-  "TDK_10_KESME_KURUM": "Kurum Ekleri",
-  "TDK_11_YARDIMCI_FIIL_SES": "Yardımcı Fiiller",
-  "TDK_12_SAYI_AYRI": "Sayıların Yazımı",
-  "TDK_13_ULESTIRME": "Üleştirme Sayıları",
-  "TDK_14_KISALTMA_BUYUK": "Kısaltmalar",
-  "TDK_15_IKILEMELER": "İkilemeler",
-  "TDK_16_PEKISTIRME": "Pekiştirmeler",
-  "TDK_17_YUMUSAK_G": "Yumuşak G Kuralı",
-  "TDK_18_HER_BIR": "'Her' Kelimesi",
-  "TDK_19_BELIRSIZLIK_SIFATLARI": "Bitişik Kelimeler",
-  "TDK_20_NOKTA": "Nokta Kullanımı",
-  "TDK_21_VIRGUL": "Virgül Kullanımı",
-  "TDK_22_DARALMA_KURALI": "Gereksiz Daralma",
-  "TDK_23_YANLIS_YALNIZ": "Yanlış/Yalnız",
-  "TDK_24_HERKES": "Herkes (s/z)",
-  "TDK_25_SERTLESME": "Ünsüz Benzeşmesi",
-  "TDK_26_HANE": "Hane Kelimesi",
-  "TDK_27_ART_ARDA": "Art Arda",
-  "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
-  "TDK_29_UNVANLAR": "Unvanlar",
-  "TDK_30_YONLER": "Yön Adları",
-  "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
+  "TDK_01_BAGLAC_DE": "Bağlaç olan 'da/de' ayrı yazılır",
+  "TDK_02_BAGLAC_KI": "Bağlaç olan 'ki' ayrı yazılır",
+  "TDK_03_SORU_EKI_MI": "Soru eki 'mı/mi/mu/mü' ayrı yazılır",
+  "TDK_04_SEY_AYRI": "'Şey' sözcüğü ayrı yazılır",
+  "TDK_06_YA_DA": "'Ya da' ayrı yazılır",
+  "TDK_07_HER_SEY": "'Her şey' ayrı yazılır",
+  "TDK_12_GEREKSIZ_BUYUK": "Cümle içinde gereksiz büyük harf kullanılmaz",
+  "TDK_20_KESME_OZEL_AD": "Özel adlara gelen ekler kesmeyle ayrılır",
+  "TDK_23_KESME_GENEL_YOK": "Cins adlara gelen ekler kesmeyle ayrılmaz",
+  "TDK_30_NOKTA_CUMLE_SONU": "Cümle sonu noktalaması",
+  "TDK_40_COK": "'Çok' kelimesinin yazımı",
+  "TDK_41_HERKES": "'Herkes' (s ile yazılır)",
+  "TDK_42_YALNIZ": "'Yalnız' kelimesinin yazımı",
+  "TDK_43_YANLIS": "'Yanlış' kelimesinin yazımı",
+  "TDK_44_BIRKAC": "'Birkaç' bitişik yazılır",
+  "TDK_45_HICBIR": "'Hiçbir' bitişik yazılır",
+  "TDK_46_PEKCOK": "'Pek çok' ayrı yazılır",
+  "TDK_47_INSALLAH": "'İnşallah' kelimesinin yazımı"
 };
+
 
 // =======================================================
 // OCR BELİRSİZLİK MANTIĞI (GÜNCELLENDİ)
@@ -529,7 +517,7 @@ export default function MainScreen({ user, setUser }) {
                     style={[
                       styles.ocrInput,
                       // Eğer metinde ⍰ varsa stili değiştir
-                      ocrText.includes('⍰') && {
+                      hasOcrUncertainty(ocrText) && {
                         borderColor: '#d35400', // Turuncu Çerçeve
                         borderWidth: 2,
                         backgroundColor: '#fff7ed', // Hafif Turuncu Arka Plan
@@ -563,26 +551,92 @@ export default function MainScreen({ user, setUser }) {
                   <Text style={styles.successText}>Ödevin Başarıyla Gönderildi! ✅</Text>
                   <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir.</Text>
                 </View>
+
                 <View style={styles.analysisCard}>
                   <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
-                  <HighlightedText text={ocrText} errors={result.errors} onErrorPress={handleOpenPopover} />
+                  <HighlightedText
+                    text={ocrText}
+                    errors={result.errors}
+                    onErrorPress={handleOpenPopover}
+                  />
                 </View>
-                {result.errors && result.errors.map((err, index) => (
-                  <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
+
+                {/* Öğrenci hataları */}
+                {Array.isArray(result.errors) && result.errors.map((err, index) => (
+                  <TouchableOpacity
+                    key={`stu-${index}`}
+                    style={styles.errorItem}
+                    onPress={() => handleOpenPopover(err)}
+                  >
                     <Text style={styles.errorText}>
-                      <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>{err.wrong}</Text>
+                      <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>
+                        {err.wrong}
+                      </Text>
                       {' ➜ '}
-                      <Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>{err.correct}</Text>
+                      <Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>
+                        {err.correct}
+                      </Text>
                     </Text>
-                    <Text style={styles.errorDesc}>{err.explanation}</Text>
-                    <Text style={{ fontSize: 10, color: '#3498db', marginTop: 5, textAlign: 'right' }}>Detay 👉</Text>
+
+                    {!!err.explanation && <Text style={styles.errorDesc}>{err.explanation}</Text>}
+
+                    <Text style={{ fontSize: 10, color: '#3498db', marginTop: 5, textAlign: 'right' }}>
+                      Detay 👉
+                    </Text>
                   </TouchableOpacity>
                 ))}
-                <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, { backgroundColor: '#34495e', marginTop: 20 }]}>
+
+                {/* OCR şüpheli hatalar */}
+                {Array.isArray(result.errors_ocr) && result.errors_ocr.length > 0 && (
+                  <View
+                    style={{
+                      backgroundColor: '#fff7ed',
+                      borderWidth: 1,
+                      borderColor: '#fdba74',
+                      padding: 12,
+                      borderRadius: 10,
+                      marginTop: 12
+                    }}
+                  >
+                    <Text style={{ fontWeight: 'bold', color: '#92400e', marginBottom: 6 }}>
+                      ℹ️ OCR ŞÜPHELİ YERLER
+                    </Text>
+
+                    <Text style={{ color: '#92400e', fontSize: 13, lineHeight: 18, marginBottom: 8 }}>
+                      Bu kısımlar büyük ihtimalle OCR kaynaklı. Kağıdınıza bakarak kontrol edin.
+                    </Text>
+
+                    {result.errors_ocr.map((e, idx) => {
+                      const wrong = e?.wrong ?? "(belirsiz)";
+                      const correct = e?.correct ?? "(öneri yok)";
+                      const explanation = e?.explanation ?? "OCR şüphesi: Lütfen kağıtla karşılaştırın.";
+
+                      return (
+                        <TouchableOpacity
+                          key={`ocr-${idx}`}
+                          style={{ paddingVertical: 8 }}
+                          onPress={() => showAlert("OCR Şüpheli", `${wrong}  ➜  ${correct}\n\n${explanation}`)}
+                        >
+                          <Text style={{ color: '#92400e' }}>
+                            <Text style={{ fontWeight: 'bold' }}>{wrong}</Text>
+                            {'  '}→{'  '}
+                            <Text style={{ textDecorationLine: 'underline' }}>{correct}</Text>
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  onPress={resetFlow}
+                  style={[styles.sendButton, { backgroundColor: '#34495e', marginTop: 20 }]}
+                >
                   <Text style={styles.sendButtonText}>Yeni Ödev Yükle</Text>
                 </TouchableOpacity>
               </View>
             )}
+
           </View>
         )}
 

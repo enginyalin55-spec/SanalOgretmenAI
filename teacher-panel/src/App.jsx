@@ -79,6 +79,22 @@ const TDK_LOOKUP = {
   TDK_29_UNVANLAR: "Unvanlar",
   TDK_30_YONLER: "Yön Adları",
   TDK_31_ZAMAN_UYUMU: "Zaman ve Kip Uyumu",
+    TDK_03_SORU_EKI_MI: "Soru eki 'mı/mi/mu/mü' ayrı yazılır",
+  TDK_04_SEY_AYRI: "'Şey' sözcüğü ayrı yazılır",
+  TDK_06_YA_DA: "'Ya da' ayrı yazılır",
+  TDK_07_HER_SEY: "'Her şey' ayrı yazılır",
+  TDK_12_GEREKSIZ_BUYUK: "Cümle içinde gereksiz büyük harf kullanılmaz",
+  TDK_20_KESME_OZEL_AD: "Özel adlara gelen ekler kesmeyle ayrılır",
+  TDK_23_KESME_GENEL_YOK: "Cins adlara gelen ekler kesmeyle ayrılmaz",
+  TDK_30_NOKTA_CUMLE_SONU: "Cümle sonu noktalaması",
+  TDK_40_COK: "'Çok' kelimesinin yazımı",
+  TDK_41_HERKES: "'Herkes' (s ile yazılır)",
+  TDK_42_YALNIZ: "'Yalnız' kelimesinin yazımı",
+  TDK_43_YANLIS: "'Yanlış' kelimesinin yazımı",
+  TDK_44_BIRKAC: "'Birkaç' bitişik yazılır",
+  TDK_45_HICBIR: "'Hiçbir' bitişik yazılır",
+  TDK_46_PEKCOK: "'Pek çok' ayrı yazılır",
+  TDK_47_INSALLAH: "'İnşallah' kelimesinin yazımı",
 };
 
 // --- ÜLKE ADLARI / BAYRAK ---
@@ -147,54 +163,54 @@ const generateClassCode = () =>
 // --- PUAN EDITOR (ESKİ GÖRÜNÜM) ---
 // --- PUAN KARTI (DÜZELTİLMİŞ) ---
 const ScoreEditor = ({ rubric, onUpdate }) => {
-    if (!rubric) return null;
+  if (!rubric) return null;
 
-    const handleChange = (key, val, max) => {
-        // 1. Eğer kutu boşaltılırsa, "0" yapma, boş bırak.
-        if (val === "") {
-            onUpdate(key, "");
-            return;
-        }
-        
-        let newVal = parseInt(val);
-        // 2. Sayı girilmezse işlem yapma
-        if (isNaN(newVal)) return;
-        
-        // 3. Sınırları aşarsa düzelt
-        if (newVal > max) newVal = max;
-        if (newVal < 0) newVal = 0;
-        
-        onUpdate(key, newVal);
-    };
+  const handleChange = (key, val, max) => {
+    // 1. Eğer kutu boşaltılırsa, "0" yapma, boş bırak.
+    if (val === "") {
+      onUpdate(key, "");
+      return;
+    }
 
-    const items = [
-        { key: "uzunluk", label: "Uzunluk", max: 16 },
-        { key: "noktalama", label: "Noktalama", max: 14 },
-        { key: "dil_bilgisi", label: "Dil Bilgisi", max: 16 },
-        { key: "soz_dizimi", label: "Söz Dizimi", max: 20 },
-        { key: "kelime", label: "Kelime", max: 14 },
-        { key: "icerik", label: "İçerik", max: 20 },
-    ];
+    let newVal = parseInt(val);
+    // 2. Sayı girilmezse işlem yapma
+    if (isNaN(newVal)) return;
 
-    return (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10, marginTop:15, padding:15, backgroundColor:'#f8f9fa', borderRadius:10}}>
-            {items.map((item) => (
-                <div key={item.key} style={{textAlign:'center', border:'1px solid #eee', padding:5, borderRadius:8, backgroundColor:'white'}}>
-                    <div style={{fontSize:10, color:'#7f8c8d', textTransform:'uppercase', fontWeight:'bold', marginBottom:4}}>{item.label}</div>
-                    <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:2}}>
-                        <input 
-                            type="number" 
-                            // DEĞİŞİKLİK: Değer yoksa 0 değil, boş string göster
-                            value={rubric[item.key] === undefined ? "" : rubric[item.key]} 
-                            onChange={(e) => handleChange(item.key, e.target.value, item.max)}
-                            style={{width:40, textAlign:'center', fontWeight:'bold', fontSize:16, border:'1px solid #3498db', borderRadius:4, color:'#2c3e50', padding:'2px 0'}}
-                        />
-                        <span style={{fontSize:11, color:'#bdc3c7'}}>/{item.max}</span>
-                    </div>
-                </div>
-            ))}
+    // 3. Sınırları aşarsa düzelt
+    if (newVal > max) newVal = max;
+    if (newVal < 0) newVal = 0;
+
+    onUpdate(key, newVal);
+  };
+
+  const items = [
+    { key: "uzunluk", label: "Uzunluk", max: 16 },
+    { key: "noktalama", label: "Noktalama", max: 14 },
+    { key: "dil_bilgisi", label: "Dil Bilgisi", max: 16 },
+    { key: "soz_dizimi", label: "Söz Dizimi", max: 20 },
+    { key: "kelime", label: "Kelime", max: 14 },
+    { key: "icerik", label: "İçerik", max: 20 },
+  ];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 15, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 10 }}>
+      {items.map((item) => (
+        <div key={item.key} style={{ textAlign: 'center', border: '1px solid #eee', padding: 5, borderRadius: 8, backgroundColor: 'white' }}>
+          <div style={{ fontSize: 10, color: '#7f8c8d', textTransform: 'uppercase', fontWeight: 'bold', marginBottom: 4 }}>{item.label}</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+            <input
+              type="number"
+              // DEĞİŞİKLİK: Değer yoksa 0 değil, boş string göster
+              value={rubric[item.key] === undefined ? "" : rubric[item.key]}
+              onChange={(e) => handleChange(item.key, e.target.value, item.max)}
+              style={{ width: 40, textAlign: 'center', fontWeight: 'bold', fontSize: 16, border: '1px solid #3498db', borderRadius: 4, color: '#2c3e50', padding: '2px 0' }}
+            />
+            <span style={{ fontSize: 11, color: '#bdc3c7' }}>/{item.max}</span>
+          </div>
         </div>
-    );
+      ))}
+    </div>
+  );
 };
 
 // --- HATA POPOVER (YENİ TDK + span tabanlı) ---
@@ -406,7 +422,7 @@ const HighlightedText = ({ text, errors, onErrorClick }) => {
         while ((match = regex.exec(lowerText)) !== null) {
           ranges.push({ start: match.index, end: match.index + match[0].length, error: err });
         }
-      } catch (_e) {}
+      } catch (_e) { }
     } else {
       while (pos !== -1) {
         ranges.push({ start: pos, end: pos + searchStr.length, error: err });
@@ -673,46 +689,46 @@ export default function App() {
   // --- VERİ YÜKLEME VE EŞLEŞTİRME (PUANLAR BURADA YÜKLENİR) ---
   // --- VERİ YÜKLEME VE PUANLARI EŞLEŞTİRME ---
   useEffect(() => {
-      if (selectedSubmission) {
-          // 1. Öğretmen Notunu Yükle
-          setTeacherNote(selectedSubmission.human_note || "");
-          
-          // 2. YZ İpucunu Yükle (Varsa teacher_note, yoksa ai_insight)
-          const note = selectedSubmission.analysis_json?.teacher_note || selectedSubmission.analysis_json?.ai_insight || "YZ analizi bulunamadı.";
-          setAiInsight(note);
+    if (selectedSubmission) {
+      // 1. Öğretmen Notunu Yükle
+      setTeacherNote(selectedSubmission.human_note || "");
 
-          // 3. PUANLARI EŞLEŞTİR (Rubric Mapping)
-          const rawRubric = selectedSubmission.analysis_json?.rubric || 
-                            selectedSubmission.analysis_json?.scores || 
-                            {};
-          
-          let mappedRubric = { uzunluk: 0, noktalama: 0, dil_bilgisi: 0, soz_dizimi: 0, kelime: 0, icerik: 0 };
+      // 2. YZ İpucunu Yükle (Varsa teacher_note, yoksa ai_insight)
+      const note = selectedSubmission.analysis_json?.teacher_note || selectedSubmission.analysis_json?.ai_insight || "YZ analizi bulunamadı.";
+      setAiInsight(note);
 
-          Object.keys(rawRubric).forEach(key => {
-              const val = parseInt(rawRubric[key]) || 0;
-              const k = key.toLowerCase();
-              
-              // İsim benzerliğine göre eşleştir
-              if (k.includes("uzun") || k.includes("len")) mappedRubric.uzunluk = val;
-              else if (k.includes("nokta") || k.includes("pun")) mappedRubric.noktalama = val;
-              else if (k.includes("dil") || k.includes("gra")) mappedRubric.dil_bilgisi = val;
-              else if (k.includes("söz") || k.includes("syn")) mappedRubric.soz_dizimi = val;
-              else if (k.includes("keli") || k.includes("voc")) mappedRubric.kelime = val;
-              else if (k.includes("içer") || k.includes("con")) mappedRubric.icerik = val;
-          });
+      // 3. PUANLARI EŞLEŞTİR (Rubric Mapping)
+      const rawRubric = selectedSubmission.analysis_json?.rubric ||
+        selectedSubmission.analysis_json?.scores ||
+        {};
 
-          setEditableRubric(mappedRubric);
+      let mappedRubric = { uzunluk: 0, noktalama: 0, dil_bilgisi: 0, soz_dizimi: 0, kelime: 0, icerik: 0 };
 
-          // 4. Toplam Puanı Hesapla
-          // Eğer veritabanında kayıtlı toplam varsa onu al, yoksa kutucukları topla.
-          const total = (selectedSubmission.score_total !== null && selectedSubmission.score_total !== undefined) 
-                        ? Number(selectedSubmission.score_total) 
-                        : Object.values(mappedRubric).reduce((a, b) => a + b, 0);
+      Object.keys(rawRubric).forEach(key => {
+        const val = parseInt(rawRubric[key]) || 0;
+        const k = key.toLowerCase();
 
-          setCalculatedTotal(total);
-          setIsScoreChanged(false);
-          setActiveError(null);
-      }
+        // İsim benzerliğine göre eşleştir
+        if (k.includes("uzun") || k.includes("len")) mappedRubric.uzunluk = val;
+        else if (k.includes("nokta") || k.includes("pun")) mappedRubric.noktalama = val;
+        else if (k.includes("dil") || k.includes("gra")) mappedRubric.dil_bilgisi = val;
+        else if (k.includes("söz") || k.includes("syn")) mappedRubric.soz_dizimi = val;
+        else if (k.includes("keli") || k.includes("voc")) mappedRubric.kelime = val;
+        else if (k.includes("içer") || k.includes("con")) mappedRubric.icerik = val;
+      });
+
+      setEditableRubric(mappedRubric);
+
+      // 4. Toplam Puanı Hesapla
+      // Eğer veritabanında kayıtlı toplam varsa onu al, yoksa kutucukları topla.
+      const total = (selectedSubmission.score_total !== null && selectedSubmission.score_total !== undefined)
+        ? Number(selectedSubmission.score_total)
+        : Object.values(mappedRubric).reduce((a, b) => a + b, 0);
+
+      setCalculatedTotal(total);
+      setIsScoreChanged(false);
+      setActiveError(null);
+    }
   }, [selectedSubmission]);
 
   const classInfo = useMemo(() => {
@@ -821,18 +837,18 @@ export default function App() {
 
   // --- rubric update ---
   const handleRubricUpdate = (key, value) => {
-      // Değer boşsa boş bırak, sayıysa çevir
-      const valToStore = value === "" ? "" : parseInt(value);
-      
-      const newRubric = { ...editableRubric, [key]: valToStore };
-      setEditableRubric(newRubric);
+    // Değer boşsa boş bırak, sayıysa çevir
+    const valToStore = value === "" ? "" : parseInt(value);
 
-      // Toplamı hesapla (Boş kutuları 0 say)
-      const total = Object.values(newRubric).reduce((a, b) => a + (Number(b) || 0), 0);
-      setCalculatedTotal(total);
-      
-      // Kaydet butonu görünsün diye işaretle
-      setIsScoreChanged(true);
+    const newRubric = { ...editableRubric, [key]: valToStore };
+    setEditableRubric(newRubric);
+
+    // Toplamı hesapla (Boş kutuları 0 say)
+    const total = Object.values(newRubric).reduce((a, b) => a + (Number(b) || 0), 0);
+    setCalculatedTotal(total);
+
+    // Kaydet butonu görünsün diye işaretle
+    setIsScoreChanged(true);
   };
 
   // --- kaydet: rubric + total (backend varsa /update-score, yoksa supabase fallback) ---
@@ -969,6 +985,7 @@ export default function App() {
     }
     /* PDF üretirken gizlenecekler */
     .force-hide { display:none !important; }
+    .ocr-box { display:none !important; }
   `;
 
   // --- PDF (ESKİ %100 GARANTİLİ DİKEY / YZ ANALİZİ GİZLİ) ---
@@ -1091,13 +1108,17 @@ export default function App() {
       .pdf-mode .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
       /* PDF’te YZ kutusunu gizle */
 .pdf-mode .ai-box { 
-  display: none !important; 
+  display: none !important;
+  .pdf-mode .ocr-box {
+  display: none !important;
+}
+ 
 }
 
     `;
     wrapper.appendChild(style);
 
-  
+
 
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
@@ -1762,9 +1783,9 @@ export default function App() {
               </div>
             </div>
 
-            
-              
-            
+
+
+
           </div>
 
           {/* 2) OCR + Analiz + Öğretmen notu */}
@@ -1964,6 +1985,111 @@ export default function App() {
           </div>
         </div>
       </div>
+      {/* OCR ŞÜPHELİ YERLER (WEBDE GÖZÜKSÜN, PDF'E GİRMESİN) */}
+      {Array.isArray(selectedSubmission.analysis_json?.errors_ocr) &&
+        selectedSubmission.analysis_json.errors_ocr.length > 0 && (
+          <div
+            className="ocr-box"
+            style={{
+              backgroundColor: "white",
+              padding: 25,
+              borderRadius: 12,
+              boxShadow: "0 4px 15px rgba(0,0,0,0.05)",
+              marginTop: 20,
+              borderLeft: "5px solid #f59e0b",
+              breakInside: "avoid",
+            }}
+          >
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: 10,
+                color: "#92400e",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 18,
+              }}
+            >
+              <Info size={20} color="#f59e0b" /> OCR Şüpheli Yerler
+            </h3>
+
+            <div style={{ fontSize: 13, color: "#92400e", marginBottom: 12, lineHeight: 1.4 }}>
+              Bu kısımlar büyük ihtimalle OCR kaynaklı. Kağıda bakarak kontrol edin.
+            </div>
+
+            {selectedSubmission.analysis_json.errors_ocr.map((err, i) => {
+              const wrong = err?.wrong || "-";
+              const correct = err?.correct || "-";
+              const explanation = err?.explanation || "OCR şüphesi: Kağıtla karşılaştırın.";
+              const ruleTitle =
+                (err?.rule_id && TDK_LOOKUP[err.rule_id]) || err?.rule_id || err?.type || "OCR Şüphe";
+
+              return (
+                <div
+                  key={`ocr-${i}`}
+                  style={{
+                    marginBottom: 15,
+                    borderBottom: "1px solid #fff3cd",
+                    paddingBottom: 12,
+                    breakInside: "avoid",
+                    pageBreakInside: "avoid",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        textDecoration: "line-through",
+                        color: "#b45309",
+                        fontSize: 15,
+                        backgroundColor: "#fff7ed",
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                      }}
+                    >
+                      {wrong}
+                    </span>
+
+                    <span style={{ color: "#b2bec3", fontSize: 12 }}>➜</span>
+
+                    <span
+                      style={{
+                        fontWeight: "bold",
+                        color: "#92400e",
+                        fontSize: 15,
+                        backgroundColor: "#fffbeb",
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        textDecoration: "underline",
+                        textDecorationColor: "#f59e0b",
+                      }}
+                    >
+                      {correct}
+                    </span>
+
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "#92400e",
+                        background: "#fffbeb",
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #fde68a",
+                      }}
+                    >
+                      🟠 {ruleTitle}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: 13, color: "#92400e", lineHeight: 1.4 }}>
+                    {explanation}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
 
       {/* error popover */}
       <ErrorPopover data={activeError} onClose={() => setActiveError(null)} />
