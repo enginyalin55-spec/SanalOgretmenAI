@@ -11,162 +11,141 @@ import axios from 'axios';
 const BASE_URL = 'https://sanalogretmenai.onrender.com';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// --- TDK KURAL SÖZLÜĞÜ (BACKEND UYUMLU) ---
+// --- TDK KURAL SÖZLÜĞÜ ---
 const TDK_LOOKUP = {
-  "TDK_01_BAGLAC_DE": "Bağlaç olan 'da/de' ayrı yazılır",
-  "TDK_02_BAGLAC_KI": "Bağlaç olan 'ki' ayrı yazılır",
-  "TDK_03_SORU_EKI_MI": "Soru eki 'mı/mi' ayrı yazılır",
-  "TDK_04_SEY_AYRI": "'Şey' sözcüğü ayrı yazılır",
-  "TDK_06_YA_DA": "'Ya da' ayrı yazılır",
-  "TDK_07_HER_SEY": "'Her şey' ayrı yazılır",
-  "TDK_12_GEREKSIZ_BUYUK": "Gereksiz büyük harf kullanımı",
-  "TDK_20_KESME_OZEL_AD": "Özel adlara gelen ekler kesmeyle ayrılır",
-  "TDK_23_KESME_GENEL_YOK": "Cins adlara gelen ekler kesmeyle ayrılmaz",
-  "TDK_40_COK": "'Çok' kelimesinin yazımı",
-  "TDK_41_HERKES": "'Herkes' kelimesinin yazımı",
-  "TDK_42_YALNIZ": "'Yalnız' kelimesinin yazımı",
-  "TDK_43_YANLIS": "'Yanlış' kelimesinin yazımı",
-  "TDK_44_BIRKAC": "'Birkaç' bitişik yazılır",
-  "TDK_45_HICBIR": "'Hiçbir' bitişik yazılır",
-  "TDK_46_PEKCOK": "'Pek çok' ayrı yazılır",
-  "TDK_47_INSALLAH": "'İnşallah' kelimesinin yazımı",
-  "TDK_HOS_GELDIN": "'Hoş geldin' ayrı yazılır",
-  "TDK_HOS_BULDUK": "'Hoş bulduk' ayrı yazılır"
+  "TDK_01_BAGLAC_DE": "Bağlaç Olan 'da/de'",
+  "TDK_02_BAGLAC_KI": "Bağlaç Olan 'ki'",
+  "TDK_03_SORU_EKI": "Soru Eki 'mı/mi'",
+  "TDK_04_SEY_SOZ": "'Şey' Sözcüğü",
+  "TDK_05_BUYUK_CUMLE": "Cümle Başı Büyük Harf",
+  "TDK_06_BUYUK_OZEL": "Özel İsimler",
+  "TDK_07_BUYUK_KURUM": "Kurum Adları",
+  "TDK_08_TARIH_GUN_AY": "Tarihlerin Yazımı",
+  "TDK_09_KESME_OZEL": "Kesme İşareti (Özel)",
+  "TDK_10_KESME_KURUM": "Kurum Ekleri",
+  "TDK_11_YARDIMCI_FIIL_SES": "Yardımcı Fiiller",
+  "TDK_12_SAYI_AYRI": "Sayıların Yazımı",
+  "TDK_13_ULESTIRME": "Üleştirme Sayıları",
+  "TDK_14_KISALTMA_BUYUK": "Kısaltmalar",
+  "TDK_15_IKILEMELER": "İkilemeler",
+  "TDK_16_PEKISTIRME": "Pekiştirmeler",
+  "TDK_17_YUMUSAK_G": "Yumuşak G Kuralı",
+  "TDK_18_HER_BIR": "'Her' Kelimesi",
+  "TDK_19_BELIRSIZLIK_SIFATLARI": "Bitişik Kelimeler",
+  "TDK_20_NOKTA": "Nokta Kullanımı",
+  "TDK_21_VIRGUL": "Virgül Kullanımı",
+  "TDK_22_DARALMA_KURALI": "Gereksiz Daralma",
+  "TDK_23_YANLIS_YALNIZ": "Yanlış/Yalnız",
+  "TDK_24_HERKES": "Herkes (s/z)",
+  "TDK_25_SERTLESME": "Ünsüz Benzeşmesi",
+  "TDK_26_HANE": "Hane Kelimesi",
+  "TDK_27_ART_ARDA": "Art Arda",
+  "TDK_28_YABANCI_KELIMELER": "Yabancı Kelimeler",
+  "TDK_29_UNVANLAR": "Unvanlar",
+  "TDK_30_YONLER": "Yön Adları",
+  "TDK_31_ZAMAN_UYUMU": "Zaman ve Kip Uyumu"
 };
 
-// --- OCR BELİRSİZLİK ---
+// =======================================================
+// OCR BELİRSİZLİK MANTIĞI (GÜNCELLENDİ)
+//   - SADECE ⍰ bloklayacak
+//   - Unicode normalize ile sağlam kontrol
+// =======================================================
 const UNCERTAINTY_CHAR = '⍰';
 
-function normalizeNFC(text) { 
-  if (!text) return ""; 
-  try { return text.normalize('NFC'); } catch { return text; } 
+function normalizeNFC(text) {
+  if (!text) return "";
+  try { return text.normalize('NFC'); } catch { return text; }
 }
 
 function buildOcrUncertaintySpans(text) {
-  // text zaten normalize edilmiş olarak gelmeli
-  if (!text) return []; 
+  const t = normalizeNFC(text);
+  if (!t) return [];
   const spans = [];
-  for (let i = 0; i < text.length; i++) { 
-    if (text[i] === UNCERTAINTY_CHAR) {
-      spans.push({ start: i, end: i + 1, kind: "char" }); 
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === UNCERTAINTY_CHAR) {
+      spans.push({ start: i, end: i + 1, kind: "char" });
     }
   }
   return spans;
 }
 
-function hasOcrUncertainty(text) { 
-  const t = normalizeNFC(text); 
-  return !!t && t.includes(UNCERTAINTY_CHAR); 
+function hasOcrUncertainty(text) {
+  const t = normalizeNFC(text);
+  return !!t && t.includes(UNCERTAINTY_CHAR);
 }
 
-// --- UYARI FONKSİYONU ---
+// =======================================================
+// WEB VE MOBİL İÇİN ORTAK UYARI FONKSİYONU (GARANTİLİ)
+// =======================================================
 const showAlert = (title, message) => {
-  if (Platform.OS === 'web') { 
-    setTimeout(() => { 
+  if (Platform.OS === 'web') {
+    // Expo Web’de bazen alert senkron çağrıda görünmeyebiliyor
+    // setTimeout ile bir sonraki döngüye atarak garantiye alıyoruz
+    setTimeout(() => {
       if (typeof window !== 'undefined' && window.alert) {
-        window.alert(`${title}\n\n${message}`); 
+        window.alert(`${title}\n\n${message}`);
       } else {
-        Alert.alert(title, message); 
+        Alert.alert(title, message);
       }
-    }, 0); 
-  } else { 
-    Alert.alert(title, message); 
+    }, 0);
+  } else {
+    Alert.alert(title, message);
   }
 };
 
 // =======================================================
-// BİLEŞENLER
+// BİLEŞENLER (OCR Highlight, Error Highlight, Popovers)
 // =======================================================
 
 const OcrUncertaintyText = ({ text, onPressHint }) => {
-  // 1. Önce normalize et
-  const t = useMemo(() => normalizeNFC(text), [text]);
-  // 2. Spanları normalize metin üzerinden hesapla
-  const spans = useMemo(() => buildOcrUncertaintySpans(t), [t]);
+  const spans = useMemo(() => buildOcrUncertaintySpans(text), [text]);
 
-  if (!t) return null;
-  if (!spans.length) return <Text style={styles.ocrText}>{t}</Text>;
+  if (!text) return null;
+  if (!spans || spans.length === 0) {
+    return <Text style={styles.ocrText}>{text}</Text>;
+  }
 
-  const parts = []; 
+  const parts = [];
   let cursor = 0;
-  
+
   spans.forEach((sp, idx) => {
     const start = Math.max(0, sp.start);
-    const end = Math.min(t.length, sp.end);
+    const end = Math.min(text.length, sp.end);
     if (start >= end || start < cursor) return;
-    
+
     if (start > cursor) {
-      parts.push({ type: "text", key: `t-${cursor}`, content: t.slice(cursor, start) });
+      parts.push({ type: "text", key: `t-${cursor}`, content: text.slice(cursor, start) });
     }
-    parts.push({ type: "hint", key: `h-${idx}`, content: t.slice(start, end), span: sp });
-    cursor = end;
-  });
-  
-  if (cursor < t.length) {
-    parts.push({ type: "text", key: `t-end`, content: t.slice(cursor) });
-  }
 
-  return (
-    <Text style={styles.ocrText}>
-      {parts.map(p => 
-        p.type === "text" 
-          ? <Text key={p.key}>{p.content}</Text> 
-          : <Text key={p.key} style={styles.ocrHintInline} onPress={() => onPressHint?.(p.span)}>{p.content}</Text>
-      )}
-    </Text>
-  );
-};
-
-const HighlightedText = ({ text, errors, onErrorPress }) => {
-  // Metni normalize et
-  const t = normalizeNFC(text);
-  if (!t) return null;
-
-  const safeErrors = (errors || [])
-    .filter(e => e?.span?.start !== undefined)
-    .sort((a, b) => a.span.start - b.span.start);
-
-  if (safeErrors.length === 0) {
-    return <Text style={styles.ocrText}>{t}</Text>;
-  }
-
-  const parts = []; 
-  let cursor = 0;
-  
-  safeErrors.forEach((err, index) => {
-    const start = Math.max(0, err.span.start); 
-    let end = err.span.end;
-    if (end > t.length) end = t.length;
-    if (start >= end || start < cursor) return;
-    
-    if (start > cursor) {
-      parts.push({ type: "text", key: `t-${cursor}`, content: t.slice(cursor, start) });
-    }
-    
-    const isSuspect = err.severity === "SUSPECT" || err.suggestion_type === "FLAG";
-    parts.push({ 
-      type: "error", 
-      key: `e-${index}`, 
-      content: t.slice(start, end), 
-      errorData: err, 
-      isSuspect 
+    parts.push({
+      type: "hint",
+      key: `h-${idx}`,
+      content: text.slice(start, end),
+      span: sp
     });
+
     cursor = end;
   });
-  
-  if (cursor < t.length) {
-    parts.push({ type: "text", key: "t-end", content: t.slice(cursor) });
+
+  if (cursor < text.length) {
+    parts.push({ type: "text", key: `t-end`, content: text.slice(cursor) });
   }
 
   return (
     <Text style={styles.ocrText}>
-      {parts.map(p => {
-        if (p.type === "text") return <Text key={p.key}>{p.content}</Text>;
+      {parts.map((p) => {
+        if (p.type === "text") {
+          return (
+            <Text key={p.key} style={styles.ocrText}>{p.content}</Text>
+          );
+        }
         return (
-          <Text 
-            key={p.key} 
-            style={p.isSuspect ? styles.ocrSuspectInline : styles.errorInline} 
-            onPress={() => onErrorPress?.(p.errorData)}
+          <Text
+            key={p.key}
+            style={styles.ocrHintInline}
+            onPress={() => onPressHint?.(p.span, { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 })}
+            suppressHighlighting={true}
           >
             {p.content}
           </Text>
@@ -176,14 +155,68 @@ const HighlightedText = ({ text, errors, onErrorPress }) => {
   );
 };
 
-// Popover Bileşenleri
+const HighlightedText = ({ text, errors, onErrorPress }) => {
+  if (!text) return null;
+
+  const safeErrors = (errors || [])
+    .filter(e => e?.span?.start !== undefined)
+    .sort((a, b) => a.span.start - b.span.start);
+
+  if (safeErrors.length === 0) {
+    return <Text style={styles.ocrText}>{text}</Text>;
+  }
+
+  const parts = [];
+  let cursor = 0;
+
+  safeErrors.forEach((err, index) => {
+    const start = Math.max(0, err.span.start);
+    let end = err.span.end;
+    if (end > text.length) end = text.length;
+    if (start >= end || start < cursor) return;
+
+    if (start > cursor) {
+      parts.push({ type: "text", key: `t-${cursor}`, content: text.slice(cursor, start) });
+    }
+
+    parts.push({ type: "error", key: `e-${index}`, content: text.slice(start, end), errorData: err });
+    cursor = end;
+  });
+
+  if (cursor < text.length) {
+    parts.push({ type: "text", key: "t-end", content: text.slice(cursor) });
+  }
+
+  return (
+    <Text style={styles.ocrText}>
+      {parts.map((p) => {
+        if (p.type === "text") {
+          return (
+            <Text key={p.key} style={styles.ocrText}>{p.content}</Text>
+          );
+        }
+        return (
+          <Text
+            key={p.key}
+            style={styles.errorInline}
+            onPress={() => onErrorPress?.(p.errorData, { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 })}
+            suppressHighlighting={true}
+          >
+            {p.content}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+};
+
 const ErrorPopover = ({ data, onClose }) => {
-  if (!data?.err) return null; 
+  if (!data?.err) return null;
   const { err, x, y } = data;
   const ruleTitle = TDK_LOOKUP[err.rule_id] || err.rule_id || "Kural İhlali";
-  
-  let left = x - 150, top = y + 35;
-  if (left < 10) left = 10; 
+  let left = x - 150;
+  let top = y + 35;
+  if (left < 10) left = 10;
   if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
   if (top + 250 > SCREEN_HEIGHT) top = y - 260;
 
@@ -192,18 +225,20 @@ const ErrorPopover = ({ data, onClose }) => {
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={[styles.popover, { left, top }]}>
         <View style={styles.popoverHeader}>
-          <Text style={styles.popoverTitle}>⚠️ DETAY</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.closeBtnText}>✕</Text></TouchableOpacity>
+          <Text style={styles.popoverTitle}>⚠️ HATA DETAYI</Text>
+          <TouchableOpacity onPress={onClose} style={{ padding: 5 }}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.compareBox}>
           <View style={styles.compareItem}>
-            <Text style={styles.compareLabel}>METİNDEKİ</Text>
+            <Text style={styles.compareLabel}>YANLIŞ</Text>
             <Text style={styles.wrongText}>{err.wrong}</Text>
           </View>
           <Text style={styles.arrow}>➜</Text>
           <View style={styles.compareItem}>
-            <Text style={styles.compareLabel}>{err.suggestion_type === "FLAG" ? "ÖNERİ" : "DOĞRUSU"}</Text>
-            <Text style={styles.correctText}>{err.correct || "(Düzeltme Yok)"}</Text>
+            <Text style={styles.compareLabel}>DOĞRU</Text>
+            <Text style={styles.correctText}>{err.correct}</Text>
           </View>
         </View>
         <View style={styles.ruleInfoBox}>
@@ -217,25 +252,34 @@ const ErrorPopover = ({ data, onClose }) => {
 };
 
 const OcrHintPopover = ({ data, onClose }) => {
-  if (!data?.span) return null; 
+  if (!data?.span) return null;
   const { x, y } = data;
-  let left = x - 150, top = y + 35;
-  if (left < 10) left = 10; 
+  let left = x - 150;
+  let top = y + 35;
+  if (left < 10) left = 10;
   if (left + 300 > SCREEN_WIDTH) left = SCREEN_WIDTH - 310;
-  
+  if (top + 180 > SCREEN_HEIGHT) top = y - 190;
+
   return (
     <View style={styles.popoverContainer}>
       <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
       <View style={[styles.popover, { left, top }]}>
-        <Text style={[styles.popoverTitle, { color: '#d97706', marginBottom: 5 }]}>ℹ️ OKUNAMADI</Text>
-        <Text style={{ fontSize: 13 }}>Yapay zeka burayı net okuyamadı. Lütfen elle düzeltin.</Text>
+        <View style={styles.popoverHeader}>
+          <Text style={[styles.popoverTitle, { color: '#d97706' }]}>ℹ️ OCR BELİRSİZ</Text>
+          <TouchableOpacity onPress={onClose} style={{ padding: 5 }}>
+            <Text style={styles.closeBtnText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={{ fontSize: 13, color: '#34495e', lineHeight: 18 }}>
+          Yapay zeka bu harfi net okuyamadı. Lütfen kağıdınıza bakarak bu alanı düzeltin.
+        </Text>
       </View>
     </View>
   );
 };
 
 // =======================================================
-// MAIN SCREEN
+// ANA EKRAN
 // =======================================================
 export default function MainScreen({ user, setUser }) {
   const [activeTab, setActiveTab] = useState('new');
@@ -255,110 +299,163 @@ export default function MainScreen({ user, setUser }) {
   const [ocrText, setOcrText] = useState("");
   const [result, setResult] = useState(null);
 
-  if (!user) return <View style={styles.center}><ActivityIndicator size="large" /><Text>Yükleniyor...</Text></View>;
-  
-  const { studentName, studentSurname, studentLevel, classCode } = user;
+  if (!user) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#3498db" />
+        <Text style={{ marginTop: 10, color: '#7f8c8d' }}>Kullanıcı bilgileri yükleniyor...</Text>
+      </View>
+    );
+  }
 
-  const handleLogout = async () => { try { await AsyncStorage.clear(); setUser(null); } catch (e) {} };
+  const { studentName, studentSurname, studentLevel, studentCountry, studentLanguage, classCode } = user;
 
-  // --- Yardımcı Fonksiyonlar ---
-  const handleOpenOcrHint = (span, coords) => { 
-    const position = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
-    setActiveOcrHintData({ span, ...position }); 
-  };
-  
-  const handleOpenPopover = (err, coords) => {
-     const position = coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
-     setActiveErrorData({ err, ...position });
+  const handleLogout = async () => {
+    try { await AsyncStorage.clear(); setUser(null); } catch (error) { console.log(error); }
   };
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const fd = new FormData(); 
-      fd.append('student_name', studentName); 
-      fd.append('student_surname', studentSurname); 
-      fd.append('classroom_code', classCode);
-      const res = await axios.post(`${BASE_URL}/student-history`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (res.data.status === 'success') setHistoryData(res.data.data);
-    } catch (e) { console.error(e); } finally { setLoadingHistory(false); }
+      const formData = new FormData();
+      formData.append('student_name', studentName);
+      formData.append('student_surname', studentSurname);
+      formData.append('classroom_code', classCode);
+      const response = await axios.post(`${BASE_URL}/student-history`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (response.data.status === 'success') { setHistoryData(response.data.data); }
+    } catch (error) {
+      console.error("Geçmiş Hatası:", error);
+    } finally {
+      setLoadingHistory(false);
+    }
   };
-  
+
   useEffect(() => { if (activeTab === 'history') fetchHistory(); }, [activeTab]);
 
-  const resetFlow = () => { 
-    setStep(1); setImage(null); setOcrText(""); setResult(null); setImageUrl(""); setActiveErrorData(null); setActiveOcrHintData(null); 
+  const resetFlow = () => {
+    setStep(1);
+    setImage(null);
+    setOcrText("");
+    setResult(null);
+    setImageUrl("");
+    setActiveErrorData(null);
+    setActiveOcrHintData(null);
   };
 
   const takePhoto = async () => {
-    const p = await ImagePicker.requestCameraPermissionsAsync(); 
-    if (!p.granted) return showAlert("İzin", "Kamera izni gerekli.");
-    const r = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaType.Images, allowsEditing: true, quality: 0.7, base64: true });
-    if (!r.canceled) { resetFlow(); setImage(r.assets[0]); }
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return showAlert("İzin", "Kamera izni gerekli.");
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
+    });
+    if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
-  
+
   const pickImage = async () => {
-    const p = await ImagePicker.requestMediaLibraryPermissionsAsync(); 
-    if (!p.granted) return showAlert("İzin", "Galeri izni gerekli.");
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaType.Images, allowsEditing: true, quality: 0.7, base64: true });
-    if (!r.canceled) { resetFlow(); setImage(r.assets[0]); }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return showAlert("İzin", "Galeri izni gerekli.");
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [3, 4], quality: 0.7, base64: true
+    });
+    if (!res.canceled) { resetFlow(); setImage(res.assets[0]); }
   };
 
   const startOCR = async () => {
-    if (!image) return showAlert("Uyarı", "Fotoğraf seçin.");
+    if (!image) return showAlert("Uyarı", "Lütfen fotoğraf seçin.");
     setLoading(true);
     try {
-      const fd = new FormData();
-      let uri = image.uri, name = uri.split('/').pop() || "upload.jpg";
-      if (Platform.OS === 'web') { 
-        const res = await fetch(uri); 
-        const blob = await res.blob(); 
-        fd.append('file', blob, name); 
+      const formData = new FormData();
+      let localUri = image.uri;
+      let filename = localUri.split('/').pop();
+      if (Platform.OS === 'web' && !filename) filename = "upload.jpg";
+      let match = /\.(\w+)$/.exec(filename);
+      let type = match ? `image/${match[1]}` : `image/jpeg`;
+
+      if (Platform.OS === 'web') {
+        const res = await fetch(localUri);
+        const blob = await res.blob();
+        formData.append('file', blob, filename);
       } else {
-        fd.append('file', { uri, name, type: 'image/jpeg' });
+        formData.append('file', { uri: localUri, name: filename, type: type });
       }
-      fd.append('classroom_code', classCode);
-      
-      const res = await axios.post(`${BASE_URL}/ocr`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (res.data.status === "success") { 
-        setOcrText(normalizeNFC(res.data.ocr_text)); 
-        setImageUrl(res.data.image_url); 
-        setStep(2); 
+      formData.append('classroom_code', classCode);
+
+      const response = await axios.post(`${BASE_URL}/ocr`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (response.data.status === "success") {
+        // ✅ GÜNCELLEME: Gelen metni normalize et
+        setOcrText(normalizeNFC(response.data.ocr_text || ""));
+        setImageUrl(response.data.image_url || "");
+        setStep(2);
       }
-    } catch (e) { showAlert("Hata", "OCR başarısız."); } finally { setLoading(false); }
+    } catch (error) {
+      showAlert("Hata", "Metin okunamadı.");
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ✅✅✅ ANALİZ FONKSİYONU (Web Uyumlu, ⍰ Bloklamalı) ✅✅✅
   const startAnalysis = async () => {
-    if (!ocrText.trim()) return showAlert("Hata", "Metin boş.");
-    if (hasOcrUncertainty(ocrText)) return showAlert("Düzeltme Gerekli", "Lütfen turuncu ⍰ işaretlerini düzeltin.");
+    console.log("Analiz başlatılıyor... Metin:", ocrText);
+
+    // 1. Metin Boş Kontrolü
+    if (!ocrText || ocrText.trim() === "") {
+      showAlert("Hata", "Lütfen önce bir resim taratın.");
+      return;
+    }
+
+    // 2. ⍰ KONTROLÜ (Garantili Yöntem)
+    if (hasOcrUncertainty(ocrText)) {
+      console.log("Belirsiz karakter (⍰) bulundu, işlem durduruluyor.");
+      showAlert(
+        "⚠️ DÜZELTME GEREKLİ",
+        "Metinde hala okunmayan (⍰) yerler var.\n\nBunları düzeltmeden analize gönderemezsin. Lütfen turuncu ⍰ işaretli yerleri düzelt."
+      );
+      return; // <--- İŞLEMİ BURADA KESİYORUZ
+    }
+
+    // 3. Her şey temizse sunucuya git
     setLoading(true);
     try {
-      const payload = { 
-        ocr_text: ocrText, image_url: imageUrl, 
-        student_name: studentName, student_surname: studentSurname, 
-        classroom_code: classCode, level: studentLevel, 
-        country: user.studentCountry, native_language: user.studentLanguage 
+      const payload = {
+        ocr_text: ocrText,
+        image_url: imageUrl,
+        student_name: studentName,
+        student_surname: studentSurname,
+        classroom_code: classCode,
+        level: studentLevel,
+        country: studentCountry,
+        native_language: studentLanguage
       };
-      const res = await axios.post(`${BASE_URL}/analyze`, payload);
-      if (res.data.status === "success") { setResult(res.data.data); setStep(3); }
-    } catch (e) { showAlert("Hata", "Analiz başarısız."); } finally { setLoading(false); }
+
+      const response = await axios.post(`${BASE_URL}/analyze`, payload);
+
+      if (response.data.status === "success") {
+        setResult(response.data.data);
+        setStep(3);
+      }
+    } catch (error) {
+      console.log("Hata oluştu:", error);
+      if (error.response && error.response.data && error.response.data.detail) {
+        showAlert("Uyarı", error.response.data.detail);
+      } else {
+        showAlert("Hata", "Analiz yapılamadı. İnternet bağlantını kontrol et.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getCombinedErrors = (res) => {
-    if (!res) return [];
-    const list1 = res.errors_student || [];
-    const list2 = res.errors_ocr || [];
-    const list3 = res.errors || [];
-    const all = [...list1, ...list2, ...list3];
-    return all.sort((a,b) => (a.span?.start||0) - (b.span?.start||0));
-  };
+  const openDetail = (item) => { setSelectedHistoryItem(item); setShowDetailOverlay(true); };
+  const handleOpenPopover = (err, coords) => { setActiveErrorData({ err, ...coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 } }); };
+  const handleOpenOcrHint = (span, coords) => { setActiveOcrHintData({ span, ...coords || { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 } }); };
 
-  const displayErrors = step === 3 ? getCombinedErrors(result) : [];
-  const historyErrors = selectedHistoryItem ? getCombinedErrors(selectedHistoryItem.analysis_json) : [];
+  const showOcrBanner = (step === 2);
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* HEADER */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>Merhaba,</Text>
@@ -368,11 +465,10 @@ export default function MainScreen({ user, setUser }) {
               <View style={[styles.badgeContainer, { backgroundColor: '#fff3cd' }]}><Text style={[styles.badgeText, { color: '#856404' }]}>{studentLevel}</Text></View>
             </View>
           </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Çıkış</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}><Text style={styles.logoutText}>Çıkış</Text></TouchableOpacity>
         </View>
 
+        {/* TABS */}
         <View style={styles.tabsContainer}>
           <TouchableOpacity style={[styles.tab, activeTab === 'new' && styles.activeTab]} onPress={() => setActiveTab('new')}>
             <Text style={[styles.tabText, activeTab === 'new' && styles.activeTabText]}>📝 Yeni Ödev</Text>
@@ -382,6 +478,7 @@ export default function MainScreen({ user, setUser }) {
           </TouchableOpacity>
         </View>
 
+        {/* YENİ ÖDEV EKRANI */}
         {activeTab === 'new' && (
           <View style={styles.contentArea}>
             <View style={styles.card}>
@@ -398,12 +495,8 @@ export default function MainScreen({ user, setUser }) {
                 <>
                   {!image && <View style={styles.placeholder}><Text style={{ color: '#ccc' }}>Fotoğraf Yok</Text></View>}
                   <View style={styles.buttonRow}>
-                    <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#3498db' }]} onPress={takePhoto}>
-                      <Text style={styles.btnText}>📷 Kamera</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#9b59b6' }]} onPress={pickImage}>
-                      <Text style={styles.btnText}>🖼️ Galeri</Text>
-                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#3498db' }]} onPress={takePhoto}><Text style={styles.btnText}>📷 Kamera</Text></TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#9b59b6' }]} onPress={pickImage}><Text style={styles.btnText}>🖼️ Galeri</Text></TouchableOpacity>
                   </View>
                   <TouchableOpacity style={[styles.sendButton, { opacity: image ? 1 : 0.5 }]} onPress={startOCR} disabled={!image || loading}>
                     {loading ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>Metni Tara 🔍</Text>}
@@ -413,24 +506,49 @@ export default function MainScreen({ user, setUser }) {
 
               {step === 2 && (
                 <View style={{ width: '100%' }}>
+                  {/* UYARI KUTUSU */}
                   {showOcrBanner && (
                     <View style={styles.ocrBanner}>
-                      <Text style={styles.ocrBannerText}>⚠️ Lütfen turuncu ⍰ yerleri ve yanlış kelimeleri elle düzeltin.</Text>
+                      <Text style={styles.ocrBannerText}>
+                        <Text style={{ fontWeight: 'bold' }}>⚠️ ÖNEMLİ KONTROL:</Text>{"\n"}
+                        Yapay zeka kağıdını dijitale çevirdi. Analize göndermeden önce lütfen:{"\n"}
+                        1. Turuncu <Text style={{ fontWeight: 'bold', color: '#d35400' }}>'⍰'</Text> işaretli yerleri tıkla ve doldur.{"\n"}
+                        2. Kağıdınla uyuşmayan veya yanlış okunan kelimeler varsa onları da <Text style={{ fontWeight: 'bold' }}>elle düzelt.</Text>
+                      </Text>
                     </View>
                   )}
+
+                  {/* OCR TEXT VİEW */}
                   <View style={styles.ocrPreviewCard}>
                     <Text style={styles.ocrPreviewTitle}>OCR Önizleme (belirsiz yerler işaretli)</Text>
                     <OcrUncertaintyText text={ocrText} onPressHint={handleOpenOcrHint} />
                   </View>
+
+                  {/* ✅ GÜNCELLENDİ: ⍰ VARSA KUTU TURUNCU OLUYOR */}
                   <TextInput
-                    style={[styles.ocrInput, ocrText.includes('⍰') && { borderColor: '#d35400', borderWidth: 2, backgroundColor: '#fff7ed', color: '#d35400' }]}
+                    style={[
+                      styles.ocrInput,
+                      // Eğer metinde ⍰ varsa stili değiştir
+                      ocrText.includes('⍰') && {
+                        borderColor: '#d35400', // Turuncu Çerçeve
+                        borderWidth: 2,
+                        backgroundColor: '#fff7ed', // Hafif Turuncu Arka Plan
+                        color: '#d35400' // Yazıyı da turuncu yapar (Tümünü boyar ama uyarı hissi verir)
+                      }
+                    ]}
                     multiline={true}
                     value={ocrText}
-                    onChangeText={(t) => { setOcrText(normalizeNFC(t)); if (activeOcrHintData) setActiveOcrHintData(null); }}
+                    onChangeText={(t) => {
+                      // Normalizasyon ile kaydet ki ⍰ karakteri bozulmasın
+                      setOcrText(normalizeNFC(t));
+                      if (activeOcrHintData) setActiveOcrHintData(null);
+                    }}
                   />
+
                   <TouchableOpacity style={[styles.sendButton, { marginTop: 15, backgroundColor: '#27ae60' }]} onPress={startAnalysis} disabled={loading}>
                     {loading ? <ActivityIndicator color="white" /> : <Text style={styles.sendButtonText}>✅ Analiz Et ve Gönder</Text>}
                   </TouchableOpacity>
+
                   <TouchableOpacity onPress={resetFlow} style={{ alignItems: 'center', marginTop: 15 }}>
                     <Text style={{ color: '#e74c3c' }}>İptal</Text>
                   </TouchableOpacity>
@@ -438,27 +556,26 @@ export default function MainScreen({ user, setUser }) {
               )}
             </View>
 
+            {/* SONUÇ EKRANI */}
             {step === 3 && result && (
               <View style={styles.resultContainer}>
                 <View style={styles.successBox}>
-                  <Text style={styles.successText}>Analiz Tamamlandı! ✅</Text>
-                  <Text style={styles.successSubText}>
-                    {displayErrors.length > 0 ? "Hatalar ve şüpheli yerler aşağıdadır." : "Harika! Hiç hata bulunamadı. 🎉"}
-                  </Text>
+                  <Text style={styles.successText}>Ödevin Başarıyla Gönderildi! ✅</Text>
+                  <Text style={styles.successSubText}>Hataların aşağıda listelenmiştir.</Text>
                 </View>
                 <View style={styles.analysisCard}>
                   <Text style={styles.analysisTitle}>📝 Analiz Sonucu:</Text>
-                  <HighlightedText text={ocrText} errors={displayErrors} onErrorPress={handleOpenPopover} />
+                  <HighlightedText text={ocrText} errors={result.errors} onErrorPress={handleOpenPopover} />
                 </View>
-                {displayErrors.map((err, index) => (
+                {result.errors && result.errors.map((err, index) => (
                   <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                     <Text style={styles.errorText}>
-                      <Text style={{ textDecorationLine: 'line-through', color: err.suggestion_type==="FLAG"?'#d35400':'#e74c3c' }}>{err.wrong}</Text>
+                      <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>{err.wrong}</Text>
                       {' ➜ '}
-                      <Text style={{ fontWeight: 'bold', color: err.suggestion_type==="FLAG"?'#e67e22':'#2ecc71' }}>{err.correct || "?"}</Text>
+                      <Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>{err.correct}</Text>
                     </Text>
                     <Text style={styles.errorDesc}>{err.explanation}</Text>
-                    {err.suggestion_type==="FLAG" && <Text style={{fontSize:10, color:'#d35400', fontWeight:'bold', marginTop:5}}>⚠️ ŞÜPHELİ DURUM (Kontrol Et)</Text>}
+                    <Text style={{ fontSize: 10, color: '#3498db', marginTop: 5, textAlign: 'right' }}>Detay 👉</Text>
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity onPress={resetFlow} style={[styles.sendButton, { backgroundColor: '#34495e', marginTop: 20 }]}>
@@ -469,6 +586,7 @@ export default function MainScreen({ user, setUser }) {
           </View>
         )}
 
+        {/* GEÇMİŞ TAB */}
         {activeTab === 'history' && (
           <View style={styles.contentArea}>
             {loadingHistory ? (
@@ -499,18 +617,19 @@ export default function MainScreen({ user, setUser }) {
         )}
       </ScrollView>
 
+      {/* OVERLAY & POPOVERS */}
       {showDetailOverlay && selectedHistoryItem && (
         <View style={styles.fullScreenOverlay}>
           <View style={styles.detailContainer}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Rapor</Text>
+              <Text style={styles.sheetTitle}>Ödev Raporu</Text>
               <TouchableOpacity onPress={() => setShowDetailOverlay(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>✕</Text></TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }}>
               <View style={styles.analysisCard}>
-                <HighlightedText text={selectedHistoryItem.ocr_text} errors={historyErrors} onErrorPress={handleOpenPopover} />
+                <HighlightedText text={selectedHistoryItem.ocr_text} errors={selectedHistoryItem.analysis_json?.errors} onErrorPress={handleOpenPopover} />
               </View>
-              {historyErrors.map((err, index) => (
+              {selectedHistoryItem.analysis_json?.errors?.map((err, index) => (
                 <TouchableOpacity key={index} style={styles.errorItem} onPress={() => handleOpenPopover(err)}>
                   <Text style={styles.errorText}>
                     <Text style={{ textDecorationLine: 'line-through', color: '#e74c3c' }}>{err.wrong}</Text>{' ➜ '}<Text style={{ fontWeight: 'bold', color: '#2ecc71' }}>{err.correct}</Text>
@@ -518,16 +637,10 @@ export default function MainScreen({ user, setUser }) {
                   <Text style={styles.errorDesc}>{err.explanation}</Text>
                 </TouchableOpacity>
               ))}
-              {selectedHistoryItem.analysis_json?.teacher_note && (
+              {selectedHistoryItem.human_note && (
                 <View style={styles.noteCard}>
                   <Text style={styles.noteTitle}>👨‍🏫 Öğretmeninizin Notu:</Text>
-                  <Text style={styles.noteText}>{selectedHistoryItem.analysis_json.teacher_note}</Text>
-                </View>
-              )}
-              {selectedHistoryItem.human_note && (
-                <View style={[styles.noteCard, {borderLeftColor: '#3498db', backgroundColor: '#e8f4fd'}]}>
-                  <Text style={[styles.noteTitle, {color: '#2980b9'}]}>Ek Not:</Text>
-                  <Text style={[styles.noteText, {color: '#2980b9'}]}>{selectedHistoryItem.human_note}</Text>
+                  <Text style={styles.noteText}>{selectedHistoryItem.human_note}</Text>
                 </View>
               )}
               <View style={{ height: 50 }} />
@@ -535,7 +648,6 @@ export default function MainScreen({ user, setUser }) {
           </View>
         </View>
       )}
-      
       {activeErrorData && <ErrorPopover data={activeErrorData} onClose={() => setActiveErrorData(null)} />}
       {activeOcrHintData && <OcrHintPopover data={activeOcrHintData} onClose={() => setActiveOcrHintData(null)} />}
     </View>
@@ -544,83 +656,72 @@ export default function MainScreen({ user, setUser }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa', paddingTop: Platform.OS === 'android' ? 40 : 0 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scrollContent: { paddingBottom: 50 },
-  
-  header: { padding: 20, backgroundColor: 'white', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee' },
-  name: { fontSize: 18, fontWeight: 'bold', color: '#2c3e50' },
-  badgeText: { color: '#7f8c8d', fontSize: 12, marginTop: 2 },
-  logoutButton: { padding: 8, backgroundColor: '#fff0f0', borderRadius: 8 },
-  logoutText: { color: '#e74c3c', fontWeight: 'bold' },
-
-  tabsContainer: { flexDirection: 'row', margin: 20, backgroundColor: 'white', borderRadius: 10, elevation: 2 },
-  tab: { flex: 1, padding: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
-  activeTab: { borderBottomColor: '#3498db' },
-  tabText: { fontWeight: '600', color: '#34495e' },
-
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 25, backgroundColor: 'white', borderBottomLeftRadius: 20, borderBottomRightRadius: 20, marginBottom: 15, elevation: 3 },
+  greeting: { fontSize: 14, color: '#7f8c8d' },
+  name: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
+  badgeContainer: { backgroundColor: '#e8f0fe', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, alignSelf: 'flex-start' },
+  badgeText: { color: '#3498db', fontWeight: 'bold', fontSize: 12 },
+  logoutButton: { backgroundColor: '#fff0f0', padding: 10, borderRadius: 10 },
+  logoutText: { color: '#e74c3c', fontWeight: 'bold', fontSize: 12 },
+  tabsContainer: { flexDirection: 'row', backgroundColor: 'white', marginHorizontal: 20, borderRadius: 12, overflow: 'hidden', marginBottom: 15, elevation: 2 },
+  tab: { flex: 1, paddingVertical: 15, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  activeTab: { borderBottomColor: '#3498db', backgroundColor: '#fcfcfc' },
+  tabText: { fontSize: 14, fontWeight: '600', color: '#95a5a6' },
+  activeTabText: { color: '#3498db' },
   contentArea: { paddingHorizontal: 20 },
-  card: { backgroundColor: 'white', borderRadius: 15, padding: 20, marginBottom: 20, elevation: 3 },
-  cardTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, color: '#2c3e50' },
-
-  previewContainer: { height: 250, borderRadius: 10, overflow: 'hidden', marginBottom: 15, backgroundColor: '#f0f0f0' },
+  card: { backgroundColor: 'white', borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 20, elevation: 3 },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#34495e', marginBottom: 15 },
+  placeholder: { width: '100%', height: 200, backgroundColor: '#f1f2f6', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: '#e1e1e1', borderStyle: 'dashed' },
+  previewContainer: { width: '100%', height: 250, marginBottom: 20, borderRadius: 15, overflow: 'hidden', position: 'relative' },
   previewImage: { width: '100%', height: '100%', resizeMode: 'contain' },
-
-  buttonRow: { flexDirection: 'row', gap: 10, marginBottom: 15 },
-  actionButton: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  btnText: { color: 'white', fontWeight: 'bold' },
-
-  sendButton: { padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  removeButton: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', width: 30, height: 30, borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
+  removeButtonText: { color: 'white', fontWeight: 'bold' },
+  buttonRow: { flexDirection: 'row', gap: 15, width: '100%', marginBottom: 15 },
+  actionButton: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  btnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  sendButton: { backgroundColor: '#2ecc71', width: '100%', padding: 18, borderRadius: 12, alignItems: 'center' },
   sendButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
-
-  ocrBanner: { backgroundColor: '#fff7ed', padding: 10, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#fdba74' },
-  ocrBannerText: { color: '#d97706', fontSize: 12, fontWeight: 'bold' },
-
-  ocrPreviewCard: { backgroundColor: '#f8f9fa', padding: 15, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
-  ocrText: { fontSize: 16, lineHeight: 26, color: '#2c3e50' },
-  ocrHintInline: { color: '#d97706', fontWeight: 'bold', textDecorationLine: 'underline', backgroundColor: '#fff3cd' },
-  
-  errorInline: { color: '#c0392b', fontWeight: 'bold', backgroundColor: '#fadbd8', textDecorationLine: 'underline', textDecorationColor: '#c0392b' },
-  ocrSuspectInline: { color: '#d35400', fontWeight: 'bold', backgroundColor: '#fdebd0', textDecorationLine: 'underline', textDecorationColor: '#d35400' },
-
-  ocrInput: { backgroundColor: 'white', borderWidth: 1, borderColor: '#ddd', padding: 15, borderRadius: 8, minHeight: 120, textAlignVertical: 'top', fontSize: 16 },
-
-  resultContainer: { width: '100%' },
-  successBox: { backgroundColor: '#d4efdf', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#27ae60' },
-  successText: { color: '#27ae60', fontWeight: 'bold', textAlign: 'center', fontSize: 16 },
-  successSubText: { textAlign: 'center', fontSize: 13, color: '#145a32', marginTop: 5 },
-
-  analysisCard: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#eee' },
-
-  errorItem: { padding: 15, backgroundColor: 'white', borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: '#eee', elevation: 1 },
-  errorText: { fontSize: 16, marginBottom: 5, color: '#34495e' },
-  errorDesc: { color: '#7f8c8d', fontSize: 13 },
-
-  historyCard: { padding: 15, backgroundColor: 'white', borderRadius: 10, marginBottom: 10, elevation: 2 },
-
-  fullScreenOverlay: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: '#f5f6fa', zIndex: 9999 },
-  detailContainer: { flex: 1, paddingTop: Platform.OS === 'ios' ? 50 : 20 },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, backgroundColor: 'white', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#eee' },
-  sheetTitle: { fontSize: 18, fontWeight: 'bold' },
-  
-  noteCard: { backgroundColor: '#fff3cd', padding: 15, borderRadius: 10, marginTop: 20, borderLeftWidth: 5, borderLeftColor: '#f1c40f' },
-  noteTitle: { fontWeight: 'bold', color: '#d35400', marginBottom: 5 },
-
-  popoverContainer: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 99999 },
-  backdrop: { width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.3)' },
-  popover: { position: 'absolute', width: 280, backgroundColor: 'white', padding: 20, borderRadius: 15, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.3, shadowRadius: 10 },
-  popoverHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  popoverTitle: { fontWeight: 'bold', fontSize: 16, color: '#c0392b' },
-  closeBtnText: { fontSize: 20, color: '#bdc3c7' },
-  
-  compareBox: { flexDirection: 'row', alignItems: 'center', marginVertical: 15, backgroundColor: '#f8f9fa', padding: 10, borderRadius: 8 },
+  ocrBanner: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fdba74', padding: 12, borderRadius: 10, marginBottom: 12 },
+  ocrBannerText: { color: '#92400e', fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  ocrPreviewCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, marginBottom: 12 },
+  ocrPreviewTitle: { fontWeight: 'bold', color: '#6b7280', marginBottom: 8, fontSize: 12 },
+  ocrText: { fontSize: 16, lineHeight: 28, color: '#2c3e50' },
+  ocrHintInline: { color: '#d97706', fontWeight: '700', textDecorationLine: 'underline', textDecorationColor: '#f59e0b' },
+  errorInline: { color: '#c0392b', fontWeight: 'bold', backgroundColor: '#fff0f0', textDecorationLine: 'underline', textDecorationColor: '#e74c3c' },
+  ocrInput: { backgroundColor: '#fff', padding: 15, borderRadius: 10, fontSize: 16, color: '#2c3e50', borderWidth: 2, borderColor: '#3498db', minHeight: 150, textAlignVertical: 'top', width: '100%' },
+  historyCard: { backgroundColor: 'white', padding: 15, borderRadius: 12, marginBottom: 15, elevation: 2 },
+  resultContainer: { width: '100%', paddingBottom: 30 },
+  successBox: { backgroundColor: '#e8f8f5', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#2ecc71' },
+  successText: { color: '#27ae60', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
+  successSubText: { textAlign: 'center', color: '#555', marginTop: 5, fontSize: 13 },
+  analysisCard: { backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#eee' },
+  analysisTitle: { fontWeight: 'bold', color: '#34495e', marginBottom: 10, fontSize: 14 },
+  errorItem: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  errorText: { fontSize: 16, marginBottom: 5 },
+  errorDesc: { fontSize: 13, color: '#7f8c8d' },
+  noteCard: { backgroundColor: '#fff3cd', padding: 20, borderRadius: 15, marginBottom: 15, borderLeftWidth: 5, borderLeftColor: '#ffc107' },
+  noteTitle: { fontWeight: 'bold', color: '#856404', marginBottom: 5 },
+  noteText: { color: '#856404', fontSize: 14, lineHeight: 20 },
+  popoverContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, elevation: 9999 },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  popover: { position: 'absolute', width: 300, backgroundColor: 'white', borderRadius: 12, padding: 15, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
+  popoverHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  popoverTitle: { fontSize: 14, fontWeight: 'bold', color: '#e74c3c' },
+  closeBtnText: { fontSize: 18, color: '#95a5a6', fontWeight: 'bold' },
+  compareBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8 },
   compareItem: { flex: 1, alignItems: 'center' },
-  compareLabel: { fontSize: 10, fontWeight: 'bold', color: '#95a5a6', marginBottom: 5 },
-  wrongText: { color: '#e74c3c', textDecorationLine: 'line-through', fontWeight: 'bold' },
-  correctText: { color: '#27ae60', fontWeight: 'bold' },
-  arrow: { marginHorizontal: 10, color: '#95a5a6', fontSize: 18 },
-  
-  ruleInfoBox: { marginBottom: 10, flexDirection: 'row', flexWrap: 'wrap' },
-  ruleInfoLabel: { fontWeight: 'bold', fontSize: 12, color: '#34495e', marginRight: 5 },
-  ruleInfoText: { fontSize: 12, color: '#7f8c8d' },
-  explanationText: { fontSize: 14, color: '#34495e', lineHeight: 20 },
+  compareLabel: { fontSize: 10, color: '#e74c3c', fontWeight: 'bold', marginBottom: 2 },
+  wrongText: { color: '#c0392b', fontWeight: 'bold', textDecorationLine: 'line-through', fontSize: 14 },
+  correctText: { color: '#27ae60', fontWeight: 'bold', fontSize: 14 },
+  arrow: { fontSize: 18, color: '#bdc3c7', marginHorizontal: 5 },
+  ruleInfoBox: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, backgroundColor: '#e8f4fd', padding: 8, borderRadius: 6, borderLeftWidth: 3, borderLeftColor: '#3498db' },
+  ruleInfoLabel: { fontSize: 10, color: '#3498db', fontWeight: 'bold', marginRight: 5 },
+  ruleInfoText: { fontSize: 12, fontWeight: 'bold', color: '#2c3e50' },
+  explanationText: { fontSize: 13, color: '#34495e', lineHeight: 18 },
+  fullScreenOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9000, backgroundColor: '#f5f6fa' },
+  detailContainer: { flex: 1, paddingTop: 40, paddingBottom: 20 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginBottom: 10 },
+  sheetTitle: { fontSize: 20, fontWeight: 'bold', color: '#2c3e50' },
+  closeBtn: { padding: 10, backgroundColor: '#f1f2f6', borderRadius: 20 },
 });
