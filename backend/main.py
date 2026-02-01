@@ -86,6 +86,7 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_06_YA_DA", "text": "'Ya da' ayrı yazılır."},
         {"rule_id": "TDK_07_HER_SEY", "text": "'Her şey' ayrı yazılır."},
         {"rule_id": "TDK_12_GEREKSIZ_BUYUK", "text": "Cümle içinde gereksiz büyük harf kullanılmaz."},
+        {"rule_id": "TDK_30_NOKTA_CUMLE_SONU", "text": "Cümle sonuna uygun noktalama işareti konur (genelde nokta)."},
         {"rule_id": "TDK_20_KESME_OZEL_AD", "text": "Özel isimlere gelen ekler kesme ile ayrılır."},
         {"rule_id": "TDK_23_KESME_GENEL_YOK", "text": "Cins isimlere gelen ekler kesme ile ayrılmaz."},
         {"rule_id": "TDK_40_COK", "text": "'Çok' kelimesinin yazımı."},
@@ -316,12 +317,18 @@ def find_hic_bir_separated(full_text: str) -> list:
         errs.append({"wrong": whole, "correct": "hiçbir", "type": "Yazım", "rule_id": "TDK_45_HICBIR", "explanation": "'Hiçbir' bitişik yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.93})
     return errs
 
-_PEKCOK = re.compile(r"\bpek\s*çok\b", flags=re.UNICODE | re.IGNORECASE)
+_PEKCOK_JOINED = re.compile(r"\bpekçok\b", flags=re.UNICODE | re.IGNORECASE)
+
 def find_pekcok_joined(full_text: str) -> list:
     errs = []
-    for m in re.finditer(r"\bpekçok\b", full_text, flags=re.UNICODE | re.IGNORECASE):
+    for m in _PEKCOK_JOINED.finditer(full_text or ""):
         whole = full_text[m.start():m.end()]
-        errs.append({"wrong": whole, "correct": "pek çok", "type": "Yazım", "rule_id": "TDK_46_PEKCOK", "explanation": "'Pek çok' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+        errs.append({
+            "wrong": whole, "correct": "pek çok", "type": "Yazım",
+            "rule_id": "TDK_46_PEKCOK", "explanation": "'Pek çok' ayrı yazılır.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95
+        })
     return errs
 
 def find_common_misspellings(full_text: str) -> list:
@@ -386,16 +393,74 @@ def _only_adds_space_for_mi(wrong: str, correct: str) -> bool:
 def _is_safe_tdk_pair(rule_id: str, wrong: str, correct: str, full_text: str, span: dict) -> bool:
     w = normalize_text(wrong)
     c = normalize_text(correct)
-    s, e = to_int((span or {}).get("start"), None), to_int((span or {}).get("end"), None)
+    s = to_int((span or {}).get("start"), None)
+    e = to_int((span or {}).get("end"), None)
 
+    # Genel güvenlik: "uydurma" gibi görünen büyük değişimleri engelle
+    # (çok uzun kelime dönüşümleri vs.)
+    if not w or not c:
+        return False
+
+    # 1) MI: sadece boşluk ekleme + soru cümlesi içinde olmalı
     if rule_id == "TDK_03_SORU_EKI_MI":
-        if not _only_adds_space_for_mi(w, c): return False
-        if s is not None and e is not None and not _has_question_mark_in_same_sentence(full_text, s): return False
+        if not _only_adds_space_for_mi(w, c):
+            return False
+        if s is not None and e is not None and not _has_question_mark_in_same_sentence(full_text, s):
+            return False
         return True
-    if rule_id == "TDK_12_GEREKSIZ_BUYUK": return _only_case_change(w, c)
-    if rule_id == "TDK_01_BAGLAC_DE": return normalize_match(c).replace(" ", "") == normalize_match(w) and (" " in c)
-    if rule_id == "TDK_23_KESME_GENEL_YOK": return _only_apostrophe_remove(w, c)
-    if rule_id == "TDK_40_COK": return normalize_match(c) == "çok"
+
+    # 2) Büyük harf: sadece harf büyüklüğü değişsin
+    if rule_id == "TDK_12_GEREKSIZ_BUYUK":
+        return _only_case_change(w, c)
+
+    # 3) da/de bağlaç: sadece boşluk ekleme (bitişik -> ayrı)
+    if rule_id == "TDK_01_BAGLAC_DE":
+        wn = normalize_match(w)
+        cn = normalize_match(c)
+        return cn.replace(" ", "") == wn and (" " in cn)
+
+    # 4) ki bağlaç: sadece boşluk ekleme (bitişik -> ayrı)
+    if rule_id == "TDK_02_BAGLAC_KI":
+        wn = normalize_match(w)
+        cn = normalize_match(c)
+        return cn.replace(" ", "") == wn and (" " in cn)
+
+    # 5) şey: sadece "Xşey" -> "X şey" gibi boşluk ekleme
+    if rule_id == "TDK_04_SEY_AYRI":
+        wn = normalize_match(w)
+        cn = normalize_match(c)
+        return cn.replace(" ", "") == wn and (" " in cn)
+
+    # 6) her şey: sadece doğru forma dönsün
+    if rule_id == "TDK_07_HER_SEY":
+        return normalize_match(c) == "her şey" and normalize_match(w) in {"herşey", "hersey"}
+
+    # 7) ya da: sadece doğru forma dönsün
+    if rule_id == "TDK_06_YA_DA":
+        return normalize_match(c) == "ya da" and normalize_match(w).replace("—", "-").replace("–", "-") in {"yada", "ya-da"}
+
+    # 8) birkaç / hiçbir / pek çok: sadece hedef doğru yazıma dönsün
+    if rule_id == "TDK_44_BIRKAC":
+        return normalize_match(c) == "birkaç"
+    if rule_id == "TDK_45_HICBIR":
+        return normalize_match(c) == "hiçbir"
+    if rule_id == "TDK_46_PEKCOK":
+        return normalize_match(c) == "pek çok"
+
+    # 9) herkes/yalnız/yanlış/inşallah gibi sık yanlışlar: sadece hedef doğru kelimeye dönsün
+    if rule_id in {"TDK_41_HERKES", "TDK_42_YALNIZ", "TDK_43_YANLIS", "TDK_47_INSALLAH"}:
+        # Bu kurallarda "correct" tek kelimelik sabit bir düzeltme olmalı
+        return len(c.split()) == 1 and len(w.split()) == 1 and len(c) <= 15
+
+    # 10) Kesme: sadece apostrof kaldırma
+    if rule_id == "TDK_23_KESME_GENEL_YOK":
+        return _only_apostrophe_remove(w, c)
+
+    # 11) çok: sadece "çok" olsun
+    if rule_id == "TDK_40_COK":
+        return normalize_match(c) == "çok"
+
+    # Diğerleri: güvenli değil => reddet
     return False
 
 def validate_analysis(result: Dict[str, Any], full_text: str, allowed_ids: set) -> Dict[str, Any]:
