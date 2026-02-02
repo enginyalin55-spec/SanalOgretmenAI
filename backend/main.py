@@ -97,6 +97,8 @@ def load_tdk_rules() -> List[Dict[str, Any]]:
         {"rule_id": "TDK_45_HICBIR", "text": "'Hiçbir' bitişik yazılır."},
         {"rule_id": "TDK_46_PEKCOK", "text": "'Pek çok' ayrı yazılır."},
         {"rule_id": "TDK_47_INSALLAH", "text": "'İnşallah' kelimesinin yazımı."},
+        {"rule_id": "TDK_31_SORU_ISARETI", "text": "Soru cümlesi soru işareti (?) ile biter."},
+
     ]
 
 SEVERITY_BY_RULE = {
@@ -116,7 +118,9 @@ SEVERITY_BY_RULE = {
     "TDK_44_BIRKAC": "MAJOR",
     "TDK_45_HICBIR": "MAJOR",
     "TDK_46_PEKCOK": "MAJOR",
-    "TDK_47_INSALLAH": "MAJOR"
+    "TDK_47_INSALLAH": "MAJOR",
+    "TDK_31_SORU_ISARETI": "MAJOR"
+
 }
 
 _ZERO_WIDTH = re.compile(r"[\u200B\u200C\u200D\uFEFF]")
@@ -238,6 +242,100 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
     return False
 
 # --- DETERMINISTIK TDK FONKSIYONLARI ---
+# =======================================================
+# TDK_31: SORU CÜMLESİ SORU İŞARETİ (?)
+# =======================================================
+
+def _split_sentences_with_spans(text: str):
+    """
+    Basit segmentleyici: . ! ? ve satır sonlarını sınır kabul eder.
+    Her parça için (segment_text, start_idx, end_idx) döner.
+    """
+    parts = []
+    start = 0
+    n = len(text)
+    for m in SENT_BOUNDARY.finditer(text):
+        end = m.end()
+        parts.append((text[start:end], start, end))
+        start = end
+    if start < n:
+        parts.append((text[start:n], start, n))
+    return parts
+
+def _is_question_like(seg: str) -> bool:
+    """
+    Soru gibi görünen cümleyi yakala:
+    - soru kelimeleri: ne, neden, niçin, nasıl, kim, hangi, kaç, nerede, nereye, nereden, ne zaman
+    - soru eki: mı/mi/mu/mü (ayrı veya birleşik)
+    """
+    s = tr_lower(seg.strip())
+    if not s:
+        return False
+
+    # zaten soru işareti varsa => eksik değil
+    if "?" in seg:
+        return False
+
+    # soru kelimeleri
+    if re.search(r"\b(ne|neden|niçin|nicin|nasıl|nasil|kim|hangi|kaç|kac|nerede|nereye|nerden|nereden|ne\s*zaman)\b", s, flags=re.UNICODE):
+        return True
+
+    # ayrı yazılmış soru eki
+    if re.search(r"\b(mı|mi|mu|mü)\b", s, flags=re.UNICODE):
+        return True
+
+    # birleşik yazılmış soru eki (geliyormusun vb.)
+    if re.search(r"\b[^\W\d_]{2,}(mı|mi|mu|mü)\b", s, flags=re.UNICODE):
+        return True
+
+    return False
+
+def _last_word_span_in_segment(seg: str, global_start: int):
+    """
+    Segment içindeki son kelimenin global span'ını döndürür.
+    """
+    last = None
+    for m in re.finditer(r"\b[^\W\d_]+\b", seg, flags=re.UNICODE):
+        last = m
+    if not last:
+        return None
+    return (global_start + last.start(), global_start + last.end())
+
+def find_missing_question_mark(full_text: str) -> list:
+    """
+    Soru gibi görünen segmentlerde '?' yoksa işaretle.
+    """
+    errs = []
+    if not full_text:
+        return errs
+
+    for seg, s0, s1 in _split_sentences_with_spans(full_text):
+        if not seg or not seg.strip():
+            continue
+
+        if not _is_question_like(seg):
+            continue
+
+        # span: son kelimeyi işaretleyelim
+        wspan = _last_word_span_in_segment(seg, s0)
+        if not wspan:
+            continue
+        ws, we = wspan
+        wrong = full_text[ws:we]
+
+        errs.append({
+            "wrong": wrong,
+            "correct": f"{wrong}?",
+            "type": "Noktalama",
+            "rule_id": "TDK_31_SORU_ISARETI",
+            "explanation": "Soru cümleleri soru işareti (?) ile biter.",
+            "span": {"start": ws, "end": we},
+            "ocr_suspect": False,
+            "suggestion_type": "FIX",
+            "confidence": 0.80
+        })
+
+    return errs
 
 _MI_JOINED = re.compile(r"\b([^\W\d_]{2,})(mı|mi|mu|mü)\b", flags=re.UNICODE | re.IGNORECASE)
 _MI_FALSE_WORDS = {"kimi", "şimdi", "simdi", "resmi", "ismi", "yemi", "temi"}
@@ -709,12 +807,15 @@ async def analyze_submission(data: AnalyzeRequest):
             rule_pekcok = find_pekcok_joined(full_text)
             rule_mi = find_soru_eki_mi_joined(full_text) # FIX + FLAG stratejisi
             rule_miss = find_common_misspellings(full_text)
+            rule_qmark = find_missing_question_mark(full_text)
+
 
             all_errors = merge_and_dedupe_errors(
                 cleaned_tdk.get("errors", []),
                 rule_caps, rule_common, rule_dade,
                 rule_ki, rule_sey, rule_hersey, rule_yada,
-                rule_birkac, rule_hicbir, rule_pekcok, rule_mi, rule_miss
+                rule_birkac, rule_hicbir, rule_pekcok, rule_mi, rule_miss,
+                rule_qmark
             )
             all_errors = pick_best_per_span(all_errors)
 
