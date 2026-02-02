@@ -248,19 +248,33 @@ def looks_like_ocr_noise(wrong: str, full_text: str, span: dict) -> bool:
 
 def _split_sentences_with_spans(text: str):
     """
-    Basit segmentleyici: . ! ? ve satır sonlarını sınır kabul eder.
-    Her parça için (segment_text, start_idx, end_idx) döner.
+    Geliştirilmiş segmentleyici:
+    - . ! ? ve satır sonları
+    - ayrıca virgülden sonra gelen soru kelimesi varsa yeni segment
     """
     parts = []
     start = 0
     n = len(text)
+
     for m in SENT_BOUNDARY.finditer(text):
         end = m.end()
         parts.append((text[start:end], start, end))
         start = end
+
     if start < n:
         parts.append((text[start:n], start, n))
-    return parts
+
+    # İKİNCİ GEÇİŞ: virgül + soru kelimesi
+    final_parts = []
+    for seg, s0, s1 in parts:
+        last_cut = 0
+        for m in re.finditer(r",\s*(?=(ne|neden|niçin|nicin|nasıl|nasil|kim|hangi|kaç|kac|nerede|nereye|nereden|ne\s*zaman)\b)", seg, flags=re.IGNORECASE | re.UNICODE):
+            cut = m.start() + 1
+            final_parts.append((seg[last_cut:cut], s0 + last_cut, s0 + cut))
+            last_cut = cut
+        final_parts.append((seg[last_cut:], s0 + last_cut, s1))
+    return final_parts
+
 
 def _is_question_like(seg: str) -> bool:
     """
