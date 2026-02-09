@@ -276,33 +276,69 @@ def _split_sentences_with_spans(text: str):
     return final_parts
 
 
+# --- SORU TESPİTİ (KATI / YANLIŞ ? ÜRETMEYİ ENGELLER) ---
+
+# "bilmiyorum/diyemem" gibi bildirme cümleleri; içinde "mi" geçse bile soru değildir
+_EMBEDDED_QUESTION_GUARDS = re.compile(
+    r"\b(bilmiyorum|emin\s+değilim|sanmıyorum|hatırlamıyorum|diyemem|diyemiyorum|anlamıyorum)\b",
+    flags=re.IGNORECASE | re.UNICODE
+)
+
+# misin/mısın/musun/müsün/miyim/mıyım/... gibi açık soru kalıpları
+_Q_PARTICLE_WORD = re.compile(
+    r"\b(mi(sin|siniz|yim|yiz)|mı(sın|sınız|yım|yız)|mu(sun|sunuz|yum|yuz)|mü(sün|sünüz|yüm|yüz))\b",
+    flags=re.IGNORECASE | re.UNICODE
+)
+
+# soru kelimeleri (kaç hariç ayrı ele alacağız)
+_Q_WORDS = re.compile(
+    r"\b(ne|neden|niçin|nicin|nasıl|nasil|kim|hangi|nerede|nereye|nereden|ne\s*zaman)\b",
+    flags=re.IGNORECASE | re.UNICODE
+)
+
+def _has_real_kac_question(s: str) -> bool:
+    # "kaç" geçmiyorsa yok
+    if not re.search(r"\b(kaç|kac)\b", s, flags=re.IGNORECASE | re.UNICODE):
+        return False
+    # "bir kaç / birkaç" kalıbı soru değildir
+    if re.search(r"\b(bir\s+(kaç|kac)|birkaç|birkac)\b", s, flags=re.IGNORECASE | re.UNICODE):
+        return False
+    return True
+
 def _is_question_like(seg: str) -> bool:
-    """
-    Soru gibi görünen cümleyi yakala:
-    - soru kelimeleri: ne, neden, niçin, nasıl, kim, hangi, kaç, nerede, nereye, nereden, ne zaman
-    - soru eki: mı/mi/mu/mü (ayrı veya birleşik)
-    """
-    s = tr_lower(seg.strip())
-    if not s:
+    s_raw = (seg or "").strip()
+    if not s_raw:
         return False
 
     # zaten soru işareti varsa => eksik değil
-    if "?" in seg:
+    if "?" in s_raw:
+        return False
+
+    s = tr_lower(s_raw)
+
+    # "daha iyi mi bilmiyorum" gibi bildirme cümlesi => soru sayma
+    if _EMBEDDED_QUESTION_GUARDS.search(s):
         return False
 
     # soru kelimeleri
-    if re.search(r"\b(ne|neden|niçin|nicin|nasıl|nasil|kim|hangi|kaç|kac|nerede|nereye|nerden|nereden|ne\s*zaman)\b", s, flags=re.UNICODE):
+    if _Q_WORDS.search(s):
         return True
 
-    # ayrı yazılmış soru eki
+    # "kaç" sadece gerçek soruysa
+    if _has_real_kac_question(s):
+        return True
+
+    # misin/mısın/musun/müsün... açık soru kalıpları
+    if _Q_PARTICLE_WORD.search(s):
+        return True
+
+    # ayrı yazılmış mı/mi/mu/mü
     if re.search(r"\b(mı|mi|mu|mü)\b", s, flags=re.UNICODE):
         return True
 
-    # birleşik yazılmış soru eki (geliyormusun vb.)
-    if re.search(r"\b[^\W\d_]{2,}(mı|mi|mu|mü)\b", s, flags=re.UNICODE):
-        return True
-
+    # ❌ birleşik yazılmış "mi" aramasını KALDIRDIK (kalemi vb. yüzünden)
     return False
+
 
 def _last_word_span_in_segment(seg: str, global_start: int):
     """
