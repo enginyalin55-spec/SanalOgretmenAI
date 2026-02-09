@@ -475,7 +475,7 @@ def find_common_misspellings(full_text: str) -> list:
     for rx, correct, rid, expl in patterns:
         for m in rx.finditer(full_text):
             whole = full_text[m.start():m.end()]
-            errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": find_common_misspellings, "suggestion_type": "FIX", "confidence": 0.95})
+            errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 # EKSİK OLAN POSSESSIVE_HINT BURAYA EKLENDİ:
@@ -522,7 +522,7 @@ def find_conjunction_dade_joined(full_text: str) -> list:
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
-        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_40_COK", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": find_common_a2_errors, "suggestion_type": "FIX", "confidence": 0.95})
+        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_40_COK", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 def find_unnecessary_capitals(full_text: str) -> list:
