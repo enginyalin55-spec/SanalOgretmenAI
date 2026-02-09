@@ -844,13 +844,16 @@ async def analyze_submission(data: AnalyzeRequest):
             for e in all_errors:
                 span = e.get("span") or {}
                 if "start" not in span: continue
-                ocr_flag = bool(e.get("ocr_suspect", False)) or looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
+                ocr_flag = looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["ocr_suspect"] = True
-                    e["suggestion_type"] = "FLAG" # Şüpheliyse kesin düzeltme verme
+                    e["suggestion_type"] = "FLAG" 
                     errors_ocr.append(e)
                 else:
+                    e["type"] = "Yazım"
+                    e["ocr_suspect"] = False
+                    e["suggestion_type"] = "FIX"
                     errors_student.append(e)
             
             errors_student.sort(key=lambda x: x["span"]["start"])
