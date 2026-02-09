@@ -352,23 +352,44 @@ def find_missing_question_mark(full_text: str) -> list:
     return errs
 
 _MI_JOINED = re.compile(r"\b([^\W\d_]{2,})(mı|mi|mu|mü)\b", flags=re.UNICODE | re.IGNORECASE)
-_MI_FALSE_WORDS = {"kimi", "şimdi", "simdi", "resmi", "ismi", "yemi", "temi"}
+_MI_FALSE_WORDS = {
+    "kimi", "şimdi", "simdi",
+    "resmi", "ismi", "yemi", "temi",
+    "kalemi", "kremi", "çizimi", "kazimi"
+}
 def find_soru_eki_mi_joined(full_text: str) -> list:
     errs = []
-    if not full_text: return errs
+    if not full_text:
+        return errs
+
     for m in _MI_JOINED.finditer(full_text):
         whole = full_text[m.start():m.end()]
         base, mi = m.group(1), m.group(2)
-        if tr_lower(whole) in _MI_FALSE_WORDS: continue
-        if "'" in whole or "’" in whole: continue
-        
-        correct = f"{base} {mi}"
+
+        if tr_lower(whole) in _MI_FALSE_WORDS:
+            continue
+        if "'" in whole or "’" in whole:
+            continue
+
+        # ✅ Soru işareti yoksa HİÇ hata üretme (kalemi -> kale mi gibi saçmalık biter)
         has_q = _has_question_mark_in_same_sentence(full_text, m.start())
-        if has_q:
-            errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": "TDK_03_SORU_EKI_MI", "explanation": "Soru eki ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
-        else:
-            errs.append({"wrong": whole, "correct": correct, "type": "OCR_ŞÜPHELİ", "rule_id": "TDK_03_SORU_EKI_MI", "explanation": "Soru eki bitişik yazılmış olabilir (şüpheli).", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FLAG", "confidence": 0.55})
+        if not has_q:
+            continue
+
+        correct = f"{base} {mi}"
+        errs.append({
+            "wrong": whole,
+            "correct": correct,
+            "type": "Yazım",
+            "rule_id": "TDK_03_SORU_EKI_MI",
+            "explanation": "Soru eki ayrı yazılır.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": False,
+            "suggestion_type": "FIX",
+            "confidence": 0.92
+        })
     return errs
+
 
 _KI_JOINED = re.compile(r"\b([^\W\d_]{3,})(ki)\b", flags=re.UNICODE | re.IGNORECASE)
 _KI_VERBISH_ENDINGS = ("yorum", "iyorum", "ıyorum", "uyorum", "yorsun", "yor", "yordu", "yorlar", "dım", "dim", "dum", "düm", "tım", "tim", "tum", "tüm", "dın", "din", "dun", "dün", "tın", "tin", "tun", "tün", "dı", "di", "du", "dü", "tı", "ti", "tu", "tü", "mış", "miş", "muş", "müş", "acak", "ecek", "acağım", "eceğim", "acaksın", "eceksin", "malı", "meli", "malıdır", "melidir")
@@ -381,7 +402,7 @@ def find_baglac_ki_joined(full_text: str) -> list:
         if "'" in whole or "’" in whole: continue
         if tr_lower(whole) in _KI_BLACKLIST: continue
         if not any(tr_lower(base).endswith(end) for end in _KI_VERBISH_ENDINGS): continue
-        errs.append({"wrong": whole, "correct": f"{base} {ki}", "type": "Yazım", "rule_id": "TDK_02_BAGLAC_KI", "explanation": "Bağlaç olan 'ki' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.85})
+        errs.append({"wrong": whole, "correct": f"{base} {ki}", "type": "Yazım", "rule_id": "TDK_02_BAGLAC_KI", "explanation": "Bağlaç olan 'ki' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.85})
     return errs
 
 _SEY_JOINED = re.compile(r"\b([^\W\d_]{1,10})şey\b", flags=re.UNICODE | re.IGNORECASE)
@@ -394,7 +415,7 @@ def find_sey_joined(full_text: str) -> list:
         if tr_lower(whole) in {"herşey", "hersey"}: continue
         if "'" in whole or "’" in whole: continue
         if tr_lower(prefix) not in _SEY_PREFIX_OK: continue
-        errs.append({"wrong": whole, "correct": f"{prefix} şey", "type": "Yazım", "rule_id": "TDK_04_SEY_AYRI", "explanation": "'Şey' sözcüğü ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.93})
+        errs.append({"wrong": whole, "correct": f"{prefix} şey", "type": "Yazım", "rule_id": "TDK_04_SEY_AYRI", "explanation": "'Şey' sözcüğü ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.93})
     return errs
 
 _HERSEY = re.compile(r"\b(herşey|hersey)\b", flags=re.UNICODE | re.IGNORECASE)
@@ -402,7 +423,7 @@ def find_hersey_joined(full_text: str) -> list:
     errs = []
     for m in _HERSEY.finditer(full_text):
         whole = full_text[m.start():m.end()]
-        errs.append({"wrong": whole, "correct": "her şey", "type": "Yazım", "rule_id": "TDK_07_HER_SEY", "explanation": "'Her şey' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+        errs.append({"wrong": whole, "correct": "her şey", "type": "Yazım", "rule_id": "TDK_07_HER_SEY", "explanation": "'Her şey' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 _YADA = re.compile(r"\b(yada|ya-da|ya–da|ya—da)\b", flags=re.UNICODE | re.IGNORECASE)
@@ -410,7 +431,7 @@ def find_yada_joined(full_text: str) -> list:
     errs = []
     for m in _YADA.finditer(full_text):
         whole = full_text[m.start():m.end()]
-        errs.append({"wrong": whole, "correct": "ya da", "type": "Yazım", "rule_id": "TDK_06_YA_DA", "explanation": "'Ya da' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+        errs.append({"wrong": whole, "correct": "ya da", "type": "Yazım", "rule_id": "TDK_06_YA_DA", "explanation": "'Ya da' ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 _BIR_KAC = re.compile(r"\bbir\s+k(a|â)ç\b", flags=re.UNICODE | re.IGNORECASE)
@@ -418,7 +439,7 @@ def find_bir_kac_separated(full_text: str) -> list:
     errs = []
     for m in _BIR_KAC.finditer(full_text):
         whole = full_text[m.start():m.end()]
-        errs.append({"wrong": whole, "correct": "birkaç", "type": "Yazım", "rule_id": "TDK_44_BIRKAC", "explanation": "'Birkaç' bitişik yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.92})
+        errs.append({"wrong": whole, "correct": "birkaç", "type": "Yazım", "rule_id": "TDK_44_BIRKAC", "explanation": "'Birkaç' bitişik yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.92})
     return errs
 
 _HIC_BIR = re.compile(r"\bhiç\s+bir\b", flags=re.UNICODE | re.IGNORECASE)
@@ -426,7 +447,7 @@ def find_hic_bir_separated(full_text: str) -> list:
     errs = []
     for m in _HIC_BIR.finditer(full_text):
         whole = full_text[m.start():m.end()]
-        errs.append({"wrong": whole, "correct": "hiçbir", "type": "Yazım", "rule_id": "TDK_45_HICBIR", "explanation": "'Hiçbir' bitişik yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.93})
+        errs.append({"wrong": whole, "correct": "hiçbir", "type": "Yazım", "rule_id": "TDK_45_HICBIR", "explanation": "'Hiçbir' bitişik yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.93})
     return errs
 
 _PEKCOK_JOINED = re.compile(r"\bpekçok\b", flags=re.UNICODE | re.IGNORECASE)
@@ -439,7 +460,7 @@ def find_pekcok_joined(full_text: str) -> list:
             "wrong": whole, "correct": "pek çok", "type": "Yazım",
             "rule_id": "TDK_46_PEKCOK", "explanation": "'Pek çok' ayrı yazılır.",
             "span": {"start": m.start(), "end": m.end()},
-            "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95
+            "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95
         })
     return errs
 
@@ -454,26 +475,54 @@ def find_common_misspellings(full_text: str) -> list:
     for rx, correct, rid, expl in patterns:
         for m in rx.finditer(full_text):
             whole = full_text[m.start():m.end()]
-            errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+            errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": find_common_misspellings, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 # EKSİK OLAN POSSESSIVE_HINT BURAYA EKLENDİ:
 POSSESSIVE_HINT = re.compile(r"(ım|im|um|üm|ın|in|un|ün|m|n)$", re.IGNORECASE | re.UNICODE)
 
+_LOCATIVE_COMMON = {
+    "masada","evde","okulda","işte","parkta","sokakta","bahçede","odada","şehirde",
+    "dolapta","çantada","cebimde","üstünde","altında","yanında"
+}
+
 def find_conjunction_dade_joined(full_text: str) -> list:
     errs = []
+    if not full_text:
+        return errs
+
     for m in re.finditer(r"\b([^\W\d_]+)(da|de)\b", full_text, flags=re.UNICODE | re.IGNORECASE):
         base, suf = m.group(1), m.group(2)
         whole = full_text[m.start():m.end()]
-        if POSSESSIVE_HINT.search(base): continue
-        if any(ch.isupper() for ch in whole) or is_probably_proper(whole): continue
-        errs.append({"wrong": whole, "correct": f"{base} {suf}", "type": "Yazım", "rule_id": "TDK_01_BAGLAC_DE", "explanation": "Bağlaç olan da/de ayrı yazılır.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.85})
+        wlow = tr_lower(whole)
+
+        # ✅ Lokatif olanlar: masada/evde/... => bağlaç değildir
+        if wlow in _LOCATIVE_COMMON:
+            continue
+
+        if POSSESSIVE_HINT.search(base):
+            continue
+        if any(ch.isupper() for ch in whole) or is_probably_proper(whole):
+            continue
+
+        errs.append({
+            "wrong": whole,
+            "correct": f"{base} {suf}",
+            "type": "Yazım",
+            "rule_id": "TDK_01_BAGLAC_DE",
+            "explanation": "Bağlaç olan da/de ayrı yazılır.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": False,
+            "suggestion_type": "FIX",
+            "confidence": 0.80
+        })
     return errs
+
 
 def find_common_a2_errors(full_text: str) -> list:
     errs = []
     for m in re.finditer(r"\b(cok|çog|cök|coK|COk|sok)\b", full_text, flags=re.IGNORECASE):
-        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_40_COK", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": True, "suggestion_type": "FIX", "confidence": 0.95})
+        errs.append({"wrong": m.group(0), "correct": "çok", "type": "Yazım", "rule_id": "TDK_40_COK", "explanation": "‘çok’ kelimesinin yazımı.", "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": find_common_a2_errors, "suggestion_type": "FIX", "confidence": 0.95})
     return errs
 
 def find_unnecessary_capitals(full_text: str) -> list:
