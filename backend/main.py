@@ -187,7 +187,7 @@ def _has_question_mark_in_same_sentence(full_text: str, idx: int) -> bool:
     while right < n and not _SENT_END.match(full_text[right]): right += 1
     return "?" in full_text[left:right]
 
-PROPER_ROOTS = {"samsun", "karadeniz", "türkiye", "piazza", "city", "mall", "meydan", "sahil", "avm", "tramvay"}
+PROPER_ROOTS = {"samsun", "atakum", "karadeniz", "türkiye", "piazza", "city", "mall", "meydan", "sahil", "avm", "tramvay"}
 COMMON_SUFFIXES = ("dan","den","tan","ten","da","de","ta","te","a","e")
 
 def norm_token(token: str) -> str:
@@ -358,10 +358,28 @@ def _last_word_span_in_segment(seg: str, global_start: int):
     if not last:
         return None
     return (global_start + last.start(), global_start + last.end())
+def _anchor_before_comma(seg: str, global_start: int):
+    """
+    '... güzel mi, ...' gibi yapılarda ? işareti virgülden önce gelmeli.
+    Bu yüzden virgülden önceki son kelimenin span'ını döndürür.
+    """
+    comma_pos = seg.find(",")
+    if comma_pos == -1:
+        return None
+
+    left = seg[:comma_pos]
+    last = None
+    for m in re.finditer(r"\b[^\W\d_]+\b", left, flags=re.UNICODE):
+        last = m
+    if not last:
+        return None
+    return (global_start + last.start(), global_start + last.end())
 
 def find_missing_question_mark(full_text: str) -> list:
     """
     Soru gibi görünen segmentlerde '?' yoksa işaretle.
+    - Eğer segmentte virgül varsa: ? virgülden önceki kelimenin sonuna gelmeli.
+    - Yoksa: segmentin son kelimesine koy.
     """
     errs = []
     if not full_text:
@@ -374,10 +392,14 @@ def find_missing_question_mark(full_text: str) -> list:
         if not _is_question_like(seg):
             continue
 
-        # span: son kelimeyi işaretleyelim
-        wspan = _last_word_span_in_segment(seg, s0)
+        # ✅ Öncelik: virgül varsa ve soru virgülden önceyse, orayı hedefle
+        wspan = _anchor_before_comma(seg, s0)
+        if not wspan:
+            wspan = _last_word_span_in_segment(seg, s0)
+
         if not wspan:
             continue
+
         ws, we = wspan
         wrong = full_text[ws:we]
 
@@ -394,6 +416,7 @@ def find_missing_question_mark(full_text: str) -> list:
         })
 
     return errs
+
 
 _MI_JOINED = re.compile(r"\b([^\W\d_]{2,})(mı|mi|mu|mü)\b", flags=re.UNICODE | re.IGNORECASE)
 _MI_FALSE_WORDS = {
@@ -532,6 +555,11 @@ _PROPER_NO_APOS = re.compile(
     flags=re.UNICODE
 )
 
+# ✅ yanlış pozitif üreten sık kelimeler (Bugün -> Bug'ün gibi)
+_COMMON_NOT_PROPER_STEMS = {
+    "bugün", "bugun", "okul", "şehir", "sehir", "kitap", "kahve", "çay", "cay"
+}
+
 def find_missing_apostrophe_proper(full_text: str) -> list:
     errs = []
     if not full_text:
@@ -541,12 +569,24 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
         whole = full_text[m.start():m.end()]
         name, suf = m.group(1), m.group(2)
 
-        # kaba güvenlik: bugünkü/bugün vb olmasın
-        if tr_lower(name) in {"bugün", "cok", "çok"}:
-            continue
-
         # zaten kesme varsa dokunma
         if "'" in whole or "’" in whole:
+            continue
+
+        # ✅ Bugün/Okul/Şehir gibi cins isimleri ele
+        if tr_lower(name) in _COMMON_NOT_PROPER_STEMS:
+            continue
+
+        # ✅ Yer adları whitelist (PROPER_ROOTS) ya da kişi adı gibi TitleCase olmalı
+        # (Ahmetin yakalansın, ama Bugün yakalanmasın)
+        # - PROPER_ROOTS: samsun/atakum gibi
+        # - Kısa/çok genel kelimeler zaten üstte elendi
+        is_place = tr_lower(name) in PROPER_ROOTS
+
+        # kişi adları için: tek kelime TitleCase ve en az 4 harf (Ali gibi kısa isimleri şimdilik pas)
+        is_person_like = (name[:1].isupper() and name[1:].islower() and len(name) >= 4)
+
+        if not (is_place or is_person_like):
             continue
 
         errs.append({
@@ -562,6 +602,7 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
         })
 
     return errs
+
 # =======================================================
 # TDK_23: CİNS AD + KESME OLMAZ (Kitap'ı -> Kitabı)
 # =======================================================
