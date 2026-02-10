@@ -119,6 +119,7 @@ SEVERITY_BY_RULE = {
     "TDK_45_HICBIR": "MAJOR",
     "TDK_46_PEKCOK": "MAJOR",
     "TDK_47_INSALLAH": "MAJOR",
+    "TDK_20_KESME_OZEL_AD": "MAJOR",
     "TDK_31_SORU_ISARETI": "MAJOR"
 
 }
@@ -329,15 +330,22 @@ def _is_question_like(seg: str) -> bool:
         return True
 
     # misin/mısın/musun/müsün... açık soru kalıpları
-    if _Q_PARTICLE_WORD.search(s):
+    if _Q_PARTICLE_WORD.search(s_raw):
         return True
 
     # ayrı yazılmış mı/mi/mu/mü
     if re.search(r"\b(mı|mi|mu|mü)\b", s, flags=re.UNICODE):
         return True
 
-    # ❌ birleşik yazılmış "mi" aramasını KALDIRDIK (kalemi vb. yüzünden)
+    # ✅ birleşik yazılmış "mi" (güzelmi, geldimi vb.) ama false-word listesi hariç
+    m = _MI_JOINED.search(s_raw)
+    if m:
+        whole = s_raw[m.start():m.end()]
+        if tr_lower(whole) not in _MI_FALSE_WORDS:
+            return True
+
     return False
+
 
 
 def _last_word_span_in_segment(seg: str, global_start: int):
@@ -407,9 +415,12 @@ def find_soru_eki_mi_joined(full_text: str) -> list:
         if "'" in whole or "’" in whole:
             continue
 
-        # ✅ Soru işareti yoksa HİÇ hata üretme (kalemi -> kale mi gibi saçmalık biter)
+        # ✅ soru işareti yoksa bile, kelimenin hemen sonrası boundary ise izin ver:
         has_q = _has_question_mark_in_same_sentence(full_text, m.start())
-        if not has_q:
+        nxt = full_text[m.end():m.end()+1]
+        boundary_ok = (nxt == "" or nxt.isspace() or nxt in {",", ".", "!", "?", "\n", "\r", ":", ";"})
+
+        if not (has_q or boundary_ok):
             continue
 
         correct = f"{base} {mi}"
@@ -512,6 +523,88 @@ def find_common_misspellings(full_text: str) -> list:
         for m in rx.finditer(full_text):
             whole = full_text[m.start():m.end()]
             errs.append({"wrong": whole, "correct": correct, "type": "Yazım", "rule_id": rid, "explanation": expl, "span": {"start": m.start(), "end": m.end()}, "ocr_suspect": False, "suggestion_type": "FIX", "confidence": 0.95})
+    return errs
+# =======================================================
+# TDK_20: ÖZEL AD + KESME (Ahmetin -> Ahmet'in)
+# =======================================================
+_PROPER_NO_APOS = re.compile(
+    r"\b([A-ZÇĞİÖŞÜ][a-zçğıöşü]+)(in|ın|un|ün|e|a|de|da|den|dan|i|ı|u|ü)\b",
+    flags=re.UNICODE
+)
+
+def find_missing_apostrophe_proper(full_text: str) -> list:
+    errs = []
+    if not full_text:
+        return errs
+
+    for m in _PROPER_NO_APOS.finditer(full_text):
+        whole = full_text[m.start():m.end()]
+        name, suf = m.group(1), m.group(2)
+
+        # kaba güvenlik: bugünkü/bugün vb olmasın
+        if tr_lower(name) in {"bugün", "cok", "çok"}:
+            continue
+
+        # zaten kesme varsa dokunma
+        if "'" in whole or "’" in whole:
+            continue
+
+        errs.append({
+            "wrong": whole,
+            "correct": f"{name}'{suf}",
+            "type": "Yazım",
+            "rule_id": "TDK_20_KESME_OZEL_AD",
+            "explanation": "Özel isimlere gelen ekler kesme ile ayrılır.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": False,
+            "suggestion_type": "FIX",
+            "confidence": 0.85
+        })
+
+    return errs
+# =======================================================
+# TDK_23: CİNS AD + KESME OLMAZ (Kitap'ı -> Kitabı)
+# =======================================================
+_APOS_COMMON = re.compile(r"\b([^\W\d_]+)[’']([^\W\d_]+)\b", flags=re.UNICODE)
+_SOFTEN = {"p": "b", "t": "d", "k": "ğ", "ç": "c"}
+
+def _soften_if_needed(stem: str, suffix: str) -> str:
+    if not stem:
+        return stem
+    if suffix[:1] in {"a", "e", "ı", "i", "u", "ü", "A", "E", "I", "İ", "U", "Ü"}:
+        last = tr_lower(stem[-1])
+        if last in _SOFTEN:
+            return stem[:-1] + _SOFTEN[last]
+    return stem
+
+def find_apostrophe_on_common_noun(full_text: str) -> list:
+    errs = []
+    if not full_text:
+        return errs
+
+    for m in _APOS_COMMON.finditer(full_text):
+        whole = full_text[m.start():m.end()]
+        left, right = m.group(1), m.group(2)
+
+        # çok bariz özel adsa pas geç (Samsun'un gibi)
+        if tr_lower(left) in PROPER_ROOTS:
+            continue
+
+        new_left = _soften_if_needed(left, right)
+        correct = f"{new_left}{right}"
+
+        errs.append({
+            "wrong": whole,
+            "correct": correct,
+            "type": "Yazım",
+            "rule_id": "TDK_23_KESME_GENEL_YOK",
+            "explanation": "Cins isimlere gelen ekler kesme ile ayrılmaz.",
+            "span": {"start": m.start(), "end": m.end()},
+            "ocr_suspect": False,
+            "suggestion_type": "FIX",
+            "confidence": 0.85
+        })
+
     return errs
 
 # EKSİK OLAN POSSESSIVE_HINT BURAYA EKLENDİ:
@@ -702,20 +795,39 @@ def merge_and_dedupe_errors(*lists: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return merged
 
 def pick_best_per_span(errors: list) -> list:
+    # Aynı span'da birden fazla hata varsa, bazılarını diğerlerine tercih et.
+    # (Örn: soru işareti eksikliği TDK_31, "mi" ayrılması TDK_03 ile çakışınca kaybolmasın.)
+    RULE_PRIORITY = {
+        "TDK_31_SORU_ISARETI": 100,      # en öncelikli
+        "TDK_03_SORU_EKI_MI": 90,
+        "TDK_20_KESME_OZEL_AD": 80,
+        "TDK_23_KESME_GENEL_YOK": 80,
+        "TDK_12_GEREKSIZ_BUYUK": 10
+    }
+
     buckets = {}
     for e in errors:
         sp = e.get("span") or {}
         key = (sp.get("start"), sp.get("end"))
-        if None in key: continue
+        if None in key:
+            continue
         buckets.setdefault(key, []).append(e)
+
     chosen = []
     for _, items in buckets.items():
-        # Öncelik sırası eklenebilir, şimdilik basitçe ilki
-        # FLAG vs FIX durumunda FIX öncelikli olabilir
-        best = max(items, key=lambda x: 10 if x.get("suggestion_type") == "FIX" else 5)
-        chosen.append(best) 
+        def score(item):
+            rid = item.get("rule_id", "")
+            pr = RULE_PRIORITY.get(rid, 50)
+            fix = 10 if item.get("suggestion_type") == "FIX" else 0
+            conf = float(item.get("confidence", 0.0) or 0.0)
+            return (pr + fix, conf)
+
+        best = max(items, key=score)
+        chosen.append(best)
+
     chosen.sort(key=lambda x: x["span"]["start"])
     return chosen
+
 
 def cefr_fallback_scores(level: str, text: str) -> Dict[str, int]:
     t = normalize_text(text).replace("\n", " ")
@@ -907,13 +1019,15 @@ async def analyze_submission(data: AnalyzeRequest):
             rule_mi = find_soru_eki_mi_joined(full_text) # FIX + FLAG stratejisi
             rule_miss = find_common_misspellings(full_text)
             rule_qmark = find_missing_question_mark(full_text)
-
+            rule_apost_proper = find_missing_apostrophe_proper(full_text)   # TDK_20
+            rule_apost_common = find_apostrophe_on_common_noun(full_text)    # TDK_23
 
             all_errors = merge_and_dedupe_errors(
                 cleaned_tdk.get("errors", []),
                 rule_caps, rule_common, rule_dade,
                 rule_ki, rule_sey, rule_hersey, rule_yada,
                 rule_birkac, rule_hicbir, rule_pekcok, rule_mi, rule_miss,
+                rule_apost_proper, rule_apost_common,
                 rule_qmark
             )
             all_errors = pick_best_per_span(all_errors)
