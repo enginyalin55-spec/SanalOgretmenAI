@@ -156,6 +156,7 @@ def to_int(x, default=0):
             return int(clean) if clean else default
         return default
     except: return default
+import asyncio
 
 def safe_json(text: str) -> dict:
     if not text:
@@ -165,8 +166,27 @@ def safe_json(text: str) -> dict:
         return json.loads(t)
     except Exception:
         return {}
-    
 
+async def generate_json_with_retry(model_name: str, prompt: str, temperature: float, tries: int = 3, base_sleep: float = 0.6) -> dict:
+    last_err = None
+    for i in range(tries):
+        try:
+            resp = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=temperature
+                )
+            )
+            return safe_json(getattr(resp, "text", "") or "")
+        except Exception as e:
+            last_err = e
+            await asyncio.sleep(base_sleep * (2 ** i))
+    raise last_err
+
+    
 async def read_limited(upload: UploadFile, limit: int) -> bytes:
     chunks = []
     size = 0
@@ -589,7 +609,8 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
                 # ✅ Eğer yakalanan kelimenin TAMAMI zaten bilinen yer adıysa (Samsun gibi) dokunma
         if tr_lower(whole) in PROPER_ROOTS:
             continue
-
+        if name_l in _COMMON_NOT_PROPER_STEMS:
+            continue    
 
         # 1️⃣ Yer adları (whitelist)
         if name_l in PROPER_ROOTS:
@@ -1035,19 +1056,12 @@ async def analyze_submission(data: AnalyzeRequest):
     
     for model_name in MODELS_TO_TRY:
         try:
-            # TDK
-            resp_tdk = client.models.generate_content(
-                model=model_name, contents=prompt_tdk,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
-            )
-            json_tdk = safe_json(getattr(resp_tdk, "text", ""))
+            # TDK (retry ile)
+            json_tdk = await generate_json_with_retry(model_name, prompt_tdk, temperature=0.0, tries=3)
 
-            # Rubric
-            resp_rubric = client.models.generate_content(
-                model=model_name, contents=prompt_rubric,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
-            )
-            json_rubric = safe_json(getattr(resp_rubric, "text", ""))
+            # Rubric (retry ile)
+            json_rubric = await generate_json_with_retry(model_name, prompt_rubric, temperature=0.1, tries=3)
+
 
             # Puanlar (Fallback ile güvenli hale getirildi)
             p = json_rubric.get("rubric_part", {})
