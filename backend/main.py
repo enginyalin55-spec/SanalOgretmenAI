@@ -157,6 +157,16 @@ def to_int(x, default=0):
         return default
     except: return default
 
+def safe_json(text: str) -> dict:
+    if not text:
+        return {}
+    t = text.strip().replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(t)
+    except Exception:
+        return {}
+    
+
 async def read_limited(upload: UploadFile, limit: int) -> bytes:
     chunks = []
     size = 0
@@ -565,6 +575,8 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
     if not full_text:
         return errs
 
+    sentence_starts_idx = sentence_starts(full_text)
+
     for m in _PROPER_NO_APOS.finditer(full_text):
         whole = full_text[m.start():m.end()]
         name, suf = m.group(1), m.group(2)
@@ -573,20 +585,30 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
         if "'" in whole or "’" in whole:
             continue
 
-        # ✅ Bugün/Okul/Şehir gibi cins isimleri ele
-        if tr_lower(name) in _COMMON_NOT_PROPER_STEMS:
+        name_l = tr_lower(name)
+                # ✅ Eğer yakalanan kelimenin TAMAMI zaten bilinen yer adıysa (Samsun gibi) dokunma
+        if tr_lower(whole) in PROPER_ROOTS:
             continue
 
-        # ✅ Yer adları whitelist (PROPER_ROOTS) ya da kişi adı gibi TitleCase olmalı
-        # (Ahmetin yakalansın, ama Bugün yakalanmasın)
-        # - PROPER_ROOTS: samsun/atakum gibi
-        # - Kısa/çok genel kelimeler zaten üstte elendi
-        is_place = tr_lower(name) in PROPER_ROOTS
 
-        # kişi adları için: tek kelime TitleCase ve en az 4 harf (Ali gibi kısa isimleri şimdilik pas)
-        is_person_like = (name[:1].isupper() and name[1:].islower() and len(name) >= 4)
+        # 1️⃣ Yer adları (whitelist)
+        if name_l in PROPER_ROOTS:
+            is_proper = True
 
-        if not (is_place or is_person_like):
+        else:
+            # 2️⃣ Kişi adı sezgisi
+            # - Baş harf büyük
+            # - Cümle başı DEĞİL
+            # - En az 3 harf
+            is_sentence_start = m.start() in sentence_starts_idx
+            is_proper = (
+                name[0].isupper()
+                and name[1:].islower()
+                and len(name) >= 3
+                and not is_sentence_start
+            )
+
+        if not is_proper:
             continue
 
         errs.append({
@@ -602,6 +624,7 @@ def find_missing_apostrophe_proper(full_text: str) -> list:
         })
 
     return errs
+
 
 # =======================================================
 # TDK_23: CİNS AD + KESME OLMAZ (Kitap'ı -> Kitabı)
@@ -967,7 +990,9 @@ async def analyze_submission(data: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="Önce ⍰ işaretlerini düzeltin.")
 
     full_text = normalize_text(data.ocr_text)
-    display_text = full_text.replace("\n", " ")
+    # ✅ UI'da gösterilecek metin ile span hesaplanan metin birebir aynı olmalı
+    span_text = full_text.replace("\n", " ")
+    display_text = span_text
 
     print(f"🧠 Analiz: {data.student_name} ({data.level})")
 
@@ -1015,14 +1040,14 @@ async def analyze_submission(data: AnalyzeRequest):
                 model=model_name, contents=prompt_tdk,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
             )
-            json_tdk = json.loads(resp_tdk.text.strip().replace("```json", "").replace("```", "")) if resp_tdk.text else {}
+            json_tdk = safe_json(getattr(resp_tdk, "text", ""))
 
             # Rubric
             resp_rubric = client.models.generate_content(
                 model=model_name, contents=prompt_rubric,
                 config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
             )
-            json_rubric = json.loads(resp_rubric.text.strip().replace("```json", "").replace("```", "")) if resp_rubric.text else {}
+            json_rubric = safe_json(getattr(resp_rubric, "text", ""))
 
             # Puanlar (Fallback ile güvenli hale getirildi)
             p = json_rubric.get("rubric_part", {})
@@ -1044,24 +1069,24 @@ async def analyze_submission(data: AnalyzeRequest):
             total_score = sum(combined_rubric.values())
 
             # Hata İşleme (LLM + Deterministik Regex Birleşimi)
-            cleaned_tdk = validate_analysis(json_tdk, full_text, allowed_ids) # LLM hataları (filtrelenmiş)
+            cleaned_tdk = validate_analysis(json_tdk, span_text, allowed_ids) # LLM hataları (filtrelenmiş)
             
             # Deterministik TDK fonksiyonları
-            rule_caps = find_unnecessary_capitals(full_text)
-            rule_common = find_common_a2_errors(full_text)
-            rule_dade = find_conjunction_dade_joined(full_text)
-            rule_ki = find_baglac_ki_joined(full_text)
-            rule_sey = find_sey_joined(full_text)
-            rule_hersey = find_hersey_joined(full_text)
-            rule_yada = find_yada_joined(full_text)
-            rule_birkac = find_bir_kac_separated(full_text)
-            rule_hicbir = find_hic_bir_separated(full_text)
-            rule_pekcok = find_pekcok_joined(full_text)
-            rule_mi = find_soru_eki_mi_joined(full_text) # FIX + FLAG stratejisi
-            rule_miss = find_common_misspellings(full_text)
-            rule_qmark = find_missing_question_mark(full_text)
-            rule_apost_proper = find_missing_apostrophe_proper(full_text)   # TDK_20
-            rule_apost_common = find_apostrophe_on_common_noun(full_text)    # TDK_23
+            rule_caps = find_unnecessary_capitals(span_text)
+            rule_common = find_common_a2_errors(span_text)
+            rule_dade = find_conjunction_dade_joined(span_text)
+            rule_ki = find_baglac_ki_joined(span_text)
+            rule_sey = find_sey_joined(span_text)
+            rule_hersey = find_hersey_joined(span_text)
+            rule_yada = find_yada_joined(span_text)
+            rule_birkac = find_bir_kac_separated(span_text)
+            rule_hicbir = find_hic_bir_separated(span_text)
+            rule_pekcok = find_pekcok_joined(span_text)
+            rule_mi = find_soru_eki_mi_joined(span_text) # FIX + FLAG stratejisi
+            rule_miss = find_common_misspellings(span_text)
+            rule_qmark = find_missing_question_mark(span_text)
+            rule_apost_proper = find_missing_apostrophe_proper(span_text)   # TDK_20
+            rule_apost_common = find_apostrophe_on_common_noun(span_text)    # TDK_23
 
             all_errors = merge_and_dedupe_errors(
                 cleaned_tdk.get("errors", []),
@@ -1084,7 +1109,7 @@ async def analyze_submission(data: AnalyzeRequest):
             for e in all_errors:
                 span = e.get("span") or {}
                 if "start" not in span: continue
-                ocr_flag = looks_like_ocr_noise(e.get("wrong", ""), full_text, span)
+                ocr_flag = looks_like_ocr_noise(e.get("wrong", ""), span_text, span)
                 if ocr_flag:
                     e["type"] = "OCR_ŞÜPHELİ"
                     e["ocr_suspect"] = True
