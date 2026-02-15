@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.0.0")
+app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,48 +52,44 @@ MI_SUFFIX_BLACKLIST = {
     "mermi", "irmi", "vermi", "gemi", "komi"
 }
 
+# Özel İsimler (Kesme ile ayrılması gerekenler / Bölünmemesi gerekenler)
 PROPER_NOUNS_WHITELIST = {
     "türkiye", "samsun", "istanbul", "ankara", "izmir", "atatürk", "mehmet", "ahmet",
     "ayşe", "fatma", "ali", "veli", "atakum", "ilkadım", "canik", "çarşamba", "bafra",
-    "ingilizce", "türkçe", "almanca", "fransızca", "allah", "tanrı"
+    "ingilizce", "türkçe", "almanca", "fransızca", "allah", "tanrı", "mardin", "mersin"
 }
 
-# Regex Kalıpları (Word Boundary \b ile kesin eşleşme sağlar)
+# Cins İsimler (Büyük harfle yazıldıysa küçültülmesi gerekenler)
+COMMON_NOUNS = {
+    "okul", "kitap", "kalem", "masa", "sandalye", "araba", "ev", "bahçe", "şehir", 
+    "insan", "çocuk", "kadın", "adam", "sokak", "mahalle", "köy", "su", "ekmek", 
+    "çay", "kahve", "çok", "pek", "güzel", "iyi", "kötü", "büyük", "küçük"
+}
+
+# Regex Kalıpları
 PATTERNS = {
-    # Kural: "mi" soru eki her zaman ayrı yazılır. (Kelimeye bitişik mi/mı/mu/mü varsa yakalar)
     "TDK_03_SORU_EKI": re.compile(r"\b(\w{2,})(mi|mı|mu|mü)(?=[?.!,;:\s]|$)", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: "şey" her zaman ayrı yazılır. (birşey, herşey, çokşey...)
     "TDK_04_SEY_AYRI": re.compile(r"\b(\w+)şey\b", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: "ya da" ayrı yazılır. (yada)
     "TDK_06_YA_DA": re.compile(r"\byada\b", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: "her şey" ayrı yazılır.
     "TDK_07_HER_SEY": re.compile(r"\bherşey\b", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: "birkaç", "hiçbir" bitişik; "pek çok" ayrı.
     "TDK_44_BIRKAC": re.compile(r"\bbir\s+kaç\b", re.IGNORECASE | re.UNICODE),
     "TDK_45_HICBIR": re.compile(r"\bhiç\s+bir\b", re.IGNORECASE | re.UNICODE),
     "TDK_46_PEKCOK": re.compile(r"\bpekçok\b", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: Sık yapılan imla hataları
     "TDK_41_HERKES": re.compile(r"\bherkez\b", re.IGNORECASE | re.UNICODE),
     "TDK_42_YALNIZ": re.compile(r"\byanliz\b", re.IGNORECASE | re.UNICODE),
     "TDK_43_YANLIS": re.compile(r"\byanlis\b", re.IGNORECASE | re.UNICODE),
     "TDK_47_INSALLAH": re.compile(r"\binsallah\b", re.IGNORECASE | re.UNICODE),
-    
-    # Kural: Cins isimlere gelen ekler kesme ile ayrılmaz (Kitap'ı -> Kitabı)
-    # Büyük harfle başlamayan ama kesme işareti içeren kelimeler.
     "TDK_23_KESME_GENEL": re.compile(r"\b([a-zçğıöşü]{3,})'([a-zçğıöşü]+)\b", re.UNICODE)
 }
 
-# Özel İsim Regex'i: Büyük harfle başla + küçük devam et + ek al + kesme yok.
-# Örn: Ahmetin, Samsuna, Türkiyeden
+# Özel İsim Soneki Yakalayıcı (Büyük harfle başlayan kelime + ek)
 PROPER_NOUN_SUFFIX_REGEX = re.compile(
     r"\b([A-ZÇĞİÖŞÜ][a-zçğıöşü]{2,})(nin|nın|nun|nün|in|ın|un|ün|de|da|den|dan|e|a|i|ı|u|ü|le|la)\b",
     re.UNICODE
 )
+
+# Gereksiz Büyük Harf Yakalayıcı
+CAPITALIZED_WORD_REGEX = re.compile(r"\b[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\b", re.UNICODE)
 
 # =======================================================
 # 3) DATA MODELS & HELPERS
@@ -170,8 +166,9 @@ async def read_limited(upload: UploadFile, limit: int) -> bytes:
 # =======================================================
 def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
     errors = []
+    sentence_starts = get_sentence_starts(text)
     
-    # 1. STANDART REGEX HATALARI
+    # 1. STANDART REGEX HATALARI (yada, herşey...)
     for rule_id, pattern in PATTERNS.items():
         for match in pattern.finditer(text):
             whole_word = match.group(0)
@@ -181,7 +178,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 stem = match.group(1)
                 suffix = match.group(2)
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
-                    continue # Cami, mermi gibi kelimeleri geç
+                    continue 
                 correct = f"{stem} {suffix}"
                 explanation = "Soru eki 'mi/mı' her zaman ayrı yazılır."
             
@@ -189,7 +186,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 stem = match.group(1)
                 correct = f"{stem} şey"
                 explanation = "'Şey' sözcüğü her zaman ayrı yazılır."
-                
             elif rule_id == "TDK_06_YA_DA": 
                 correct = "ya da"
                 explanation = "'Ya da' bağlacı ayrı yazılır."
@@ -221,12 +217,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             elif rule_id == "TDK_23_KESME_GENEL":
                 stem = match.group(1)
                 suffix = match.group(2)
-                # Basit yumuşatma tahmini (Kitap'ı -> Kitabı)
                 correct = f"{stem}{suffix}"
-                if stem.endswith("p") and suffix[0] in "aıou": correct = f"{stem[:-1]}b{suffix}"
-                elif stem.endswith("t") and suffix[0] in "aıou": correct = f"{stem[:-1]}d{suffix}"
-                elif stem.endswith("ç") and suffix[0] in "aıou": correct = f"{stem[:-1]}c{suffix}"
-                elif stem.endswith("k") and suffix[0] in "aıou": correct = f"{stem[:-1]}ğ{suffix}"
                 explanation = "Cins isimlere gelen ekler kesme işaretiyle ayrılmaz."
 
             errors.append({
@@ -240,28 +231,71 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 "source": "RULE_BASED"
             })
 
-    # 2. ÖZEL İSİM ANALİZİ (Ahmetin -> Ahmet'in)
-    sentence_starts = get_sentence_starts(text)
-    
+    # 2. ÖZEL İSİM SONEK ANALİZİ (Ahmetin -> Ahmet'in)
+    # Ayrıca burada "Okula -> Okul'a" gibi false-positive'leri yakalayıp "Gereksiz Büyük Harf"e çeviriyoruz.
     for match in PROPER_NOUN_SUFFIX_REGEX.finditer(text):
         whole_word = match.group(0)
         stem = match.group(1)
         suffix = match.group(2)
         start_idx = match.start()
-        
         is_sentence_start = start_idx in sentence_starts
         
-        # Eğer cümle başı DEĞİLSE ve Büyük harfle başlıyorsa -> Kesin Özel İsimdir.
-        # Eğer cümle başıysa ama bilinen şehir/isim listesindeyse -> Yine Özel İsimdir.
+        # 1. Eğer kelimenin kendisi Whitelist'te ise (Örn: Samsun), bölme! (Sams'un DEME)
+        if tr_lower(whole_word) in PROPER_NOUNS_WHITELIST:
+            continue
+
+        # 2. Eğer kelimenin kökü Cins İsimse (Örn: Okul, Kitap, Şehir) -> Bu özel isim hatası değil, büyük harf hatasıdır.
+        # "Okula" -> "Okul'a" değil, "okula" olmalı.
+        if tr_lower(stem) in COMMON_NOUNS:
+            errors.append({
+                "wrong": whole_word,
+                "correct": tr_lower(whole_word),
+                "rule_id": "TDK_12_GEREKSIZ_BUYUK",
+                "span": {"start": start_idx, "end": match.end()},
+                "type": "Büyük Harf",
+                "explanation": "Cins isimler cümle ortasında küçük harfle yazılır.",
+                "confidence": 0.95,
+                "source": "RULE_BASED"
+            })
+            continue
+
+        # 3. Gerçekten Özel İsimse (Ahmetin, Samsuna) -> Kesme işareti öner.
         if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
             errors.append({
                 "wrong": whole_word,
                 "correct": f"{stem}'{suffix}",
                 "rule_id": "TDK_20_KESME_OZEL_AD",
-                "span": {"start": match.start(), "end": match.end()},
+                "span": {"start": start_idx, "end": match.end()},
                 "type": "Noktalama",
                 "explanation": "Özel isimlere gelen ekler kesme işareti ile ayrılır.",
                 "confidence": 0.95,
+                "source": "RULE_BASED"
+            })
+
+    # 3. GEREKSİZ BÜYÜK HARF TARAMASI (Ek almamış kelimeler için: Çok, Şehir vb.)
+    for match in CAPITALIZED_WORD_REGEX.finditer(text):
+        whole_word = match.group(0)
+        start_idx = match.start()
+        
+        # Cümle başıysa veya Whitelist'teyse (Ahmet, Samsun) dokunma.
+        if start_idx in sentence_starts: continue
+        if tr_lower(whole_word) in PROPER_NOUNS_WHITELIST: continue
+        
+        # Eğer bu kelime zaten yukarıdaki PROPER_NOUN_SUFFIX_REGEX ile yakalandıysa (Okula), tekrar ekleme.
+        already_found = any(e['span']['start'] == start_idx for e in errors)
+        if already_found: continue
+
+        # Geriye kalanlar potansiyel hata: "Çok", "Şehir"
+        # Eğer cins isim listesindeyse kesin hata diyebiliriz.
+        if tr_lower(whole_word) in COMMON_NOUNS:
+             errors.append({
+                "wrong": whole_word,
+                "correct": tr_lower(whole_word),
+                "rule_id": "TDK_12_GEREKSIZ_BUYUK",
+                "span": {"start": start_idx, "end": match.end()},
+                "type": "Büyük Harf",
+                "explanation": "Küçük harfle başlamalı.",
+                "confidence": 0.90,
                 "source": "RULE_BASED"
             })
 
@@ -346,27 +380,20 @@ async def analyze_submission(data: AnalyzeRequest):
     if "⍰" in data.ocr_text:
         raise HTTPException(status_code=400, detail="Önce ⍰ işaretlerini düzeltin.")
 
-    # 1. Metni Normalize Et (Unicode NFC)
     full_text = normalize_text(data.ocr_text)
-    
     print(f"🧠 HİBRİT ANALİZ BAŞLIYOR: {data.student_name} ({data.level})")
 
-    # --- AŞAMA 1: Deterministik (Kural Tabanlı - Regex) Analiz ---
-    # Bu aşama hızlıdır, kesindir ve kayma yapmaz.
+    # AŞAMA 1: Deterministik
     rule_errors = analyze_deterministic(full_text)
     
-    # --- AŞAMA 2: LLM (Yapay Zeka) Analizi ---
-    # Regex'in yakalayamadığı anlamsal bozukluklar için (glince -> gelince vb.)
-    
-    # Prompt: LLM'e sadece Regex'in bulamadığı şeyleri bulmasını söylüyoruz.
+    # AŞAMA 2: LLM
     prompt = f"""
-    GÖREV: Aşağıdaki öğrenci metnini analiz et ve TDK kurallarına göre hataları bul.
+    GÖREV: Aşağıdaki öğrenci metnini analiz et.
     
-    ÖNEMLİ KURALLAR:
-    1. Zaten bildiğin -de/-da, -ki, mi/mı, özel isim kesme hatalarını yoksayabilirsin (bunları regex ile bulduk).
-    2. Odaklanman gereken: "glince" -> "gelince" gibi kelime bozuklukları veya anlatım bozuklukları.
-    3. ASLA metni değiştirme, sadece hatalı kelimeyi ve doğrusunu JSON olarak ver.
-    4. Span (başlangıç-bitiş) veremiyorsan sadece kelimeyi ver.
+    ÖNEMLİ:
+    1. Zaten regex ile bulunan (-de/-da, -ki, mi/mı, özel isimler) hataları yoksay.
+    2. Sadece regex'in bulamadığı (glince -> gelince) gibi bozuklukları bul.
+    3. ASLA metni değiştirme, sadece JSON ver.
 
     METİN:
     {full_text}
@@ -376,7 +403,7 @@ async def analyze_submission(data: AnalyzeRequest):
     """
     
     llm_errors = []
-    # CEFR Puanları için Rubric Prompt
+    # CEFR
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
     METİN: \"\"\"{full_text}\"\"\"
@@ -389,7 +416,6 @@ async def analyze_submission(data: AnalyzeRequest):
 
     for model_name in MODELS_TO_TRY:
         try:
-            # Paralel çağrı yerine sıralı yapıyoruz (güvenlik için)
             # 1. Hata Tespiti
             resp_err = await asyncio.to_thread(
                 client.models.generate_content,
@@ -409,20 +435,16 @@ async def analyze_submission(data: AnalyzeRequest):
             )
             rubric_json = safe_json(getattr(resp_rubric, "text", "") or "")
 
-            # LLM Sonuçlarını Span ile Eşleştir (Çakışma Kontrolü)
+            # LLM Eşleştirme
             for item in raw_llm_errors:
                 wrong_word = item.get("wrong", "")
                 if not wrong_word: continue
-                
-                # Regex ile bu kelimeyi metinde bul
-                # Not: Basit search, çakışma varsa atla
                 match = re.search(re.escape(wrong_word), full_text)
                 if match:
                     is_overlap = any(
                         (match.start() < e["span"]["end"] and match.end() > e["span"]["start"])
                         for e in rule_errors
                     )
-                    
                     if not is_overlap:
                         llm_errors.append({
                             "wrong": wrong_word,
@@ -435,11 +457,9 @@ async def analyze_submission(data: AnalyzeRequest):
                             "source": "LLM"
                         })
 
-            # Sonuçları Birleştir
             all_errors = rule_errors + llm_errors
             all_errors.sort(key=lambda x: x["span"]["start"])
 
-            # Puanlama
             rb = rubric_json.get("rubric", {})
             rubric = {
                 "uzunluk": to_int(rb.get("uzunluk"), 10),
@@ -455,11 +475,11 @@ async def analyze_submission(data: AnalyzeRequest):
                 "score_total": total_score,
                 "rubric": rubric,
                 "errors": all_errors,
-                "errors_ocr": [], # Şimdilik boş, istenirse eklenir
+                "errors_ocr": [], 
                 "teacher_note": rubric_json.get("teacher_note", "Analiz tamamlandı."),
                 "ai_insight": "Hibrit analiz (Kural + YZ) tamamlandı."
             }
-            break # Başarılıysa döngüden çık
+            break
 
         except Exception as e:
             print(f"LLM Hata ({model_name}): {e}")
@@ -468,7 +488,6 @@ async def analyze_submission(data: AnalyzeRequest):
     if not final_result:
         raise HTTPException(status_code=500, detail="Analiz başarısız oldu.")
 
-    # Veritabanına Kayıt
     try:
         supabase.table("submissions").insert({
             "student_name": data.student_name,
