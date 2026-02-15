@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.1.0")
+app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,25 +45,29 @@ MAX_FILE_SIZE = 6 * 1024 * 1024
 # 2) AKADEMİK REFERANS VERİ SETLERİ VE REGEX (DESENLER)
 # =======================================================
 
-# Yanlış pozitifleri engellemek için istisna listeleri
+# Yanlış pozitifleri engellemek için istisna listeleri (Genişletildi)
 MI_SUFFIX_BLACKLIST = {
     "cami", "mami", "hami", "samimi", "kimi", "tümü", "ilhami", "resmi", "cismi",
     "ismi", "yemi", "gemisi", "sevgilisi", "kendisi", "annesi", "babası", "abisi",
-    "mermi", "irmi", "vermi", "gemi", "komi"
+    "mermi", "irmi", "vermi", "gemi", "komi", "kalemi", "problemi", "dönemi",
+    "gözlemi", "sistemi", "ailemi", "annemi", "babamı", "kardeşimi", "elimi", "evimi",
+    "gözümü", "sözümü", "yüzümü", "hacmi", "mülkiyeti", "hakimiyeti"
 }
 
-# Özel İsimler (Kesme ile ayrılması gerekenler / Bölünmemesi gerekenler)
+# Özel İsimler (Bölünmemesi gerekenler)
 PROPER_NOUNS_WHITELIST = {
     "türkiye", "samsun", "istanbul", "ankara", "izmir", "atatürk", "mehmet", "ahmet",
     "ayşe", "fatma", "ali", "veli", "atakum", "ilkadım", "canik", "çarşamba", "bafra",
-    "ingilizce", "türkçe", "almanca", "fransızca", "allah", "tanrı", "mardin", "mersin"
+    "ingilizce", "türkçe", "almanca", "fransızca", "allah", "tanrı", "mardin", "mersin",
+    "batman", "bartın", "karaman", "erzincan", "van", "muş"
 }
 
 # Cins İsimler (Büyük harfle yazıldıysa küçültülmesi gerekenler)
 COMMON_NOUNS = {
     "okul", "kitap", "kalem", "masa", "sandalye", "araba", "ev", "bahçe", "şehir", 
     "insan", "çocuk", "kadın", "adam", "sokak", "mahalle", "köy", "su", "ekmek", 
-    "çay", "kahve", "çok", "pek", "güzel", "iyi", "kötü", "büyük", "küçük"
+    "çay", "kahve", "çok", "pek", "güzel", "iyi", "kötü", "büyük", "küçük", 
+    "öğrenci", "öğretmen", "ders", "sınıf", "arkadaş", "sevgi", "saygı", "mutluluk"
 }
 
 # Regex Kalıpları
@@ -177,6 +181,8 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if rule_id == "TDK_03_SORU_EKI":
                 stem = match.group(1)
                 suffix = match.group(2)
+                # Kök + ek (kalem + i) mi yoksa (kale + mi) mi?
+                # Eğer tüm kelime blacklist'te ise (kalemi) bu bir hata değildir.
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
                     continue 
                 correct = f"{stem} {suffix}"
@@ -218,7 +224,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 stem = match.group(1)
                 suffix = match.group(2)
                 correct = f"{stem}{suffix}"
-                explanation = "Cins isimlere gelen ekler kesme işaretiyle ayrılmaz."
+                explanation = "Cins isimlere (özel isim olmayan) gelen ekler kesme işaretiyle ayrılmaz."
 
             errors.append({
                 "wrong": whole_word,
