@@ -75,7 +75,7 @@ PATTERNS = {
     "TDK_03_SORU_EKI": re.compile(r"\b(\w{2,})(mi|mı|mu|mü)(?=[?.!,;:\s]|$)", re.IGNORECASE | re.UNICODE),
     "TDK_04_SEY_AYRI": re.compile(r"\b(\w+)şey\b", re.IGNORECASE | re.UNICODE),
     "TDK_06_YA_DA": re.compile(r"\byada\b", re.IGNORECASE | re.UNICODE),
-    "TDK_07_HER_SEY": re.compile(r"\bherşey\b", re.IGNORECASE | re.UNICODE),
+    
     "TDK_44_BIRKAC": re.compile(r"\bbir\s+kaç\b", re.IGNORECASE | re.UNICODE),
     "TDK_45_HICBIR": re.compile(r"\bhiç\s+bir\b", re.IGNORECASE | re.UNICODE),
     "TDK_46_PEKCOK": re.compile(r"\bpekçok\b", re.IGNORECASE | re.UNICODE),
@@ -227,9 +227,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             elif rule_id == "TDK_06_YA_DA": 
                 correct = apply_case(whole_word, "ya da")
                 explanation = "'Ya da' bağlacı ayrı yazılır."
-            elif rule_id == "TDK_07_HER_SEY": 
-                correct = apply_case(whole_word, "her şey")
-                explanation = "'Her şey' ayrı yazılır."
+            
             elif rule_id == "TDK_44_BIRKAC": 
                 correct = apply_case(whole_word, "birkaç")
                 explanation = "'Birkaç' kelimesi bitişik yazılır."
