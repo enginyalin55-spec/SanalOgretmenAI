@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.5.0")
+app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.5.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -180,12 +180,37 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if rule_id == "TDK_03_SORU_EKI":
                 stem = match.group(1)
                 suffix = match.group(2)
+                span_end = match.end()
                 
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
                     continue 
                 
-                correct = f"{stem} {suffix}"
+                correct_str = f"{stem} {suffix}"
                 explanation = "Soru eki 'mi/mı' her zaman ayrı yazılır."
+
+                # Gelişmiş Soru İşareti Mantığı (Virgül/Nokta varsa soru işaretine çevirir)
+                next_char = text[span_end] if span_end < len(text) else ""
+                
+                if next_char in [".", ",", ";", ":"]:
+                    span_end += 1
+                    whole_word += next_char
+                    correct_str += "?"
+                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
+                elif next_char == "" or next_char in ["\n", "\r"]:
+                    correct_str += "?"
+                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
+
+                errors.append({
+                    "wrong": whole_word,
+                    "correct": correct_str,
+                    "rule_id": rule_id,
+                    "span": {"start": match.start(), "end": span_end},
+                    "type": "Yazım",
+                    "explanation": explanation,
+                    "confidence": 1.0,
+                    "source": "RULE_BASED"
+                })
+                continue
             
             elif rule_id == "TDK_04_SEY_AYRI":
                 stem = match.group(1)
@@ -312,21 +337,17 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
         
         is_question = False
         
-        # Soru eki var mı?
         if re.search(r"\b(mı|mi|mu|mü)\b", sentence, re.IGNORECASE | re.UNICODE):
             is_question = True
-        # Soru kelimesi var mı?
         elif QUESTION_WORDS.search(sentence):
             if not re.search(r"\bbir\s*kaç\b", sentence, re.IGNORECASE | re.UNICODE):
                 is_question = True
-        # Bitişik soru eki (güzelmi)
         else:
             for m in re.finditer(r"\b(\w{2,})(mi|mı|mu|mü)\b", sentence, re.IGNORECASE | re.UNICODE):
                 if tr_lower(m.group(0)) not in MI_SUFFIX_BLACKLIST:
                     is_question = True
                     break
                     
-        # "Bilmiyorum" gibi kelimeler varsa iptal et
         if is_question and EMBEDDED_QUESTION_GUARDS.search(sentence):
             is_question = False
             
@@ -335,36 +356,47 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if words:
                 punct_str = punct.strip()
                 if punct_str in [".", ",", ";", ":"]:
-                    # Noktalama işaretini hedef al
                     p_start = match.start(2) + punct.find(punct_str[0])
                     p_end = p_start + len(punct_str)
-                    errors.append({
-                        "wrong": punct_str,
-                        "correct": "?",
-                        "rule_id": "TDK_31_SORU_ISARETI",
-                        "span": {"start": p_start, "end": p_end},
-                        "type": "Noktalama",
-                        "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
-                        "confidence": 0.95,
-                        "source": "RULE_BASED"
-                    })
+                    
+                    # Eğer TDK_03 (güzelmi) kuralı bu noktalama işaretini zaten kapsıyorsa pas geç
+                    already_found = any(e['span']['start'] <= p_start and e['span']['end'] >= p_end for e in errors)
+                    if not already_found:
+                        errors.append({
+                            "wrong": punct_str,
+                            "correct": "?",
+                            "rule_id": "TDK_31_SORU_ISARETI",
+                            "span": {"start": p_start, "end": p_end},
+                            "type": "Noktalama",
+                            "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
+                            "confidence": 0.95,
+                            "source": "RULE_BASED"
+                        })
                 else:
-                    # Noktalama yoksa kelimenin sonunu hedef al
                     last_word = words[-1]
                     w_start = match.start(1) + last_word.start()
                     w_end = match.start(1) + last_word.end()
-                    errors.append({
-                        "wrong": last_word.group(0),
-                        "correct": last_word.group(0) + "?",
-                        "rule_id": "TDK_31_SORU_ISARETI",
-                        "span": {"start": w_start, "end": w_end},
-                        "type": "Noktalama",
-                        "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
-                        "confidence": 0.95,
-                        "source": "RULE_BASED"
-                    })
+                    
+                    already_found = any(e['span']['start'] <= w_start and e['span']['end'] >= w_end for e in errors)
+                    if not already_found:
+                        errors.append({
+                            "wrong": last_word.group(0),
+                            "correct": last_word.group(0) + "?",
+                            "rule_id": "TDK_31_SORU_ISARETI",
+                            "span": {"start": w_start, "end": w_end},
+                            "type": "Noktalama",
+                            "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
+                            "confidence": 0.95,
+                            "source": "RULE_BASED"
+                        })
 
-    return errors
+    filtered_rule_errors = []
+    for err in sorted(errors, key=lambda x: x['span']['start']):
+        is_overlap = any((err['span']['start'] < e['span']['end'] and err['span']['end'] > e['span']['start']) for e in filtered_rule_errors)
+        if not is_overlap:
+            filtered_rule_errors.append(err)
+            
+    return filtered_rule_errors
 
 # =======================================================
 # 5) ENDPOINTS
@@ -459,11 +491,14 @@ async def analyze_submission(data: AnalyzeRequest):
     """
     
     llm_errors = []
+    
+    # CEFR ve Öğretmen Notu için Detaylandırılmış Prompt
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
+    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. Öğrencinin seviyesine uygun, 2-3 cümlelik yapıcı ve detaylı bir değerlendirme yazısını 'teacher_note' içine yaz.
     METİN: \"\"\"{full_text}\"\"\"
     PUANLA (TOPLAM 100): Uzunluk(16), Noktalama(14), Dil Bilgisi(16), Söz Dizimi(20), Kelime(14), İçerik(20).
-    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "..." }}
+    ÇIKTI (SADECE JSON): {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Öğrenciye detaylı değerlendirme yazısı." }}
     """
 
     final_result = None
@@ -508,7 +543,7 @@ async def analyze_submission(data: AnalyzeRequest):
             all_errors = rule_errors + llm_errors
             all_errors.sort(key=lambda x: x["span"]["start"])
 
-            # ÖNEMLİ: Hata Tekrarlarını Önleyen Özet Liste (Aşağıdaki Kartlar İçin)
+            # Kartlar (UI) için tekrarsız hata listesi
             unique_error_map = {}
             for err in all_errors:
                 key = f"{err['rule_id']}_{err['wrong'].lower()}"
@@ -529,14 +564,19 @@ async def analyze_submission(data: AnalyzeRequest):
             }
             total_score = sum(rubric.values())
 
+            # YZ Değerlendirme Notu Ataması
+            yz_notu = rubric_json.get("teacher_note", "Yapay zeka değerlendirmesi tamamlandı.")
+            if yz_notu in ["...", "Öğrenciye detaylı değerlendirme yazısı."]:
+                yz_notu = "Yapay zeka değerlendirmesi başarıyla tamamlandı."
+
             final_result = {
                 "score_total": total_score,
                 "rubric": rubric,
-                "errors": all_errors,           # Metinde (Highlight) tüm tekrarlar çizilecek
-                "error_summary": error_summary, # Kartlarda sadece benzersizler görünecek
+                "errors": all_errors,           
+                "error_summary": error_summary, 
                 "errors_ocr": [], 
-                "teacher_note": rubric_json.get("teacher_note", "Analiz tamamlandı."),
-                "ai_insight": "Hibrit analiz (Kural + YZ) tamamlandı."
+                "teacher_note": yz_notu,
+                "ai_insight": yz_notu
             }
             break
 
