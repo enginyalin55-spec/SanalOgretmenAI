@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.7.0")
+app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,27 +125,6 @@ def safe_json(text: str) -> dict:
     try: return json.loads(t)
     except: return {}
 
-async def generate_json_with_retry(model_name: str, prompt: str, temperature: float = 0.1, tries: int = 3, base_sleep: float = 0.8) -> dict:
-    """API kota aşımı durumunda bekleme yaparak tekrar dener (Exponential Backoff)"""
-    last_err = None
-    for i in range(tries):
-        try:
-            resp = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=temperature
-                )
-            )
-            return safe_json(getattr(resp, "text", "") or "")
-        except Exception as e:
-            last_err = e
-            print(f"🔄 API Hatası, tekrar deneniyor ({i+1}/{tries}): {e}")
-            await asyncio.sleep(base_sleep * (2 ** i))
-    raise last_err
-
 def to_int(x, default=0):
     try:
         if x is None: return default
@@ -158,11 +137,13 @@ def to_int(x, default=0):
 
 def get_sentence_starts(text: str) -> set:
     starts = {0}
+    # Cümle başlarını (noktalama sonrası ilk harfi) kesin olarak bulur
     for match in re.finditer(r"(?:^|[.!?\n\r])\s*([^\s])", text):
         starts.add(match.start(1))
     return starts
 
 def apply_case(original: str, target: str) -> str:
+    """Öğrencinin yazdığı kelimenin büyük/küçük harf formatını korur."""
     if not original or not target: return target
     if original.istitle() or (original[0].isupper() and original[1:].islower()):
         return target.capitalize()
@@ -206,7 +187,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if rule_id == "TDK_03_SORU_EKI":
                 stem = match.group(1)
                 suffix = match.group(2)
-                span_end = match.end()
                 
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
                     continue 
@@ -214,29 +194,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 base_correct = f"{stem} {suffix}"
                 correct = apply_case(whole_word, base_correct)
                 explanation = "Soru eki 'mi/mı' her zaman ayrı yazılır."
-
-                next_char = text[span_end] if span_end < len(text) else ""
-                
-                if next_char in [".", ",", ";", ":"]:
-                    span_end += 1 
-                    whole_word += next_char 
-                    correct += "?" 
-                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
-                elif next_char == "" or next_char in ["\n", "\r"]:
-                    correct += "?"
-                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
-                
-                errors.append({
-                    "wrong": whole_word,
-                    "correct": correct,
-                    "rule_id": rule_id,
-                    "span": {"start": match.start(), "end": span_end},
-                    "type": "Yazım",
-                    "explanation": explanation,
-                    "confidence": 1.0,
-                    "source": "RULE_BASED"
-                })
-                continue
             
             elif rule_id == "TDK_04_SEY_AYRI":
                 stem = match.group(1)
@@ -329,7 +286,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 "source": "RULE_BASED"
             })
 
-    # 3. GEREKSİZ BÜYÜK HARF TARAMASI
+    # 3. GEREKSİZ BÜYÜK HARF TARAMASI (Ek almamış kelimeler: Çok, Şehir)
     for match in CAPITALIZED_WORD_REGEX.finditer(text):
         whole_word = match.group(0)
         start_idx = match.start()
@@ -384,38 +341,33 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 if punct_str in [".", ",", ";", ":"]:
                     p_start = match.start(2) + punct.find(punct_str[0])
                     p_end = p_start + len(punct_str)
-                    
-                    already_found = any(e['span']['start'] <= p_start and e['span']['end'] >= p_end for e in errors)
-                    if not already_found:
-                        errors.append({
-                            "wrong": punct_str,
-                            "correct": "?",
-                            "rule_id": "TDK_31_SORU_ISARETI",
-                            "span": {"start": p_start, "end": p_end},
-                            "type": "Noktalama",
-                            "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
-                            "confidence": 0.95,
-                            "source": "RULE_BASED"
-                        })
+                    errors.append({
+                        "wrong": punct_str,
+                        "correct": "?",
+                        "rule_id": "TDK_31_SORU_ISARETI",
+                        "span": {"start": p_start, "end": p_end},
+                        "type": "Noktalama",
+                        "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
+                        "confidence": 0.95,
+                        "source": "RULE_BASED"
+                    })
                 else:
                     last_word = words[-1]
                     w_start = match.start(1) + last_word.end() - 1
                     w_end = match.start(1) + last_word.end()
                     wrong_char = last_word.group(0)[-1]
-                    
-                    already_found = any(e['span']['start'] <= w_start and e['span']['end'] >= w_end for e in errors)
-                    if not already_found:
-                        errors.append({
-                            "wrong": wrong_char,
-                            "correct": wrong_char + "?",
-                            "rule_id": "TDK_31_SORU_ISARETI",
-                            "span": {"start": w_start, "end": w_end},
-                            "type": "Noktalama",
-                            "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
-                            "confidence": 0.95,
-                            "source": "RULE_BASED"
-                        })
+                    errors.append({
+                        "wrong": wrong_char,
+                        "correct": wrong_char + "?",
+                        "rule_id": "TDK_31_SORU_ISARETI",
+                        "span": {"start": w_start, "end": w_end},
+                        "type": "Noktalama",
+                        "explanation": "Soru cümlelerinin sonuna soru işareti (?) konmalıdır.",
+                        "confidence": 0.95,
+                        "source": "RULE_BASED"
+                    })
 
+    # Çakışan span'leri temizle (Örn: TDK_04 ve TDK_07 aynı yeri boyamaya çalışırsa)
     filtered_rule_errors = []
     for err in sorted(errors, key=lambda x: x['span']['start']):
         is_overlap = any((err['span']['start'] < e['span']['end'] and err['span']['end'] > e['span']['start']) for e in filtered_rule_errors)
@@ -517,25 +469,33 @@ async def analyze_submission(data: AnalyzeRequest):
     """
     
     llm_errors = []
-    # CEFR ve Öğretmen Notu
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
-    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. Öğrencinin seviyesine uygun, 2-3 cümlelik yapıcı ve detaylı bir değerlendirme yazısını 'teacher_note' içine yaz.
     METİN: \"\"\"{full_text}\"\"\"
     PUANLA (TOPLAM 100): Uzunluk(16), Noktalama(14), Dil Bilgisi(16), Söz Dizimi(20), Kelime(14), İçerik(20).
-    ÇIKTI (SADECE JSON): {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Öğrenciye yazılacak değerlendirme yazısı buraya gelecek." }}
+    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "..." }}
     """
 
     final_result = None
 
     for model_name in MODELS_TO_TRY:
         try:
-            # 1. Hata Tespiti (Retry ile)
-            llm_json = await generate_json_with_retry(model_name, prompt, temperature=0.1)
+            resp_err = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            llm_json = safe_json(getattr(resp_err, "text", "") or "")
             raw_llm_errors = llm_json.get("additional_errors", [])
 
-            # 2. Puanlama ve Not (Retry ile)
-            rubric_json = await generate_json_with_retry(model_name, prompt_rubric, temperature=0.2)
+            resp_rubric = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt_rubric,
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
+            )
+            rubric_json = safe_json(getattr(resp_rubric, "text", "") or "")
 
             for item in raw_llm_errors:
                 wrong_word = item.get("wrong", "")
@@ -558,6 +518,7 @@ async def analyze_submission(data: AnalyzeRequest):
             all_errors = rule_errors + llm_errors
             all_errors.sort(key=lambda x: x["span"]["start"])
 
+            # ÖNEMLİ: Hata Tekrarlarını Önleyen Özet Liste
             unique_error_map = {}
             for err in all_errors:
                 key = f"{err['rule_id']}_{err['wrong'].lower()}"
@@ -578,18 +539,14 @@ async def analyze_submission(data: AnalyzeRequest):
             }
             total_score = sum(rubric.values())
 
-            yz_notu = rubric_json.get("teacher_note", "")
-            if not yz_notu or yz_notu == "Öğrenciye yazılacak değerlendirme yazısı buraya gelecek.":
-                yz_notu = "Yapay zeka değerlendirmesi başarıyla tamamlandı."
-
             final_result = {
                 "score_total": total_score,
                 "rubric": rubric,
                 "errors": all_errors,           
                 "error_summary": error_summary, 
                 "errors_ocr": [], 
-                "teacher_note": yz_notu,
-                "ai_insight": yz_notu
+                "teacher_note": rubric_json.get("teacher_note", "Analiz tamamlandı."),
+                "ai_insight": "Hibrit analiz (Kural + YZ) tamamlandı."
             }
             break
 
@@ -598,7 +555,7 @@ async def analyze_submission(data: AnalyzeRequest):
             continue
 
     if not final_result:
-        raise HTTPException(status_code=500, detail="Analiz başarısız oldu. Lütfen tekrar deneyin.")
+        raise HTTPException(status_code=500, detail="Analiz başarısız oldu.")
 
     try:
         supabase.table("submissions").insert({
