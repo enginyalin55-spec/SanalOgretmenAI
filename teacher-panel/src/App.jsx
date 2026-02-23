@@ -1960,7 +1960,7 @@ export default function App() {
                 <p style={{ color: "#27ae60", textAlign: "center" }}>Hata bulunamadı. 🎉</p>
               )}
 
-              {(selectedSubmission.analysis_json?.errors || []).map((err, i) => {
+              {(selectedSubmission.analysis_json?.error_summary || []).map((err, i) => {
                 const ruleTitle =
                   (err?.rule_id && TDK_LOOKUP[err.rule_id]) || err?.rule_id || err?.type || "Kural";
                 return (

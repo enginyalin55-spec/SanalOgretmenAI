@@ -562,7 +562,7 @@ export default function MainScreen({ user, setUser }) {
                 </View>
 
                 {/* Öğrenci hataları */}
-                {Array.isArray(result.errors) && result.errors.map((err, index) => (
+                {Array.isArray(result.error_summary) && result.error_summary.map((err, index) => (
                   <TouchableOpacity
                     key={`stu-${index}`}
                     style={styles.errorItem}
