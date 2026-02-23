@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 client = genai.Client(api_key=API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.5.0")
+app = FastAPI(title="Sanal Ogretmen AI API - TUBITAK Hybrid Edition", version="5.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +45,6 @@ MAX_FILE_SIZE = 6 * 1024 * 1024
 # 2) AKADEMİK REFERANS VERİ SETLERİ VE REGEX (DESENLER)
 # =======================================================
 
-# Yanlış pozitifleri engellemek için istisna listeleri
 MI_SUFFIX_BLACKLIST = {
     "cami", "mami", "hami", "samimi", "kimi", "tümü", "ilhami", "resmi", "cismi",
     "ismi", "yemi", "gemisi", "sevgilisi", "kendisi", "annesi", "babası", "abisi",
@@ -69,7 +68,6 @@ COMMON_NOUNS = {
     "yemek", "bardak", "defter", "silgi", "çanta", "dolap", "kapı", "pencere"
 }
 
-# Soru işareti kuralları için regexler
 QUESTION_WORDS = re.compile(r"\b(ne|neden|niçin|nasıl|nasil|kim|hangi|nerede|nereye|nereden|kaç|kac)\b", re.IGNORECASE | re.UNICODE)
 EMBEDDED_QUESTION_GUARDS = re.compile(r"\b(bilmiyorum|emin\s+değilim|sanmıyorum|hatırlamıyorum|diyemem|diyemiyorum|anlamıyorum|bilmez|sormadım)\b", re.IGNORECASE | re.UNICODE)
 
@@ -77,7 +75,6 @@ PATTERNS = {
     "TDK_03_SORU_EKI": re.compile(r"\b(\w{2,})(mi|mı|mu|mü)(?=[?.!,;:\s]|$)", re.IGNORECASE | re.UNICODE),
     "TDK_04_SEY_AYRI": re.compile(r"\b(\w+)şey\b", re.IGNORECASE | re.UNICODE),
     "TDK_06_YA_DA": re.compile(r"\byada\b", re.IGNORECASE | re.UNICODE),
-    "TDK_07_HER_SEY": re.compile(r"\bherşey\b", re.IGNORECASE | re.UNICODE),
     "TDK_44_BIRKAC": re.compile(r"\bbir\s+kaç\b", re.IGNORECASE | re.UNICODE),
     "TDK_45_HICBIR": re.compile(r"\bhiç\s+bir\b", re.IGNORECASE | re.UNICODE),
     "TDK_46_PEKCOK": re.compile(r"\bpekçok\b", re.IGNORECASE | re.UNICODE),
@@ -140,9 +137,19 @@ def to_int(x, default=0):
 
 def get_sentence_starts(text: str) -> set:
     starts = {0}
-    for match in re.finditer(r"[.!?]\s+", text):
-        starts.add(match.end())
+    # Cümle başlarını (noktalama sonrası ilk harfi) kesin olarak bulur
+    for match in re.finditer(r"(?:^|[.!?\n\r])\s*([^\s])", text):
+        starts.add(match.start(1))
     return starts
+
+def apply_case(original: str, target: str) -> str:
+    """Öğrencinin yazdığı kelimenin büyük/küçük harf formatını korur."""
+    if not original or not target: return target
+    if original.istitle() or (original[0].isupper() and original[1:].islower()):
+        return target.capitalize()
+    if original.isupper():
+        return target.upper()
+    return target
 
 async def ensure_gcp_credentials():
     if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"): return
@@ -184,39 +191,38 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
                     continue 
                 
-                correct = f"{stem} {suffix}"
+                base_correct = f"{stem} {suffix}"
+                correct = apply_case(whole_word, base_correct)
                 explanation = "Soru eki 'mi/mı' her zaman ayrı yazılır."
             
             elif rule_id == "TDK_04_SEY_AYRI":
                 stem = match.group(1)
-                correct = f"{stem} şey"
+                base_correct = f"{stem} şey"
+                correct = apply_case(whole_word, base_correct)
                 explanation = "'Şey' sözcüğü her zaman ayrı yazılır."
             elif rule_id == "TDK_06_YA_DA": 
-                correct = "ya da"
+                correct = apply_case(whole_word, "ya da")
                 explanation = "'Ya da' bağlacı ayrı yazılır."
-            elif rule_id == "TDK_07_HER_SEY": 
-                correct = "her şey"
-                explanation = "'Her şey' ayrı yazılır."
             elif rule_id == "TDK_44_BIRKAC": 
-                correct = "birkaç"
+                correct = apply_case(whole_word, "birkaç")
                 explanation = "'Birkaç' kelimesi bitişik yazılır."
             elif rule_id == "TDK_45_HICBIR": 
-                correct = "hiçbir"
+                correct = apply_case(whole_word, "hiçbir")
                 explanation = "'Hiçbir' kelimesi bitişik yazılır."
             elif rule_id == "TDK_46_PEKCOK": 
-                correct = "pek çok"
+                correct = apply_case(whole_word, "pek çok")
                 explanation = "'Pek çok' ayrı yazılır."
             elif rule_id == "TDK_41_HERKES": 
-                correct = "herkes"
+                correct = apply_case(whole_word, "herkes")
                 explanation = "'Herkes' kelimesi 's' ile yazılır."
             elif rule_id == "TDK_42_YALNIZ": 
-                correct = "yalnız"
+                correct = apply_case(whole_word, "yalnız")
                 explanation = "Yalın kökünden gelir, 'yalnız' yazılır."
             elif rule_id == "TDK_43_YANLIS": 
-                correct = "yanlış"
+                correct = apply_case(whole_word, "yanlış")
                 explanation = "Yanılmak kökünden gelir, 'yanlış' yazılır."
             elif rule_id == "TDK_47_INSALLAH": 
-                correct = "inşallah"
+                correct = apply_case(whole_word, "inşallah")
                 explanation = "Doğru yazım 'inşallah' şeklindedir."
             
             elif rule_id == "TDK_23_KESME_GENEL":
@@ -224,11 +230,13 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 suffix = match.group(2)
                 if tr_lower(stem) not in COMMON_NOUNS and stem[0].isupper():
                     continue
-                correct = f"{stem}{suffix}"
-                if stem.endswith("p") and suffix[0] in "aıou": correct = f"{stem[:-1]}b{suffix}"
-                elif stem.endswith("t") and suffix[0] in "aıou": correct = f"{stem[:-1]}d{suffix}"
-                elif stem.endswith("ç") and suffix[0] in "aıou": correct = f"{stem[:-1]}c{suffix}"
-                elif stem.endswith("k") and suffix[0] in "aıou": correct = f"{stem[:-1]}ğ{suffix}"
+                base_correct = f"{stem}{suffix}"
+                if stem.endswith("p") and suffix[0] in "aıou": base_correct = f"{stem[:-1]}b{suffix}"
+                elif stem.endswith("t") and suffix[0] in "aıou": base_correct = f"{stem[:-1]}d{suffix}"
+                elif stem.endswith("ç") and suffix[0] in "aıou": base_correct = f"{stem[:-1]}c{suffix}"
+                elif stem.endswith("k") and suffix[0] in "aıou": base_correct = f"{stem[:-1]}ğ{suffix}"
+                
+                correct = apply_case(whole_word, base_correct)
                 explanation = "Cins isimlere (özel isim olmayan) gelen ekler kesme işaretiyle ayrılmaz."
 
             errors.append({
@@ -301,8 +309,8 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 "source": "RULE_BASED"
             })
 
-    # 4. EKSİK SORU İŞARETİ TARAMASI (CÜMLE BAZLI)
-    segment_pattern = re.compile(r'([^.!?\n,;]+)([.!?\n,;]*)', re.UNICODE)
+    # 4. EKSİK SORU İŞARETİ TARAMASI
+    segment_pattern = re.compile(r'([^.!?\n]+)([.!?\n]*)', re.UNICODE)
     for match in segment_pattern.finditer(text):
         sentence = match.group(1)
         punct = match.group(2)
@@ -312,21 +320,17 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
         
         is_question = False
         
-        # Soru eki var mı?
         if re.search(r"\b(mı|mi|mu|mü)\b", sentence, re.IGNORECASE | re.UNICODE):
             is_question = True
-        # Soru kelimesi var mı?
         elif QUESTION_WORDS.search(sentence):
             if not re.search(r"\bbir\s*kaç\b", sentence, re.IGNORECASE | re.UNICODE):
                 is_question = True
-        # Bitişik soru eki (güzelmi)
         else:
             for m in re.finditer(r"\b(\w{2,})(mi|mı|mu|mü)\b", sentence, re.IGNORECASE | re.UNICODE):
                 if tr_lower(m.group(0)) not in MI_SUFFIX_BLACKLIST:
                     is_question = True
                     break
                     
-        # "Bilmiyorum" gibi kelimeler varsa iptal et
         if is_question and EMBEDDED_QUESTION_GUARDS.search(sentence):
             is_question = False
             
@@ -335,7 +339,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if words:
                 punct_str = punct.strip()
                 if punct_str in [".", ",", ";", ":"]:
-                    # Noktalama işaretini hedef al
                     p_start = match.start(2) + punct.find(punct_str[0])
                     p_end = p_start + len(punct_str)
                     errors.append({
@@ -349,13 +352,13 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                         "source": "RULE_BASED"
                     })
                 else:
-                    # Noktalama yoksa kelimenin sonunu hedef al
                     last_word = words[-1]
-                    w_start = match.start(1) + last_word.start()
+                    w_start = match.start(1) + last_word.end() - 1
                     w_end = match.start(1) + last_word.end()
+                    wrong_char = last_word.group(0)[-1]
                     errors.append({
-                        "wrong": last_word.group(0),
-                        "correct": last_word.group(0) + "?",
+                        "wrong": wrong_char,
+                        "correct": wrong_char + "?",
                         "rule_id": "TDK_31_SORU_ISARETI",
                         "span": {"start": w_start, "end": w_end},
                         "type": "Noktalama",
@@ -364,7 +367,14 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                         "source": "RULE_BASED"
                     })
 
-    return errors
+    # Çakışan span'leri temizle (Örn: TDK_04 ve TDK_07 aynı yeri boyamaya çalışırsa)
+    filtered_rule_errors = []
+    for err in sorted(errors, key=lambda x: x['span']['start']):
+        is_overlap = any((err['span']['start'] < e['span']['end'] and err['span']['end'] > e['span']['start']) for e in filtered_rule_errors)
+        if not is_overlap:
+            filtered_rule_errors.append(err)
+            
+    return filtered_rule_errors
 
 # =======================================================
 # 5) ENDPOINTS
@@ -508,7 +518,7 @@ async def analyze_submission(data: AnalyzeRequest):
             all_errors = rule_errors + llm_errors
             all_errors.sort(key=lambda x: x["span"]["start"])
 
-            # ÖNEMLİ: Hata Tekrarlarını Önleyen Özet Liste (Aşağıdaki Kartlar İçin)
+            # ÖNEMLİ: Hata Tekrarlarını Önleyen Özet Liste
             unique_error_map = {}
             for err in all_errors:
                 key = f"{err['rule_id']}_{err['wrong'].lower()}"
@@ -532,8 +542,8 @@ async def analyze_submission(data: AnalyzeRequest):
             final_result = {
                 "score_total": total_score,
                 "rubric": rubric,
-                "errors": all_errors,           # Metinde (Highlight) tüm tekrarlar çizilecek
-                "error_summary": error_summary, # Kartlarda sadece benzersizler görünecek
+                "errors": all_errors,           
+                "error_summary": error_summary, 
                 "errors_ocr": [], 
                 "teacher_note": rubric_json.get("teacher_note", "Analiz tamamlandı."),
                 "ai_insight": "Hibrit analiz (Kural + YZ) tamamlandı."
