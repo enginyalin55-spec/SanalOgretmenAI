@@ -187,6 +187,7 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             if rule_id == "TDK_03_SORU_EKI":
                 stem = match.group(1)
                 suffix = match.group(2)
+                span_end = match.end()
                 
                 if tr_lower(whole_word) in MI_SUFFIX_BLACKLIST:
                     continue 
@@ -194,6 +195,30 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 base_correct = f"{stem} {suffix}"
                 correct = apply_case(whole_word, base_correct)
                 explanation = "Soru eki 'mi/mı' her zaman ayrı yazılır."
+
+                # Gelişmiş Soru İşareti Mantığı (Virgül, Nokta vb. dahil)
+                next_char = text[span_end] if span_end < len(text) else ""
+                
+                if next_char in [".", ",", ";", ":"]:
+                    span_end += 1 
+                    whole_word += next_char 
+                    correct += "?" 
+                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
+                elif next_char == "" or next_char in ["\n", "\r"]:
+                    correct += "?"
+                    explanation += " Ayrıca soru cümlesi olduğu için sonuna soru işareti (?) konmalıdır."
+                
+                errors.append({
+                    "wrong": whole_word,
+                    "correct": correct,
+                    "rule_id": rule_id,
+                    "span": {"start": match.start(), "end": span_end},
+                    "type": "Yazım",
+                    "explanation": explanation,
+                    "confidence": 1.0,
+                    "source": "RULE_BASED"
+                })
+                continue
             
             elif rule_id == "TDK_04_SEY_AYRI":
                 stem = match.group(1)
@@ -469,11 +494,13 @@ async def analyze_submission(data: AnalyzeRequest):
     """
     
     llm_errors = []
+    # CEFR ve Öğretmen Notu (YZ Değerlendirmesi)
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
+    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. Öğrencinin seviyesine uygun, 2-3 cümlelik yapıcı ve detaylı bir değerlendirme yazısını 'teacher_note' içine yaz.
     METİN: \"\"\"{full_text}\"\"\"
     PUANLA (TOPLAM 100): Uzunluk(16), Noktalama(14), Dil Bilgisi(16), Söz Dizimi(20), Kelime(14), İçerik(20).
-    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "..." }}
+    ÇIKTI (SADECE JSON): {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Öğrenciye yazılacak değerlendirme yazısı buraya gelecek." }}
     """
 
     final_result = None
@@ -539,14 +566,19 @@ async def analyze_submission(data: AnalyzeRequest):
             }
             total_score = sum(rubric.values())
 
+            # YZ'den gelen notu al, eğer boşsa varsayılan metin koy
+            yz_notu = rubric_json.get("teacher_note", "")
+            if not yz_notu or yz_notu == "Öğrenciye yazılacak değerlendirme yazısı buraya gelecek.":
+                yz_notu = "Yapay zeka değerlendirmesi başarıyla tamamlandı."
+
             final_result = {
                 "score_total": total_score,
                 "rubric": rubric,
                 "errors": all_errors,           
                 "error_summary": error_summary, 
                 "errors_ocr": [], 
-                "teacher_note": rubric_json.get("teacher_note", "Analiz tamamlandı."),
-                "ai_insight": "Hibrit analiz (Kural + YZ) tamamlandı."
+                "teacher_note": yz_notu,
+                "ai_insight": yz_notu # app.jsx iki alanı da okuyabildiği için ikisine de aynı dolu notu veriyoruz
             }
             break
 
