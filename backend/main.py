@@ -434,10 +434,13 @@ async def analyze_submission(data: AnalyzeRequest):
     
     prompt_rubric = f"""
     ROL: Öğretmen ({data.level}).
-    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. Öğrencinin seviyesine uygun, yapıcı ve detaylı bir değerlendirme yazısını 'teacher_note' içine yaz.
+    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. 
+    ÖNEMLİ KURALLAR:
+    1. 'teacher_note' içine öğrencinin yazısı hakkında ÇOK KISA, en fazla 3-4 cümlelik, maddeler (bullet points) İÇERMEYEN, tek bir paragraf özet yaz.
+    2. Kesinlikle uzun alt başlıklar veya listeler kullanma. Tıpkı şu örnekteki gibi genel bir özet olsun: "Öğrencinin metni genel olarak anlaşılır ve konu bütünlüğü taşımaktadır. Ancak noktalama ve büyük harf kurallarına dikkat edilmelidir."
     METİN: \"\"\"{full_text}\"\"\"
     PUANLA (TOPLAM 100): Uzunluk(16), Noktalama(14), Dil Bilgisi(16), Söz Dizimi(20), Kelime(14), İçerik(20).
-    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Detaylı değerlendirme yazısı." }}
+    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Kısa, tek paragraf genel değerlendirme özeti." }}
     """
 
     final_result = None
