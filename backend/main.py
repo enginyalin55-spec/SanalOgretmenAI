@@ -503,7 +503,9 @@ async def analyze_submission(data: AnalyzeRequest):
 
             unique_error_map = {}
             for err in all_errors:
-                key = f"{err['rule_id']}_{err['wrong'].lower()}"
+                # Kural ID'sine bakmaksızın sadece hatalı kelimeyi anahtar yapıyoruz.
+                # Böylece aynı kelime 2 farklı kuralla bulunsa bile kartlarda tek 1 kez görünür.
+                key = err['wrong'].lower().strip()
                 if key not in unique_error_map:
                     unique_error_map[key] = err
             
