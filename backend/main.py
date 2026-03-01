@@ -428,7 +428,7 @@ async def analyze_submission(data: AnalyzeRequest):
     1. ASLA birden fazla kelimeyi veya koca bir cümleyi 'wrong' olarak alma. 
     2. Sadece TEK BİR hatalı kelimeyi seç ve sadece o kelimenin doğrusunu ver.
     3. Anlatım bozukluklarını, devrik cümleleri veya OCR'ın saçmaladığı yerleri (örn: 'buldu va', 'ottobus', 'iStadyum') DÜZELTMEYE ÇALIŞMA.
-    4. Sadece basit ve bariz kelime yazım hatalarını bul (örnek: "yanlız" -> "yalnız", "çunku" -> "çünkü").
+    4. Sadece basit kelime yazım hatalarını VE cümle ortasında gereksiz yere büyük harfle yazılmış cins isimleri bul. (Örnek: "yanlız" -> "yalnız", "Şemsiye" -> "şemsiye", "Sinema" -> "sinema").
 
     METİN:
     {full_text}
