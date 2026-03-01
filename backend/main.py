@@ -285,17 +285,18 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
         start_idx = match.start()
         is_sentence_start = start_idx in sentence_starts
         
-        if tr_lower(whole_word) in PROPER_NOUNS_WHITELIST:
+        # EĞER KELİME BİZİM BELİRLEDİĞİMİZ ÖZEL İSİMLER LİSTESİNDE DEĞİLSE, DOKUNMA!
+        if tr_lower(stem) not in PROPER_NOUNS_WHITELIST:
             continue
 
-        if tr_lower(stem) in COMMON_NOUNS:
+        if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
             errors.append({
                 "wrong": whole_word,
-                "correct": tr_lower(whole_word),
-                "rule_id": "TDK_12_GEREKSIZ_BUYUK",
+                "correct": f"{stem}'{suffix}",
+                "rule_id": "TDK_20_KESME_OZEL_AD",
                 "span": {"start": start_idx, "end": match.end()},
-                "type": "Büyük Harf",
-                "explanation": "Cins isimler cümle ortasında küçük harfle yazılır.",
+                "type": "Noktalama",
+                "explanation": "Özel isimlere gelen ekler kesme işareti ile ayrılır.",
                 "confidence": 0.95,
                 "source": "RULE_BASED"
             })
@@ -422,12 +423,18 @@ async def analyze_submission(data: AnalyzeRequest):
     rule_errors = analyze_deterministic(full_text)
     
     prompt = f"""
-    GÖREV: Aşağıdaki öğrenci metnini analiz et.
-    ÖNEMLİ: Zaten regex ile bulunan (-de/-da, -ki, mi/mı, özel isimler) hataları yoksay. Sadece regex'in bulamadığı anlamsal/kök bozukluklarını bul.
+    GÖREV: Aşağıdaki metni analiz et.
+    KATI KURALLAR:
+    1. ASLA birden fazla kelimeyi veya koca bir cümleyi 'wrong' olarak alma. 
+    2. Sadece TEK BİR hatalı kelimeyi seç ve sadece o kelimenin doğrusunu ver.
+    3. Anlatım bozukluklarını, devrik cümleleri veya OCR'ın saçmaladığı yerleri (örn: 'buldu va', 'ottobus', 'iStadyum') DÜZELTMEYE ÇALIŞMA.
+    4. Sadece basit ve bariz kelime yazım hatalarını bul (örnek: "yanlız" -> "yalnız", "çunku" -> "çünkü").
+
     METİN:
     {full_text}
+
     ÇIKTI FORMATI (JSON):
-    {{ "additional_errors": [ {{ "wrong": "...", "correct": "...", "explanation": "..." }} ] }}
+    {{ "additional_errors": [ {{ "wrong": "tek_hatali_kelime", "correct": "dogru_kelime", "explanation": "Kısa açıklama." }} ] }}
     """
     
     llm_errors = []
