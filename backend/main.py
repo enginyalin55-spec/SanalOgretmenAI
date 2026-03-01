@@ -433,14 +433,30 @@ async def analyze_submission(data: AnalyzeRequest):
     llm_errors = []
     
     prompt_rubric = f"""
-    ROL: Öğretmen ({data.level}).
-    GÖREV: Aşağıdaki metni okuyup, CEFR kriterlerine göre değerlendir. 
+    ROL: Uzman Türkçe Öğretmeni ve CEFR Değerlendiricisi.
+    ÖĞRENCİ SEVİYESİ: {data.level}
+    
+    GÖREV: Aşağıdaki metni oku ve {data.level} seviyesi CEFR standartlarına ve aşağıdaki rübrik kriterlerine göre KATI ve OBJEKTİF bir şekilde puanla.
+    
+    DEĞERLENDİRME KRİTERLERİ (RÜBRİK):
+    1. Uzunluk (Maks 16 Puan): Metin {data.level} seviyesinden beklenen kelime/cümle sayısına ulaşmış mı? Metin çok kısaysa buradan orantılı şekilde puan kır.
+    2. Noktalama (Maks 14 Puan): Nokta, virgül, kesme ve soru işaretleri doğru kullanılmış mı? Her noktalama hatasında puan düş.
+    3. Dil Bilgisi (Maks 16 Puan): Ekler (-de, -den, çoğul ekleri vs.), zamanlar ve kişi uyumu {data.level} seviyesine uygun ve hatasız mı? 
+    4. Söz Dizimi (Maks 20 Puan): Türkçe cümle yapısına (Özne-Tümleç-Yüklem) uyulmuş mu? Devrik veya anlamsız cümleler varsa puan kır.
+    5. Kelime (Maks 14 Puan): Kelime çeşitliliği yeterli mi? Kelimeler doğru anlamda kullanılmış mı?
+    6. İçerik (Maks 20 Puan): Yazı konu bütünlüğü taşıyor mu? İstenen mesaj karşı tarafa net olarak iletilmiş mi?
+    
     ÖNEMLİ KURALLAR:
-    1. 'teacher_note' içine öğrencinin yazısı hakkında ÇOK KISA, en fazla 3-4 cümlelik, maddeler (bullet points) İÇERMEYEN, tek bir paragraf özet yaz.
-    2. Kesinlikle uzun alt başlıklar veya listeler kullanma. Tıpkı şu örnekteki gibi genel bir özet olsun: "Öğrencinin metni genel olarak anlaşılır ve konu bütünlüğü taşımaktadır. Ancak noktalama ve büyük harf kurallarına dikkat edilmelidir."
+    1. Hataları görmezden gelme, objektif ol. Metinde çok hata varsa puanları cömertçe verme, gerekli kesintileri yap.
+    2. 'teacher_note' içine öğrencinin yazısı hakkında ÇOK KISA, en fazla 3-4 cümlelik, maddeler İÇERMEYEN, tek bir paragraf özet yaz.
+    
     METİN: \"\"\"{full_text}\"\"\"
-    PUANLA (TOPLAM 100): Uzunluk(16), Noktalama(14), Dil Bilgisi(16), Söz Dizimi(20), Kelime(14), İçerik(20).
-    ÇIKTI: {{ "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, "teacher_note": "Kısa, tek paragraf genel değerlendirme özeti." }}
+    
+    ÇIKTI FORMATI AŞAĞIDAKİ JSON GİBİ OLMALIDIR:
+    {{ 
+      "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, 
+      "teacher_note": "Kısa, tek paragraf genel değerlendirme özeti." 
+    }}
     """
 
     final_result = None
