@@ -1003,12 +1003,26 @@ export default function App() {
     const clone = source.cloneNode(true);
     clone.classList.add("pdf-mode");
 
-    // textarea kurtarma
+    // textarea'yı esnek bir div'e çevirme (içeriğin kesilmemesi için)
     const originalTextArea = source.querySelector("textarea");
     const cloneTextArea = clone.querySelector("textarea");
     if (originalTextArea && cloneTextArea) {
-      cloneTextArea.value = originalTextArea.value;
-      cloneTextArea.innerHTML = originalTextArea.value;
+      const textDiv = document.createElement("div");
+      textDiv.innerText = originalTextArea.value || "Not girilmedi.";
+      textDiv.style.border = "1px solid #ccc";
+      textDiv.style.width = "100%";
+      textDiv.style.minHeight = "80px";
+      textDiv.style.padding = "10px";
+      textDiv.style.borderRadius = "8px";
+      textDiv.style.whiteSpace = "pre-wrap"; // Satır atlamalarını korur
+      textDiv.style.wordBreak = "break-word"; // Uzun kelimeleri alt satıra atar
+      textDiv.style.fontSize = "14px";
+      textDiv.style.color = "#000";
+      textDiv.style.backgroundColor = "#fff";
+      textDiv.style.lineHeight = "1.5";
+
+      // Klonlanmış textarea'yı yeni esnek div ile değiştiriyoruz
+      cloneTextArea.parentNode.replaceChild(textDiv, cloneTextArea);
     }
 
     // 2) wrapper
