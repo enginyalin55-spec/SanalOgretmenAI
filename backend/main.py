@@ -476,7 +476,8 @@ async def analyze_submission(data: AnalyzeRequest):
                 client.models.generate_content,
                 model=model_name,
                 contents=prompt_rubric,
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
+                # temperature değerini 0.0 yaparak puanlamayı tamamen sabitliyoruz (matematiksel kesinlik)
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
             )
             rubric_json = safe_json(getattr(resp_rubric, "text", "") or "")
 
