@@ -50,14 +50,16 @@ MI_SUFFIX_BLACKLIST = {
     "ismi", "yemi", "gemisi", "sevgilisi", "kendisi", "annesi", "babası", "abisi",
     "mermi", "irmi", "vermi", "gemi", "komi", "kalemi", "problemi", "dönemi",
     "gözlemi", "sistemi", "ailemi", "annemi", "babamı", "kardeşimi", "elimi", "evimi",
-    "gözümü", "sözümü", "yüzümü", "hacmi", "mülkiyeti", "hakimiyeti"
+    "gözümü", "sözümü", "yüzümü", "hacmi", "mülkiyeti", "hakimiyeti", 
+    "mevsimi", "seçimi", "üretimi", "tüketimi", "bölümü", "durumu"
 }
 
 PROPER_NOUNS_WHITELIST = {
     "türkiye", "samsun", "istanbul", "ankara", "izmir", "atatürk", "mehmet", "ahmet",
     "ayşe", "fatma", "ali", "veli", "atakum", "ilkadım", "canik", "çarşamba", "bafra",
     "ingilizce", "türkçe", "almanca", "fransızca", "allah", "tanrı", "mardin", "mersin",
-    "batman", "bartın", "karaman", "erzincan", "van", "muş"
+    "batman", "bartın", "karaman", "erzincan", "van", "muş", 
+    "piazza", "city", "mall"
 }
 
 COMMON_NOUNS = {
@@ -423,18 +425,21 @@ async def analyze_submission(data: AnalyzeRequest):
     rule_errors = analyze_deterministic(full_text)
     
     prompt = f"""
-    GÖREV: Aşağıdaki metni analiz et.
+    GÖREV: Aşağıdaki öğrenci metnini analiz et.
     KATI KURALLAR:
-    1. ASLA birden fazla kelimeyi veya koca bir cümleyi 'wrong' olarak alma. 
-    2. Sadece TEK BİR hatalı kelimeyi seç ve sadece o kelimenin doğrusunu ver.
-    3. Anlatım bozukluklarını, devrik cümleleri veya OCR'ın saçmaladığı yerleri (örn: 'buldu va', 'ottobus', 'iStadyum') DÜZELTMEYE ÇALIŞMA.
-    4. Sadece basit kelime yazım hatalarını VE cümle ortasında gereksiz yere büyük harfle yazılmış cins isimleri bul. (Örnek: "yanlız" -> "yalnız", "Şemsiye" -> "şemsiye", "Sinema" -> "sinema").
+    1. KISA VE NOKTA ATIŞI: Asla bütün bir cümleyi 'wrong' olarak alma. Sadece hatalı kelimeyi/tamlamayı seç ve doğrusunu ver.
+    2. OCR AYRIMI: Anlatım bozukluklarını veya makinenin uydurduğu anlamsız kelimeleri ('buldu va', 'at⍰⍰us') düzeltme, bunları 'ocr_suspects' listesine koy.
+    3. BÜYÜK HARF (CİNS İSİMLER): Cümle ortasında gereksiz büyük harfle yazılmış cins isimleri küçült. (Açıklama: "Cins isimler cümle ortasında küçük harfle başlamalıdır.")
+    4. ÖZEL İSİM VE MEKAN KORUMASI (GENEL KURAL): Alışveriş merkezleri (AVM), kafeler, markalar, yabancı kökenli yer adları ve şehir içi bilinen mekanlar (Örn: Forum, Piazza, City Mall, Meydan, Starbucks) ÖZEL İSİMDİR. Bunları ASLA küçültme! Hatta öğrenci bu özel isimlere gelen ekleri bitişik yazmışsa (örn: "Foruma", "Piazzaya") sen bunları kesme işaretiyle ayırarak düzelt (örn: "Forum'a", "Piazza'ya").
 
     METİN:
     {full_text}
 
     ÇIKTI FORMATI (JSON):
-    {{ "additional_errors": [ {{ "wrong": "tek_hatali_kelime", "correct": "dogru_kelime", "explanation": "Kısa açıklama." }} ] }}
+    {{
+      "additional_errors": [ {{ "wrong": "yanlis_kelime", "correct": "dogru_kelime", "explanation": "Açıklama" }} ],
+      "ocr_suspects": [ {{ "wrong": "anlamsiz_kelime", "correct": "anlamsiz_kelime", "explanation": "Makine bunu yanlış okumuş olabilir, kağıttan kontrol edin." }} ]
+    }}
     """
     
     llm_errors = []
