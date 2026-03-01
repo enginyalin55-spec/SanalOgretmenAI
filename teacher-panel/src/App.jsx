@@ -712,9 +712,11 @@ export default function App() {
         if (k.includes("uzun") || k.includes("len")) mappedRubric.uzunluk = val;
         else if (k.includes("nokta") || k.includes("pun")) mappedRubric.noktalama = val;
         else if (k.includes("dil") || k.includes("gra")) mappedRubric.dil_bilgisi = val;
-        else if (k.includes("söz") || k.includes("syn")) mappedRubric.soz_dizimi = val;
+        // soz_dizimi için "soz" ve "söz" kelimelerini arıyoruz
+        else if (k.includes("söz") || k.includes("soz") || k.includes("syn")) mappedRubric.soz_dizimi = val;
         else if (k.includes("keli") || k.includes("voc")) mappedRubric.kelime = val;
-        else if (k.includes("içer") || k.includes("con")) mappedRubric.icerik = val;
+        // icerik için "icer" ve "içer" kelimelerini arıyoruz
+        else if (k.includes("içer") || k.includes("icer") || k.includes("con")) mappedRubric.icerik = val;
       });
 
       setEditableRubric(mappedRubric);
