@@ -349,49 +349,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 "source": "RULE_BASED"
             })
 
-    # 4. NOKTALAMA TESPİTİ
-    # Kural: Cümle sonu kelimesinden sonra nokta olmalı, büyük harfle yeni cümle başlıyorsa
-    # Örn: "Samsun güzel Ankara da güzel" → "Samsun güzel. Ankara da güzel."
-    SENTENCE_BOUNDARY_REGEX = re.compile(
-        r"\b([a-zçğışöü]{2,})\s+([A-ZÇĞİŞÖÜ][a-zçğışöü]{2,})",
-        re.UNICODE
-    )
-    for match in SENTENCE_BOUNDARY_REGEX.finditer(text):
-        prev_word = match.group(1)
-        next_word = match.group(2)
-        match_start = match.start()
-
-        # Önceki karaktere bak — zaten noktalama işareti varsa atla
-        char_before = text[match_start - 1] if match_start > 0 else ""
-        if char_before in ".!?;:,":
-            continue
-
-        # Bağlaç veya devam kelimesi ise atla
-        if tr_lower(next_word) in {"ve", "ya", "ki", "de", "da", "ile", "ama", "fakat", 
-                                    "çünkü", "ancak", "hem", "veya", "lakin", "oysa",
-                                    "halbuki", "ne", "bir", "bu", "şu", "o"}:
-            continue
-
-        # Özel isim whitelist'te ise atla
-        if tr_lower(next_word) in PROPER_NOUNS_WHITELIST:
-            continue
-
-        # Zaten hata listesinde varsa atla
-        already_found = any(e["span"]["start"] == match_start for e in errors)
-        if already_found:
-            continue
-
-        errors.append({
-            "wrong": prev_word,
-            "correct": prev_word + ".",
-            "rule_id": "TDK_30_NOKTA_CUMLE_SONU",
-            "span": {"start": match_start, "end": match_start + len(prev_word)},
-            "type": "Noktalama",
-            "explanation": "Cümle sonu nokta ile bitmelidir.",
-            "confidence": 0.75,
-            "source": "RULE_BASED"
-        })
-
     return errors
 
 # =======================================================
