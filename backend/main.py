@@ -41,6 +41,16 @@ app.add_middleware(
 MODELS_TO_TRY = ["gemini-2.0-flash", "gemini-1.5-flash"]
 MAX_FILE_SIZE = 6 * 1024 * 1024
 
+# CEFR seviyelerine göre beklenen kelime sayısı aralıkları
+CEFR_WORD_COUNT = {
+    "A1": (30, 50),
+    "A2": (50, 80),
+    "B1": (80, 130),
+    "B2": (130, 200),
+    "C1": (200, 300),
+    "C2": (250, 350),
+}
+
 # =======================================================
 # 2) AKADEMİK REFERANS VERİ SETLERİ VE REGEX (DESENLER)
 # =======================================================
@@ -267,8 +277,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 
                 correct = apply_case(whole_word, base_correct)
                 explanation = "Cins isimlere (özel isim olmayan) gelen ekler kesme işaretiyle ayrılmaz."
-            else:
-                continue  # Tanımsız rule_id — atla, correct UnboundLocalError vermesin
 
             errors.append({
                 "wrong": whole_word,
@@ -291,6 +299,19 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
         
         # EĞER KELİME BİZİM BELİRLEDİĞİMİZ ÖZEL İSİMLER LİSTESİNDE DEĞİLSE, DOKUNMA!
         if tr_lower(stem) not in PROPER_NOUNS_WHITELIST:
+            continue
+
+        if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
+            errors.append({
+                "wrong": whole_word,
+                "correct": f"{stem}'{suffix}",
+                "rule_id": "TDK_20_KESME_OZEL_AD",
+                "span": {"start": start_idx, "end": match.end()},
+                "type": "Noktalama",
+                "explanation": "Özel isimlere gelen ekler kesme işareti ile ayrılır.",
+                "confidence": 0.95,
+                "source": "RULE_BASED"
+            })
             continue
 
         if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
@@ -432,20 +453,63 @@ async def analyze_submission(data: AnalyzeRequest):
     """
     
     llm_errors = []
-    
+
+    # Seviyeye göre beklenen kelime sayısını hesapla
+    word_count = len(full_text.split())
+    cefr_min, cefr_max = CEFR_WORD_COUNT.get(data.level.upper(), (50, 100))
+
     prompt_rubric = f"""
     ROL: Uzman Türkçe Öğretmeni ve CEFR Değerlendiricisi.
     ÖĞRENCİ SEVİYESİ: {data.level}
     
     GÖREV: Aşağıdaki metni oku ve {data.level} seviyesi CEFR standartlarına ve aşağıdaki rübrik kriterlerine göre KATI ve OBJEKTİF bir şekilde puanla.
+
+    METİNDEKİ KELIME SAYISI: {word_count} kelime
+    {data.level} SEVİYESİ İÇİN BEKLENEN KELIME SAYISI: {cefr_min}-{cefr_max} kelime
     
     DEĞERLENDİRME KRİTERLERİ (RÜBRİK):
-    1. Uzunluk (Maks 16 Puan): Metin {data.level} seviyesinden beklenen kelime/cümle sayısına ulaşmış mı? Metin çok kısaysa buradan orantılı şekilde puan kır.
-    2. Noktalama (Maks 14 Puan): Nokta, virgül, kesme ve soru işaretleri doğru kullanılmış mı? Her noktalama hatasında puan düş.
-    3. Dil Bilgisi (Maks 16 Puan): Ekler (-de, -den, çoğul ekleri vs.), zamanlar ve kişi uyumu {data.level} seviyesine uygun ve hatasız mı? 
-    4. Söz Dizimi (Maks 20 Puan): Türkçe cümle yapısına (Özne-Tümleç-Yüklem) uyulmuş mu? Devrik veya anlamsız cümleler varsa puan kır.
+    1. Uzunluk (Maks 16 Puan):
+       - 16 puan: Metinde {cefr_min}-{cefr_max} kelime aralığının TAMAMI kullanılmıştır.
+       - 12 puan: Beklenen kelime sayısına yakın kullanılmıştır.
+       - 8 puan:  Beklenen kelime sayısının hemen hemen yarısı kullanılmıştır.
+       - 4 puan:  Beklenen kelime sayısının yarısından azı kullanılmıştır.
+       - 1 puan:  Metin beklenen kelime sayısının çok altındadır.
+       Mevcut kelime sayısı ({word_count}) bu kritere göre değerlendir.
+
+    2. Noktalama (Maks 14 Puan): Nokta, virgül, kesme ve soru işaretleri doğru kullanılmış mı?
+       - 14 puan: Tüm noktalama işaretleri doğru ve yerinde.
+       - 11 puan: Hemen hemen tüm noktalama işaretleri doğru.
+       - 8 puan:  Kısmen doğru noktalama.
+       - 5 puan:  Oldukça fazla noktalama hatası.
+       - 1 puan:  Noktalama kurallarına hiç uyulmamış.
+
+    3. Dil Bilgisi (Maks 16 Puan): Ekler, zamanlar ve kişi uyumu {data.level} seviyesine uygun mu?
+       - 16 puan: Dil bilgisi kuralları tamamen doğru ve seviyeye uygun.
+       - 12 puan: Çoğunlukla doğru, seviyeye kısmen uygun.
+       - 8 puan:  Yeterince doğru ama hatalar var.
+       - 4 puan:  Çok fazla dil bilgisi hatası.
+       - 1 puan:  Dil bilgisi kurallarına hiç uyulmamış.
+
+    4. Söz Dizimi (Maks 20 Puan): Türkçe cümle yapısına (Özne-Tümleç-Yüklem) uyulmuş mu?
+       - 20 puan: Tüm cümleler Türkçe söz dizimi kurallarına uygun.
+       - 15 puan: Cümlelerin çoğu kurallı.
+       - 10 puan: Cümleler kısmen kurallı.
+       - 5 puan:  Çok fazla söz dizimi hatası.
+       - 1 puan:  Kurallı cümle neredeyse hiç yok.
+
     5. Kelime (Maks 14 Puan): Kelime çeşitliliği yeterli mi? Kelimeler doğru anlamda kullanılmış mı?
-    6. İçerik (Maks 20 Puan): Yazı konu bütünlüğü taşıyor mu? İstenen mesaj karşı tarafa net olarak iletilmiş mi?
+       - 14 puan: Kelimeler seviyeye ve konuya tamamen uygun.
+       - 11 puan: Çoğunlukla uygun kelime seçimi.
+       - 8 puan:  Yeterince uygun kelime seçimi.
+       - 5 puan:  Kısmen uygun kelime seçimi.
+       - 1 puan:  Kelimeler seviyeye ve konuya uygun değil.
+
+    6. İçerik (Maks 20 Puan): Yazı konu bütünlüğü taşıyor mu?
+       - 20 puan: İçerik konuya tamamen uygun, mesaj net iletilmiş.
+       - 15 puan: İçerik çoğunlukla konuya uygun.
+       - 10 puan: İçerik yeterince konuya uygun.
+       - 5 puan:  İçerik kısmen konuya uygun.
+       - 1 puan:  İçerik konuya uygun değil.
     
     ÖNEMLİ KURALLAR:
     1. Hataları görmezden gelme, objektif ol. Metinde çok hata varsa puanları cömertçe verme, gerekli kesintileri yap.
@@ -516,12 +580,12 @@ async def analyze_submission(data: AnalyzeRequest):
 
             rb = rubric_json.get("rubric", {})
             rubric = {
-                "uzunluk": to_int(rb.get("uzunluk"), 8),
-                "noktalama": to_int(rb.get("noktalama"), 7),
-                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 8),
-                "soz_dizimi": to_int(rb.get("soz_dizimi"), 10),
-                "kelime": to_int(rb.get("kelime"), 7),
-                "icerik": to_int(rb.get("icerik"), 10),
+                "uzunluk": to_int(rb.get("uzunluk"), 10),
+                "noktalama": to_int(rb.get("noktalama"), 10),
+                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 10),
+                "soz_dizimi": to_int(rb.get("soz_dizimi"), 15),
+                "kelime": to_int(rb.get("kelime"), 10),
+                "icerik": to_int(rb.get("icerik"), 15),
             }
             total_score = sum(rubric.values())
 
