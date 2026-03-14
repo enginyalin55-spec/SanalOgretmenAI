@@ -588,11 +588,36 @@ async def analyze_submission(data: AnalyzeRequest):
             else:
                 uzunluk_puan = 1
 
+            # Hata tipine göre dil bilgisi ve söz dizimi puanlarını kodda hesapla
+            # Sadece rule-based ve LLM_SEMANTIC hataları say, OCR kaynaklıları sayma
+            dil_hatalari = [e for e in error_summary if e.get("type") in ("Yazım", "Büyük Harf", "Noktalama") or e.get("rule_id", "").startswith("TDK_")]
+            soz_hatalari = [e for e in error_summary if e.get("rule_id") == "LLM_SEMANTIC" and e.get("type") not in ("Yazım", "Büyük Harf")]
+
+            dil_hata_orani = len(dil_hatalari) / max(word_count, 1)
+            soz_hata_orani = len(soz_hatalari) / max(word_count, 1)
+
+            # Dil Bilgisi (maks 16): hata oranına göre
+            if dil_hata_orani == 0:
+                dil_bilgisi_puan = 16
+            elif dil_hata_orani <= 0.03:
+                dil_bilgisi_puan = 12
+            elif dil_hata_orani <= 0.07:
+                dil_bilgisi_puan = 8
+            elif dil_hata_orani <= 0.12:
+                dil_bilgisi_puan = 4
+            else:
+                dil_bilgisi_puan = 1
+
+            # Söz Dizimi (maks 20): LLM puanını baz al ama OCR etkisini sınırla
+            # LLM'in verdiği puanı al, ama minimum 8 olsun (OCR bozukluğu cezası engellensin)
+            llm_soz = to_int(rb.get("soz_dizimi"), 10)
+            soz_dizimi_puan = max(llm_soz, 8) if word_count >= cefr_min else llm_soz
+
             rubric = {
                 "uzunluk": uzunluk_puan,
                 "noktalama": to_int(rb.get("noktalama"), 7),
-                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 8),
-                "soz_dizimi": to_int(rb.get("soz_dizimi"), 10),
+                "dil_bilgisi": dil_bilgisi_puan,
+                "soz_dizimi": soz_dizimi_puan,
                 "kelime": to_int(rb.get("kelime"), 7),
                 "icerik": to_int(rb.get("icerik"), 10),
             }
