@@ -350,40 +350,42 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
             })
 
     # 4. NOKTALAMA TESPİTİ
-    # Kural: Büyük harfle başlayan yeni cümle öncesinde noktalama işareti olmalı
+    # Kural: Cümle sonu kelimesinden sonra nokta olmalı, büyük harfle yeni cümle başlıyorsa
     # Örn: "Samsun güzel Ankara da güzel" → "Samsun güzel. Ankara da güzel."
-    SENTENCE_START_REGEX = re.compile(
-        r"([a-zçğışöü,])(\s+)([A-ZÇĞİŞÖÜ][a-zçğışöü])",
+    SENTENCE_BOUNDARY_REGEX = re.compile(
+        r"\b([a-zçğışöü]{2,})\s+([A-ZÇĞİŞÖÜ][a-zçğışöü]{2,})",
         re.UNICODE
     )
-    for match in SENTENCE_START_REGEX.finditer(text):
-        prev_char = match.group(1)
-        next_word_start = match.start(3)
+    for match in SENTENCE_BOUNDARY_REGEX.finditer(text):
+        prev_word = match.group(1)
+        next_word = match.group(2)
+        match_start = match.start()
 
-        # Virgülden sonra büyük harf — zaten virgül var, sadece nokta eksik sayma
-        if prev_char == ",":
+        # Önceki karaktere bak — zaten noktalama işareti varsa atla
+        char_before = text[match_start - 1] if match_start > 0 else ""
+        if char_before in ".!?;:,":
             continue
 
-        # Önceki karakter zaten noktalama işaretiyse atla
-        if prev_char in ".!?;:":
+        # Bağlaç veya devam kelimesi ise atla
+        if tr_lower(next_word) in {"ve", "ya", "ki", "de", "da", "ile", "ama", "fakat", 
+                                    "çünkü", "ancak", "hem", "veya", "lakin", "oysa",
+                                    "halbuki", "ne", "bir", "bu", "şu", "o"}:
             continue
 
-        # Kısa bağlaç kelimeleri büyük harfle başlayabilir — atla
-        next_word = match.group(3)
-        if tr_lower(next_word) in {"ve", "ya", "ki", "de", "da", "ile", "ama", "fakat", "çünkü", "ancak", "hem"}:
+        # Özel isim whitelist'te ise atla
+        if tr_lower(next_word) in PROPER_NOUNS_WHITELIST:
             continue
 
         # Zaten hata listesinde varsa atla
-        already_found = any(e["span"]["start"] == match.start() for e in errors)
+        already_found = any(e["span"]["start"] == match_start for e in errors)
         if already_found:
             continue
 
-        wrong_span = text[match.start():match.start(3)]
         errors.append({
-            "wrong": wrong_span.strip(),
-            "correct": prev_char + ".",
+            "wrong": prev_word,
+            "correct": prev_word + ".",
             "rule_id": "TDK_30_NOKTA_CUMLE_SONU",
-            "span": {"start": match.start(), "end": match.start(3)},
+            "span": {"start": match_start, "end": match_start + len(prev_word)},
             "type": "Noktalama",
             "explanation": "Cümle sonu nokta ile bitmelidir.",
             "confidence": 0.75,
