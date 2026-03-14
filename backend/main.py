@@ -349,6 +349,47 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 "source": "RULE_BASED"
             })
 
+    # 4. NOKTALAMA TESPİTİ
+    # Kural: Büyük harfle başlayan yeni cümle öncesinde noktalama işareti olmalı
+    # Örn: "Samsun güzel Ankara da güzel" → "Samsun güzel. Ankara da güzel."
+    SENTENCE_START_REGEX = re.compile(
+        r"([a-zçğışöü,])(\s+)([A-ZÇĞİŞÖÜ][a-zçğışöü])",
+        re.UNICODE
+    )
+    for match in SENTENCE_START_REGEX.finditer(text):
+        prev_char = match.group(1)
+        next_word_start = match.start(3)
+
+        # Virgülden sonra büyük harf — zaten virgül var, sadece nokta eksik sayma
+        if prev_char == ",":
+            continue
+
+        # Önceki karakter zaten noktalama işaretiyse atla
+        if prev_char in ".!?;:":
+            continue
+
+        # Kısa bağlaç kelimeleri büyük harfle başlayabilir — atla
+        next_word = match.group(3)
+        if tr_lower(next_word) in {"ve", "ya", "ki", "de", "da", "ile", "ama", "fakat", "çünkü", "ancak", "hem"}:
+            continue
+
+        # Zaten hata listesinde varsa atla
+        already_found = any(e["span"]["start"] == match.start() for e in errors)
+        if already_found:
+            continue
+
+        wrong_span = text[match.start():match.start(3)]
+        errors.append({
+            "wrong": wrong_span.strip(),
+            "correct": prev_char + ".",
+            "rule_id": "TDK_30_NOKTA_CUMLE_SONU",
+            "span": {"start": match.start(), "end": match.start(3)},
+            "type": "Noktalama",
+            "explanation": "Cümle sonu nokta ile bitmelidir.",
+            "confidence": 0.75,
+            "source": "RULE_BASED"
+        })
+
     return errors
 
 # =======================================================
