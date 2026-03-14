@@ -438,9 +438,10 @@ async def analyze_submission(data: AnalyzeRequest):
     GÖREV: Aşağıdaki öğrenci metnini analiz et.
     KATI KURALLAR:
     1. KISA VE NOKTA ATIŞI: Asla bütün bir cümleyi 'wrong' olarak alma. Sadece hatalı kelimeyi/tamlamayı seç ve doğrusunu ver.
-    2. OCR AYRIMI: Anlatım bozukluklarını veya makinenin uydurduğu anlamsız kelimeleri ('buldu va', 'at⍰⍰us') düzeltme, bunları 'ocr_suspects' listesine koy.
+    2. OCR AYRIMI: Metinde OCR (optik karakter tanıma) kaynaklı bozuk veya anlamsız kelimeler olabilir (örn: 'buldu va', 'Sam Sunda', 'at⍰⍰us'). Bu tür anlamsız kelimeleri hata olarak işaretleme, 'ocr_suspects' listesine koy. Sadece gerçek öğrenci hatalarını değerlendir.
     3. BÜYÜK HARF (CİNS İSİMLER): Cümle ortasında gereksiz büyük harfle yazılmış cins isimleri küçült. (Açıklama: "Cins isimler cümle ortasında küçük harfle başlamalıdır.")
     4. ÖZEL İSİM VE MEKAN KORUMASI (GENEL KURAL): Alışveriş merkezleri (AVM), kafeler, markalar, yabancı kökenli yer adları ve şehir içi bilinen mekanlar (Örn: Forum, Piazza, City Mall, Meydan, Starbucks) ÖZEL İSİMDİR. Bunları ASLA küçültme! Hatta öğrenci bu özel isimlere gelen ekleri bitişik yazmışsa (örn: "Foruma", "Piazzaya") sen bunları kesme işaretiyle ayırarak düzelt (örn: "Forum'a", "Piazza'ya").
+    5. KELİME DOĞRULUĞU: Kelimelerin sadece yazımını değil, Türkçedeki doğru biçimini de kontrol et. Yabancı kökenli kelimelerin yanlış yazımını da yakala (örn: 'istadyum' → 'stadyum', 'ötobüs' → 'otobüs'). Öğrencinin ana dili farklı olabilir, bu nedenle her türlü yanlış kelime kullanımına dikkat et.
 
     METİN:
     {full_text}
@@ -514,6 +515,7 @@ async def analyze_submission(data: AnalyzeRequest):
     ÖNEMLİ KURALLAR:
     1. Hataları görmezden gelme, objektif ol. Metinde çok hata varsa puanları cömertçe verme, gerekli kesintileri yap.
     2. 'teacher_note' içine öğrencinin yazısı hakkında ÇOK KISA, en fazla 3-4 cümlelik, maddeler İÇERMEYEN, tek bir paragraf özet yaz.
+    3. OCR UYARISI: Metinde 'Sam Sunda', 'buldu va' gibi OCR kaynaklı bozuk kelimeler olabilir. Bunları öğrencinin hatası sayma, puanlamada dikkate alma. Sadece gerçek öğrenci hatalarını değerlendir.
     
     METİN: \"\"\"{full_text}\"\"\"
     
