@@ -469,15 +469,9 @@ async def analyze_submission(data: AnalyzeRequest):
     {data.level} SEVİYESİ İÇİN BEKLENEN KELIME SAYISI: {cefr_min}-{cefr_max} kelime
     
     DEĞERLENDİRME KRİTERLERİ (RÜBRİK):
-    1. Uzunluk (Maks 16 Puan):
-       - 16 puan: Metinde {cefr_min}-{cefr_max} kelime aralığının TAMAMI kullanılmıştır.
-       - 12 puan: Beklenen kelime sayısına yakın kullanılmıştır.
-       - 8 puan:  Beklenen kelime sayısının hemen hemen yarısı kullanılmıştır.
-       - 4 puan:  Beklenen kelime sayısının yarısından azı kullanılmıştır.
-       - 1 puan:  Metin beklenen kelime sayısının çok altındadır.
-       Mevcut kelime sayısı ({word_count}) bu kritere göre değerlendir.
+    NOT: Uzunluk puanı sistem tarafından otomatik hesaplanmaktadır, sen sadece aşağıdaki 5 kriteri puanla.
 
-    2. Noktalama (Maks 14 Puan): Nokta, virgül, kesme ve soru işaretleri doğru kullanılmış mı?
+    1. Noktalama (Maks 14 Puan): Nokta, virgül, kesme ve soru işaretleri doğru kullanılmış mı?
        - 14 puan: Tüm noktalama işaretleri doğru ve yerinde.
        - 11 puan: Hemen hemen tüm noktalama işaretleri doğru.
        - 8 puan:  Kısmen doğru noktalama.
@@ -521,7 +515,7 @@ async def analyze_submission(data: AnalyzeRequest):
     
     ÇIKTI FORMATI AŞAĞIDAKİ JSON GİBİ OLMALIDIR:
     {{ 
-      "rubric": {{ "uzunluk": 0, "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, 
+      "rubric": {{ "noktalama": 0, "dil_bilgisi": 0, "soz_dizimi": 0, "kelime": 0, "icerik": 0 }}, 
       "teacher_note": "Kısa, tek paragraf genel değerlendirme özeti." 
     }}
     """
@@ -581,13 +575,26 @@ async def analyze_submission(data: AnalyzeRequest):
             error_summary.sort(key=lambda x: x["span"]["start"])
 
             rb = rubric_json.get("rubric", {})
+
+            # Uzunluk puanını kodda hesapla — LLM'e bırakma
+            if word_count >= cefr_max:
+                uzunluk_puan = 16
+            elif word_count >= cefr_min:
+                uzunluk_puan = 12
+            elif word_count >= cefr_min * 0.75:
+                uzunluk_puan = 8
+            elif word_count >= cefr_min * 0.5:
+                uzunluk_puan = 4
+            else:
+                uzunluk_puan = 1
+
             rubric = {
-                "uzunluk": to_int(rb.get("uzunluk"), 10),
-                "noktalama": to_int(rb.get("noktalama"), 10),
-                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 10),
-                "soz_dizimi": to_int(rb.get("soz_dizimi"), 15),
-                "kelime": to_int(rb.get("kelime"), 10),
-                "icerik": to_int(rb.get("icerik"), 15),
+                "uzunluk": uzunluk_puan,
+                "noktalama": to_int(rb.get("noktalama"), 7),
+                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 8),
+                "soz_dizimi": to_int(rb.get("soz_dizimi"), 10),
+                "kelime": to_int(rb.get("kelime"), 7),
+                "icerik": to_int(rb.get("icerik"), 10),
             }
             total_score = sum(rubric.values())
 
