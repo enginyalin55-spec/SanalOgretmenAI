@@ -267,6 +267,8 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
                 
                 correct = apply_case(whole_word, base_correct)
                 explanation = "Cins isimlere (özel isim olmayan) gelen ekler kesme işaretiyle ayrılmaz."
+            else:
+                continue  # Tanımsız rule_id — atla, correct UnboundLocalError vermesin
 
             errors.append({
                 "wrong": whole_word,
@@ -289,19 +291,6 @@ def analyze_deterministic(text: str) -> List[Dict[str, Any]]:
         
         # EĞER KELİME BİZİM BELİRLEDİĞİMİZ ÖZEL İSİMLER LİSTESİNDE DEĞİLSE, DOKUNMA!
         if tr_lower(stem) not in PROPER_NOUNS_WHITELIST:
-            continue
-
-        if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
-            errors.append({
-                "wrong": whole_word,
-                "correct": f"{stem}'{suffix}",
-                "rule_id": "TDK_20_KESME_OZEL_AD",
-                "span": {"start": start_idx, "end": match.end()},
-                "type": "Noktalama",
-                "explanation": "Özel isimlere gelen ekler kesme işareti ile ayrılır.",
-                "confidence": 0.95,
-                "source": "RULE_BASED"
-            })
             continue
 
         if (not is_sentence_start) or (tr_lower(stem) in PROPER_NOUNS_WHITELIST):
@@ -527,12 +516,12 @@ async def analyze_submission(data: AnalyzeRequest):
 
             rb = rubric_json.get("rubric", {})
             rubric = {
-                "uzunluk": to_int(rb.get("uzunluk"), 10),
-                "noktalama": to_int(rb.get("noktalama"), 10),
-                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 10),
-                "soz_dizimi": to_int(rb.get("soz_dizimi"), 15),
-                "kelime": to_int(rb.get("kelime"), 10),
-                "icerik": to_int(rb.get("icerik"), 15),
+                "uzunluk": to_int(rb.get("uzunluk"), 8),
+                "noktalama": to_int(rb.get("noktalama"), 7),
+                "dil_bilgisi": to_int(rb.get("dil_bilgisi"), 8),
+                "soz_dizimi": to_int(rb.get("soz_dizimi"), 10),
+                "kelime": to_int(rb.get("kelime"), 7),
+                "icerik": to_int(rb.get("icerik"), 10),
             }
             total_score = sum(rubric.values())
 
