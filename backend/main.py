@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
+from google.cloud import vision
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os, json, uuid, re
@@ -161,6 +162,16 @@ def apply_case(original: str, target: str) -> str:
     if original.isupper():
         return target.upper()
     return target
+
+async def ensure_gcp_credentials():
+    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"): return
+    key_json = os.getenv("GCP_SA_KEY_JSON", "").strip()
+    if not key_json: return
+    try:
+        path = "/tmp/gcp_sa.json"
+        with open(path, "w", encoding="utf-8") as f: f.write(key_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+    except: pass
 
 async def read_limited(upload: UploadFile, limit: int) -> bytes:
     chunks = []
@@ -355,9 +366,9 @@ async def check_class_code(code: str):
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...)):
     try:
+        await ensure_gcp_credentials()
         file_content = await read_limited(file, MAX_FILE_SIZE)
-        mime_type = file.content_type or "image/jpeg"
-
+        
         filename = f"{uuid.uuid4()}.jpg"
         image_url = ""
         try:
@@ -365,38 +376,50 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
             image_url = supabase.storage.from_("odevler").get_public_url(filename)
         except: pass
 
-        prompt = (
-            "Bu el yazısı görselindeki metni harfi harfine oku. "
-            "Emin olmadığın veya okuyamadığın her karakter için ⍰ yaz. "
-            "Kelimeleri tahmin etme, tamamlama, bağlamdan anlam çıkarma, Türkçe bilginle düzeltme yapma. "
-            "Sadece gördüğünü yaz."
-        )
+        try: vision_client = vision.ImageAnnotatorClient()
+        except: return {"status": "error", "message": "Vision API Hatası"}
 
-        ocr_text = ""
-        for model_name in MODELS_TO_TRY:
-            try:
-                resp = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=model_name,
-                    contents=[
-                        types.Part.from_bytes(data=file_content, mime_type=mime_type),
-                        prompt,
-                    ]
-                )
-                ocr_text = (getattr(resp, "text", "") or "").strip()
-                if ocr_text:
-                    break
-            except Exception as e:
-                print(f"Gemini OCR Hata ({model_name}): {e}")
-                continue
+        image = vision.Image(content=file_content)
+        context = vision.ImageContext(language_hints=["tr"])
+        response = vision_client.document_text_detection(image=image, image_context=context)
+        if response.error.message: return {"status": "error", "message": response.error.message}
 
-        if not ocr_text:
-            return {"status": "error", "message": "OCR başarısız oldu."}
+        CONFIDENCE_THRESHOLD = 0.75
+        masked_parts, raw_parts = [], []
+        PUNCTUATION = set(".,;:!?\"'’`()-–—…")
 
-        ocr_text = unicodedata.normalize("NFC", ocr_text)
-        raw_ocr_text = unicodedata.normalize("NFC", ocr_text)
+        def append_break(break_type_val: int):
+            if not break_type_val: return
+            if break_type_val in (1, 2):
+                masked_parts.append(" "); raw_parts.append(" ")
+            elif break_type_val in (3, 5):
+                masked_parts.append("\n"); raw_parts.append("\n")
 
-        return {"status": "success", "ocr_text": ocr_text, "raw_ocr_text": raw_ocr_text, "image_url": image_url}
+        for page in response.full_text_annotation.pages:
+            for block in page.blocks:
+                for paragraph in block.paragraphs:
+                    for word in paragraph.words:
+                        for symbol in word.symbols:
+                            ch = symbol.text or ""
+                            conf = getattr(symbol, "confidence", 1.0)
+                            raw_parts.append(ch)
+                            if ch in PUNCTUATION: masked_parts.append(ch)
+                            elif ch.isalpha(): masked_parts.append("⍰" if conf < CONFIDENCE_THRESHOLD else ch)
+                            else: masked_parts.append(ch)
+                            prop = getattr(symbol, "property", None)
+                            db = getattr(prop, "detected_break", None) if prop else None
+                            if db: append_break(int(getattr(db, "type_", getattr(db, "type", 0))))
+
+        raw_text = unicodedata.normalize("NFC", "".join(raw_parts).strip())
+        masked_text = unicodedata.normalize("NFC", "".join(masked_parts).strip())
+
+        def force_suspect(t: str) -> str:
+            t = re.sub(r"\b[gG]ok\b", lambda m: "⍰"+m.group(0)[1:], t)
+            return re.sub(r"\b[gG]ay\b", lambda m: "⍰"+m.group(0)[1:], t)
+        
+        masked_text = force_suspect(masked_text)
+
+        return {"status": "success", "ocr_text": masked_text, "raw_ocr_text": raw_text, "image_url": image_url}
     except Exception as e: return {"status": "error", "message": str(e)}
 
 @app.post("/analyze")
