@@ -384,7 +384,7 @@ async def ocr_image(file: UploadFile = File(...), classroom_code: str = Form(...
         response = vision_client.document_text_detection(image=image, image_context=context)
         if response.error.message: return {"status": "error", "message": response.error.message}
 
-        CONFIDENCE_THRESHOLD = 0.40
+        CONFIDENCE_THRESHOLD = 0.75
         masked_parts, raw_parts = [], []
         PUNCTUATION = set(".,;:!?\"'’`()-–—…")
 
