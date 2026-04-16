@@ -15,7 +15,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const TDK_LOOKUP = {
   "TDK_01_BAGLAC_DE": "Bağlaç olan 'da/de' ayrı yazılır",
   "TDK_02_BAGLAC_KI": "Bağlaç olan 'ki' ayrı yazılır",
-  "TDK_03_SORU_EKI_MI": "Soru eki 'mı/mi/mu/mü' ayrı yazılır",
+  "TDK_03_SORU_EKI": "Soru eki 'mı/mi/mu/mü' ayrı yazılır",
   "TDK_04_SEY_AYRI": "'Şey' sözcüğü ayrı yazılır",
   "TDK_06_YA_DA": "'Ya da' ayrı yazılır",
   "TDK_07_HER_SEY": "'Her şey' ayrı yazılır",

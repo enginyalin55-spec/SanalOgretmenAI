@@ -756,6 +756,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("submissions")
       .select("*")
+      .in("classroom_code", classrooms.map(c => c.code))
       .order("created_at", { ascending: false });
 
     if (error) console.log("Hata:", error);

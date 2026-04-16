@@ -632,7 +632,7 @@ async def analyze_submission(data: AnalyzeRequest):
                 "rubric": rubric,
                 "errors": all_errors,           
                 "error_summary": error_summary, 
-                "errors_ocr": [], 
+                "errors_ocr": llm_json.get("ocr_suspects", []),
                 "teacher_note": yz_notu,
                 "ai_insight": yz_notu
             }

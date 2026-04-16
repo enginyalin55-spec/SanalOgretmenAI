@@ -21,7 +21,6 @@ export default function App() {
         // Şimdi tam tersine, uygulama her başladığında hafızayı TEMİZLİYORUZ.
         // Böylece her seferinde Login ekranı ile başlıyor.
         
-        await AsyncStorage.clear(); // Eski oturumu sil
         setUser(null); // Kullanıcıyı boşalt
 
       } catch (e) {
